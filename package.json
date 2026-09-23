@@ -1,0 +1,24 @@
+{
+  "name": "mlx-studio",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.11.0",
+  "scripts": {
+    "dev": "pnpm --filter @mlx-studio/desktop tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dev:web": "pnpm --filter @mlx-studio/desktop dev",
+    "api:generate": "pnpm --filter @mlx-studio/api-client generate",
+    "check": "pnpm check:frontend && pnpm check:runtime && pnpm check:boundaries",
+    "check:frontend": "pnpm --filter @mlx-studio/desktop typecheck && pnpm --filter @mlx-studio/desktop lint",
+    "check:runtime": "uv run --project services/runtime --python 3.12 ruff check services/runtime/src tests && uv run --project services/runtime --python 3.12 pyright --pythonpath services/runtime/.venv/bin/python services/runtime/src",
+    "check:boundaries": "node scripts/check-boundaries.mjs",
+    "test": "pnpm test:frontend && pnpm test:runtime",
+    "test:frontend": "pnpm --filter @mlx-studio/desktop test",
+    "test:runtime": "PYTHONPATH=services/runtime/src uv run --project services/runtime --python 3.12 python -m unittest discover -s tests -v",
+    "build:runtime": "python3 -c 'from pathlib import Path; [compile(p.read_text(), str(p), \"exec\") for p in Path(\"services/runtime/src\").rglob(\"*.py\")]'",
+    "build:desktop": "pnpm --filter @mlx-studio/desktop build",
+    "bootstrap": "pnpm install && uv sync --project services/runtime"
+  },
+  "devDependencies": {
+    "dependency-cruiser": "^16.10.4"
+  }
+}

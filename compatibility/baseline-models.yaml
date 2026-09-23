@@ -1,0 +1,16 @@
+runtime_version: 0.1.0
+status: candidates_only_not_verified
+models:
+  - id: mlx-community/Qwen2.5-0.5B-Instruct-4bit
+    engine: mlx-lm
+    revision: 53a32aee5e9447773fd2b85988395066aef3700a
+    scenarios: [text_stream, cancellation]
+    verified: false
+  - id: mlx-community/Qwen2-VL-2B-Instruct-4bit
+    engine: mlx-vlm
+    scenarios: [image_single]
+    verified: false
+  - id: filipstrand/Z-Image-Turbo-mflux-4bit
+    engine: mflux
+    scenarios: [txt2img]
+    verified: false

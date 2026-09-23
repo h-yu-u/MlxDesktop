@@ -1,0 +1,39 @@
+[project]
+name = "mlx-studio-runtime"
+version = "0.1.0"
+description = "Local MLX Studio supervisor and isolated inference worker"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "pydantic>=2.10,<3",
+  "huggingface-hub>=0.28,<1",
+]
+
+[project.optional-dependencies]
+mlx-lm = ["mlx-lm>=0.24,<1"]
+mlx-vlm = ["mlx-vlm>=0.1,<1"]
+mflux = ["mflux>=0.9,<1"]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "pyright>=1.1.390,<2",
+  "ruff>=0.9,<1",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.pyright]
+pythonVersion = "3.12"
+typeCheckingMode = "strict"
+include = ["src"]
+
+[tool.uv]
+package = false

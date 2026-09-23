@@ -1,0 +1,1 @@
+"""Isolated inference Worker process."""

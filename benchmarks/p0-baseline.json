@@ -1,0 +1,22 @@
+{
+  "collected_at_utc": "2026-09-23T15:02:04.836685+00:00",
+  "host_architecture": "arm64",
+  "chip": "Apple M5 Pro",
+  "unified_memory_bytes": 68719476736,
+  "macos_version": "26.5.2",
+  "python": {
+    "version": "3.9.6",
+    "executable": "/Library/Developer/CommandLineTools/usr/bin/python3",
+    "python3_on_path": "/usr/bin/python3"
+  },
+  "metal": {
+    "available": true,
+    "description": "spdisplays_supported",
+    "source": "system_profiler"
+  },
+  "disk": {
+    "path": "/Users/haoyu/app/MlxDesktop",
+    "total_bytes": 994610155520,
+    "free_bytes": 736829370368
+  }
+}
