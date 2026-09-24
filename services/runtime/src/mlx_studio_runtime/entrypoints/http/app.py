@@ -191,7 +191,7 @@ def create_app(
     async def metrics() -> dict[str, object]:
         return {
             "uptime_seconds": round(time.monotonic() - app.state.started_at, 3),
-            "worker_restarts": 0,
+            "worker_restarts": service.worker_restarts,
             "active_jobs": sum(
                 job.state.value in {"preparing", "running", "cancelling"}
                 for job in service.jobs.values()
@@ -380,7 +380,7 @@ def create_app(
         last_user = next((m for m in reversed(messages) if m["role"] == "user"), None)
         if last_user is None:
             raise RuntimeFault(_not_found("MESSAGE_NOT_FOUND", "没有可重新生成的用户消息"))
-        service.store.delete_last_assistant_message(conversation_id)
+        replace_assistant_message_id = service.store.last_assistant_message_id(conversation_id)
         return await service.send_message(
             conversation_id,
             last_user["content"],
@@ -389,6 +389,7 @@ def create_app(
             0.7,
             persist_user_message=False,
             turn_id=str(last_user.get("turnId") or last_user["id"]),
+            replace_assistant_message_id=replace_assistant_message_id,
         )
 
     @app.post(
@@ -496,7 +497,12 @@ async def _pull_model(body: ModelPullRequest, service: RuntimeService) -> dict[s
         )
     except Exception as error:
         raise RuntimeFault(_unavailable("MODEL_DOWNLOAD_FAILED", "模型下载失败")) from error
-    manifest = await service.scan_model(Path(model_path))
+    manifest = await service.scan_model(
+        Path(model_path),
+        source="huggingface",
+        revision=body.revision,
+        display_name=body.repo_id,
+    )
     return {"modelId": str(manifest["id"]), "state": "available"}
 
 

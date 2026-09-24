@@ -1,0 +1,170 @@
+"""Conversation and message persistence."""
+
+import json
+import sqlite3
+import time
+from typing import Any
+
+from mlx_studio_runtime.adapters.persistence.attachment_repository import (
+    AttachmentRepository,
+)
+from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
+
+
+class ConversationRepository:
+    def __init__(
+        self,
+        database: SQLiteDatabase,
+        attachments: AttachmentRepository,
+    ) -> None:
+        self.database = database
+        self.attachments = attachments
+
+    def list(self) -> list[dict[str, Any]]:
+        rows = self.database.connection.execute(
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at "
+            "FROM conversations ORDER BY updated_at DESC"
+        ).fetchall()
+        return [_conversation(row) for row in rows]
+
+    def get(self, conversation_id: str) -> dict[str, Any] | None:
+        row = self.database.connection.execute(
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at "
+            "FROM conversations WHERE id=?",
+            (conversation_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        conversation = _conversation(row)
+        rows = self.database.connection.execute(
+            "SELECT id,role,content,model_snapshot_json,parameters_json,created_at,turn_id "
+            "FROM messages WHERE conversation_id=? ORDER BY created_at, rowid",
+            (conversation_id,),
+        ).fetchall()
+        messages = [
+            {
+                "id": item[0],
+                "role": item[1],
+                "content": item[2],
+                "modelSnapshot": json.loads(item[3]) if item[3] else None,
+                "parameters": json.loads(item[4]),
+                "createdAt": item[5],
+                "attachments": self.attachments.for_message(item[0]),
+                "turnId": item[6] or item[0],
+            }
+            for item in rows
+        ]
+        conversation["messages"] = order_messages_by_turn(messages)
+        return conversation
+
+    def save(self, item: dict[str, Any]) -> None:
+        now = int(time.time())
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO conversations("
+                "id,title,model_id,parameters_json,created_at,updated_at"
+                ") VALUES(?,?,?,?,?,?)",
+                (
+                    item["id"],
+                    item["title"],
+                    item.get("modelId"),
+                    json.dumps(item.get("parameters", {})),
+                    now,
+                    now,
+                ),
+            )
+
+    def rename(self, conversation_id: str, title: str) -> bool:
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                "UPDATE conversations SET title=?,updated_at=? WHERE id=?",
+                (title, int(time.time()), conversation_id),
+            )
+        return cursor.rowcount > 0
+
+    def delete(self, conversation_id: str) -> bool:
+        with self.database.transaction() as connection:
+            cursor = connection.execute(
+                "DELETE FROM conversations WHERE id=?",
+                (conversation_id,),
+            )
+        return cursor.rowcount > 0
+
+    def last_assistant_message_id(self, conversation_id: str) -> str | None:
+        row = self.database.connection.execute(
+            "SELECT id FROM messages WHERE conversation_id=? AND role='assistant' "
+            "ORDER BY created_at DESC, rowid DESC LIMIT 1",
+            (conversation_id,),
+        ).fetchone()
+        return str(row[0]) if row is not None else None
+
+    def delete_last_assistant_message(self, conversation_id: str) -> bool:
+        message_id = self.last_assistant_message_id(conversation_id)
+        if message_id is None:
+            return False
+        with self.database.transaction() as connection:
+            connection.execute("DELETE FROM messages WHERE id=?", (message_id,))
+        return True
+
+    def save_message(
+        self,
+        item: dict[str, Any],
+        replace_message_id: str | None = None,
+    ) -> None:
+        now = int(time.time())
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO messages(id,conversation_id,role,content,model_snapshot_json,"
+                "parameters_json,created_at,turn_id) VALUES(?,?,?,?,?,?,?,?)",
+                (
+                    item["id"],
+                    item["conversationId"],
+                    item["role"],
+                    item["content"],
+                    json.dumps(item["modelSnapshot"]) if item.get("modelSnapshot") else None,
+                    json.dumps(item.get("parameters", {})),
+                    now,
+                    item.get("turnId"),
+                ),
+            )
+            for position, attachment_id in enumerate(item.get("attachmentIds", [])):
+                connection.execute(
+                    "INSERT INTO message_attachments(message_id,attachment_id,position) "
+                    "VALUES(?,?,?)",
+                    (item["id"], attachment_id, position),
+                )
+            if replace_message_id:
+                connection.execute(
+                    "DELETE FROM messages WHERE id=? AND conversation_id=? AND role='assistant'",
+                    (replace_message_id, item["conversationId"]),
+                )
+            connection.execute(
+                "UPDATE conversations SET updated_at=? WHERE id=?",
+                (now, item["conversationId"]),
+            )
+
+
+def _conversation(row: sqlite3.Row) -> dict[str, Any]:
+    return {
+        "id": row[0],
+        "title": row[1],
+        "modelId": row[2],
+        "parameters": json.loads(row[3]),
+        "createdAt": row[4],
+        "updatedAt": row[5],
+    }
+
+
+def order_messages_by_turn(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    turns: dict[str, list[dict[str, Any]]] = {}
+    turn_order: list[str] = []
+    for message in messages:
+        turn_id = str(message.get("turnId") or message["id"])
+        if turn_id not in turns:
+            turns[turn_id] = []
+            turn_order.append(turn_id)
+        turns[turn_id].append(message)
+    ordered: list[dict[str, Any]] = []
+    for turn_id in turn_order:
+        ordered.extend(sorted(turns[turn_id], key=lambda item: item["role"] != "user"))
+    return ordered

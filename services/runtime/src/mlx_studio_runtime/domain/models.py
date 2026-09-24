@@ -1,5 +1,6 @@
 """Model metadata and capability derivation from static files only."""
 
+import hashlib
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -68,32 +69,121 @@ class ModelManifest:
         }
 
 
-def manifest_from_directory(path: Path) -> ModelManifest:
-    """Read JSON model metadata without importing/executing model code."""
-    config_path = path / "config.json"
-    if not config_path.is_file() or config_path.stat().st_size > 2_000_000:
+def manifest_from_directory(
+    path: Path,
+    source: ModelSource = "local",
+    revision: str | None = None,
+    display_name: str | None = None,
+) -> ModelManifest:
+    """Read bounded JSON metadata without importing or executing model code."""
+    resolved = path.expanduser().resolve()
+    if not resolved.is_dir():
         raise ValueError("MODEL_METADATA_INVALID")
-    config = json.loads(config_path.read_text(encoding="utf-8"))
-    vision_config = config.get("vision_config")
-    engine: EngineName = "mlx-vlm" if isinstance(vision_config, dict) else "mlx-lm"
-    task: TaskName = "vision-language" if engine == "mlx-vlm" else "text-generation"
-    input_modalities = ("text", "image") if task == "vision-language" else ("text",)
+    config = _read_json(resolved / "config.json")
+    model_index = _read_json(resolved / "model_index.json")
+    if not config and not model_index:
+        raise ValueError("MODEL_METADATA_INVALID")
+    engine, task = infer_model_kind(config, model_index)
+    input_modalities = ("text", "image") if engine == "mlx-vlm" else ("text",)
+    output_modalities = ("image",) if engine == "mflux" else ("text",)
     context_length = config.get("max_position_embeddings")
-    size = sum(file.stat().st_size for file in path.glob("*.safetensors") if file.is_file())
-    manifest_id = path.resolve().as_posix().replace("/", "_").strip("_")[-120:]
+    weight_files = sorted(
+        (file for file in resolved.rglob("*.safetensors") if file.is_file()),
+        key=lambda file: file.relative_to(resolved).as_posix(),
+    )
     return ModelManifest(
-        id=f"local-{manifest_id}",
-        display_name=str(config.get("_name_or_path") or path.name),
-        source="local",
-        local_path=str(path.resolve()),
+        id=f"model-{model_fingerprint(config, model_index, resolved, weight_files)[:24]}",
+        display_name=display_name
+        or str(config.get("_name_or_path") or model_index.get("_name_or_path") or resolved.name),
+        source=source,
+        local_path=str(resolved),
         engine=engine,
         task=task,
         input_modalities=input_modalities,
-        output_modalities=("text",),
+        output_modalities=output_modalities,
+        revision=revision,
         context_length=context_length if isinstance(context_length, int) else None,
-        disk_size_bytes=size,
-        capabilities=ModelCapabilities(streaming=engine == "mlx-lm", multi_image=False),
+        disk_size_bytes=sum(file.stat().st_size for file in weight_files),
+        capabilities=ModelCapabilities(
+            streaming=engine in {"mlx-lm", "mlx-vlm"},
+            lora=engine == "mflux",
+        ),
     )
+
+
+def infer_model_kind(
+    config: dict[str, object],
+    model_index: dict[str, object],
+) -> tuple[EngineName, TaskName]:
+    pipeline = str(model_index.get("_class_name", "")).lower().replace("_", "")
+    model_type = str(config.get("model_type", "")).lower()
+    architectures = config.get("architectures", [])
+    architecture_text = " ".join(
+        str(item).lower() for item in architectures if isinstance(item, str)
+    )
+    image_pipeline_markers = (
+        "diffusionpipeline",
+        "fluxpipeline",
+        "stablediffusion",
+        "zimage",
+    )
+    image_model_types = {"flux", "stable_diffusion", "z_image", "zimage"}
+    if any(marker in pipeline for marker in image_pipeline_markers) or (
+        model_type in image_model_types
+    ):
+        return "mflux", "image-generation"
+    vision_markers = (
+        "vision",
+        "llava",
+        "paligemma",
+        "idefics",
+        "mllama",
+        "pixtral",
+        "internvl",
+        "qwen2vl",
+        "qwen25vl",
+        "qwen3vl",
+        "smolvlm",
+        "phi3v",
+        "florence",
+        "molmo",
+    )
+    description = f"{model_type} {architecture_text}".replace("_", "").replace("-", "")
+    if isinstance(config.get("vision_config"), dict) or any(
+        marker in description for marker in vision_markers
+    ):
+        return "mlx-vlm", "vision-language"
+    return "mlx-lm", "text-generation"
+
+
+def model_fingerprint(
+    config: dict[str, object],
+    model_index: dict[str, object],
+    root: Path,
+    weight_files: list[Path],
+) -> str:
+    digest = hashlib.sha256()
+    for metadata in (config, model_index):
+        digest.update(
+            json.dumps(
+                stable_metadata(metadata),
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        )
+    for file in weight_files:
+        relative = file.relative_to(root).as_posix()
+        digest.update(f"{relative}:{file.stat().st_size}".encode())
+    return digest.hexdigest()
+
+
+def stable_metadata(metadata: dict[str, object]) -> dict[str, object]:
+    """Remove location-specific fields before deriving model identity."""
+    return {
+        key: value
+        for key, value in metadata.items()
+        if key not in {"_name_or_path", "name_or_path"}
+    }
 
 
 def fake_text_manifest() -> ModelManifest:
@@ -113,16 +203,14 @@ def fake_text_manifest() -> ModelManifest:
 
 def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
     """Restore a persisted manifest without reading or executing model code."""
-    capabilities_value = value.get("capabilities")
-    capability_data = (
-        cast(dict[str, object], capabilities_value) if isinstance(capabilities_value, dict) else {}
-    )
+    capability_value = value.get("capabilities")
+    capabilities = cast(dict[str, object], capability_value) if isinstance(
+        capability_value, dict
+    ) else {}
     compatibility_value = value.get("compatibility")
-    compatibility_data = (
-        cast(dict[str, object], compatibility_value)
-        if isinstance(compatibility_value, dict)
-        else {}
-    )
+    compatibility = cast(dict[str, object], compatibility_value) if isinstance(
+        compatibility_value, dict
+    ) else {}
     engine = value.get("engine")
     task = value.get("task")
     source = value.get("source")
@@ -132,29 +220,16 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
         raise ValueError("MODEL_METADATA_INVALID")
     if source not in {"huggingface", "local", "builtin"}:
         raise ValueError("MODEL_METADATA_INVALID")
-    input_modalities = value.get("inputModalities")
-    output_modalities = value.get("outputModalities")
-    if not isinstance(input_modalities, list) or not isinstance(output_modalities, list):
+    inputs = value.get("inputModalities")
+    outputs = value.get("outputModalities")
+    if not isinstance(inputs, list) or not isinstance(outputs, list):
         raise ValueError("MODEL_METADATA_INVALID")
-    flags = {
-        "streaming": "streaming",
-        "thinking": "thinking",
-        "tools": "tools",
-        "structured_output": "structuredOutput",
-        "multi_image": "multiImage",
-        "image_editing": "imageEditing",
-        "inpainting": "inpainting",
-        "lora": "lora",
-    }
-    capabilities = ModelCapabilities(
-        **{field: capability_data.get(key, False) is True for field, key in flags.items()}
-    )
-    status = compatibility_data.get("status", "unknown")
+    status = compatibility.get("status", "unknown")
     if status not in {"unknown", "supported", "partial", "incompatible", "broken"}:
         status = "unknown"
-    restored_context_length = value.get("contextLength")
-    restored_disk_size = value.get("diskSizeBytes")
-    restored_memory = value.get("estimatedMemoryBytes")
+    context_length = value.get("contextLength")
+    disk_size = value.get("diskSizeBytes")
+    memory = value.get("estimatedMemoryBytes")
     return ModelManifest(
         id=str(value["id"]),
         display_name=str(value["displayName"]),
@@ -162,14 +237,32 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
         local_path=str(value["localPath"]),
         engine=cast(EngineName, engine),
         task=cast(TaskName, task),
-        input_modalities=tuple(str(item) for item in input_modalities),
-        output_modalities=tuple(str(item) for item in output_modalities),
+        input_modalities=tuple(str(item) for item in inputs),
+        output_modalities=tuple(str(item) for item in outputs),
         compatibility_status=cast(CompatibilityStatus, status),
         revision=str(value["revision"]) if value.get("revision") is not None else None,
-        context_length=restored_context_length
-        if isinstance(restored_context_length, int)
-        else None,
-        disk_size_bytes=restored_disk_size if isinstance(restored_disk_size, int) else None,
-        estimated_memory_bytes=restored_memory if isinstance(restored_memory, int) else None,
-        capabilities=capabilities,
+        context_length=context_length if isinstance(context_length, int) else None,
+        disk_size_bytes=disk_size if isinstance(disk_size, int) else None,
+        estimated_memory_bytes=memory if isinstance(memory, int) else None,
+        capabilities=ModelCapabilities(
+            streaming=capabilities.get("streaming") is True,
+            thinking=capabilities.get("thinking") is True,
+            tools=capabilities.get("tools") is True,
+            structured_output=capabilities.get("structuredOutput") is True,
+            multi_image=capabilities.get("multiImage") is True,
+            image_editing=capabilities.get("imageEditing") is True,
+            inpainting=capabilities.get("inpainting") is True,
+            lora=capabilities.get("lora") is True,
+        ),
     )
+
+
+def _read_json(path: Path) -> dict[str, object]:
+    if not path.is_file():
+        return {}
+    if path.stat().st_size > 2_000_000:
+        raise ValueError("MODEL_METADATA_INVALID")
+    value = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(value, dict):
+        raise ValueError("MODEL_METADATA_INVALID")
+    return cast(dict[str, object], value)

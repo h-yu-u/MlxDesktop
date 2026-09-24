@@ -11,12 +11,17 @@
     "check:frontend": "pnpm --filter @mlx-studio/desktop typecheck && pnpm --filter @mlx-studio/desktop lint",
     "check:runtime": "uv run --project services/runtime --python 3.12 ruff check services/runtime/src tests && uv run --project services/runtime --python 3.12 pyright --pythonpath services/runtime/.venv/bin/python services/runtime/src",
     "check:boundaries": "node scripts/check-boundaries.mjs",
+    "check:rust": "cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml && cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings",
     "test": "pnpm test:frontend && pnpm test:runtime",
     "test:frontend": "pnpm --filter @mlx-studio/desktop test",
     "test:runtime": "PYTHONPATH=services/runtime/src uv run --project services/runtime --python 3.12 python -m unittest discover -s tests -v",
-    "build:runtime": "python3 -c 'from pathlib import Path; [compile(p.read_text(), str(p), \"exec\") for p in Path(\"services/runtime/src\").rglob(\"*.py\")]'",
-    "build:desktop": "pnpm --filter @mlx-studio/desktop build",
-    "bootstrap": "pnpm install && uv sync --project services/runtime"
+    "build:runtime:check": "python3 -c 'from pathlib import Path; [compile(p.read_text(), str(p), \"exec\") for p in Path(\"services/runtime/src\").rglob(\"*.py\")]'",
+    "build:runtime": "pnpm build:runtime:check",
+    "build:web": "pnpm --filter @mlx-studio/desktop build",
+    "build:sidecar": "bash scripts/build-runtime.sh",
+    "build:app": "pnpm build:web && pnpm build:sidecar && pnpm --filter @mlx-studio/desktop tauri build",
+    "build:desktop": "pnpm build:app",
+    "bootstrap": "pnpm install --frozen-lockfile && uv sync --project services/runtime --frozen"
   },
   "devDependencies": {
     "dependency-cruiser": "^16.10.4"

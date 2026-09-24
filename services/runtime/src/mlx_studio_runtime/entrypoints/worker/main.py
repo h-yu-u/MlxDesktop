@@ -9,7 +9,7 @@ import time
 import traceback
 import uuid
 from collections.abc import Iterator
-from typing import Any
+from typing import Any, cast
 
 from mlx_studio_runtime import PROTOCOL_VERSION
 
@@ -65,8 +65,7 @@ class Worker:
             raise ValueError("protocol_version mismatch")
         if not isinstance(command.get("id"), str) or not isinstance(command.get("type"), str):
             raise ValueError("command id and type are required")
-        payload = command.get("payload", {})
-        if not isinstance(payload, dict):
+        if not isinstance(command.get("payload", {}), dict):
             raise ValueError("payload must be an object")
 
     def run(self) -> int:
@@ -107,14 +106,20 @@ class Worker:
 
     def _load(self, payload: dict[str, Any]) -> None:
         self._unload()
-        manifest = payload.get("manifest", {})
+        manifest_value = payload.get("manifest", {})
+        if not isinstance(manifest_value, dict):
+            raise ValueError("manifest must be an object")
+        manifest = cast(dict[str, object], manifest_value)
         self.model_id = str(manifest.get("id", ""))
         self.engine = str(manifest.get("engine", "fake"))
         self.emit("model.loading", {"model_id": self.model_id})
         if self.engine == "mlx-lm":
             from mlx_lm import load  # type: ignore[import-not-found]
 
-            self.model, self.tokenizer = load(str(manifest["localPath"]), trust_remote_code=False)
+            self.model, self.tokenizer = load(
+                str(manifest["localPath"]),
+                trust_remote_code=False,
+            )
         elif self.engine == "mlx-vlm":
             from mlx_vlm import load  # type: ignore[import-not-found]
             from mlx_vlm.utils import load_config  # type: ignore[import-not-found]
@@ -136,17 +141,7 @@ class Worker:
         self.cancel.clear()
         self.emit("generation.started", {"job_id": job_id})
         try:
-            if self.engine == "mlx-lm":
-                chunks = self._mlx_chunks(
-                    prompt, max_tokens, temperature, payload.get("messages", [])
-                )
-            elif self.engine == "mlx-vlm":
-                chunks = self._vlm_chunks(
-                    prompt, max_tokens, temperature, payload.get("image_paths", [])
-                )
-            else:
-                chunks = self._fake_chunks(prompt)
-            for chunk in chunks:
+            for chunk in self._chunks(payload, prompt, max_tokens, temperature):
                 if self.cancel.is_set() or self.shutdown.is_set():
                     self.emit("generation.cancelled", {"job_id": job_id})
                     return
@@ -154,48 +149,72 @@ class Worker:
                     self.emit("generation.delta", {"job_id": job_id, "text": chunk})
                 if self.engine == "fake":
                     time.sleep(0.015)
-            state = "cancelled" if self.cancel.is_set() else "completed"
-            self.emit(f"generation.{state}", {"job_id": job_id})
+            terminal = "cancelled" if self.cancel.is_set() else "completed"
+            self.emit(f"generation.{terminal}", {"job_id": job_id})
         except Exception as error:
+            if self.cancel.is_set() or self.shutdown.is_set():
+                self.emit("generation.cancelled", {"job_id": job_id})
+                return
             self.emit(
                 "generation.failed",
                 {"job_id": job_id, "error_code": "INFERENCE_FAILED", "message": str(error)},
             )
 
+    def _chunks(
+        self,
+        payload: dict[str, Any],
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+    ) -> Iterator[str]:
+        if self.engine == "mlx-lm":
+            return self._mlx_chunks(prompt, max_tokens, temperature, payload.get("messages", []))
+        if self.engine == "mlx-vlm":
+            return self._vlm_chunks(
+                prompt,
+                max_tokens,
+                temperature,
+                payload.get("image_paths", []),
+            )
+        return self._fake_chunks(prompt)
+
     def _mlx_chunks(
-        self, prompt: str, max_tokens: int, temperature: float, messages: object
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        messages: object,
     ) -> Iterator[str]:
         from mlx_lm import stream_generate  # type: ignore[import-not-found]
+        from mlx_lm.sample_utils import make_sampler  # type: ignore[import-not-found]
 
-        chat_messages = (
-            messages
-            if isinstance(messages, list)
-            and all(
-                isinstance(message, dict)
-                and message.get("role") in {"user", "assistant", "system"}
-                and isinstance(message.get("content"), str)
-                for message in messages
-            )
-            else [{"role": "user", "content": prompt}]
-        )
-        prompt = self.tokenizer.apply_chat_template(
-            chat_messages,
+        rendered = self.tokenizer.apply_chat_template(
+            normalize_messages(messages, prompt),
             tokenize=False,
             add_generation_prompt=True,
         )
-        yield from (
-            response.text
-            for response in stream_generate(
-                self.model, self.tokenizer, prompt, max_tokens=max_tokens, temp=temperature
-            )
-        )
+        sampler = make_sampler(temp=temperature)
+        for response in stream_generate(
+            self.model,
+            self.tokenizer,
+            rendered,
+            max_tokens=max_tokens,
+            sampler=sampler,
+        ):
+            if self.cancel.is_set():
+                return
+            yield response.text
 
     def _vlm_chunks(
-        self, prompt: str, max_tokens: int, temperature: float, image_paths: object
+        self,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        image_paths: object,
     ) -> Iterator[str]:
         if not isinstance(image_paths, list) or len(image_paths) > 4:
-            raise ValueError("one to four image paths are supported")
-        from mlx_vlm import generate  # type: ignore[import-not-found]
+            raise ValueError("zero to four image paths are supported")
+        from mlx_vlm import stream_generate  # type: ignore[import-not-found]
         from mlx_vlm.prompt_utils import apply_chat_template  # type: ignore[import-not-found]
 
         paths = [str(path) for path in image_paths]
@@ -206,7 +225,7 @@ class Worker:
             num_images=len(paths),
             add_generation_prompt=True,
         )
-        result = generate(
+        for response in stream_generate(
             model=self.model,
             processor=self.processor,
             prompt=formatted,
@@ -214,10 +233,12 @@ class Worker:
             max_tokens=max_tokens,
             temperature=temperature,
             verbose=False,
-        )
-        text = result if isinstance(result, str) else getattr(result, "text", str(result))
-        if text:
-            yield str(text)
+        ):
+            if self.cancel.is_set():
+                return
+            text = response if isinstance(response, str) else getattr(response, "text", "")
+            if text:
+                yield str(text)
 
     @staticmethod
     def _fake_chunks(prompt: str) -> Iterator[str]:
@@ -234,6 +255,26 @@ class Worker:
         self.processor = None
         self.model_config = None
         self.model_id = None
+
+
+def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:
+    if not isinstance(messages, list):
+        return [{"role": "user", "content": prompt}]
+    normalized: list[dict[str, str]] = []
+    for value in messages:
+        if not isinstance(value, dict):
+            return [{"role": "user", "content": prompt}]
+        message = cast(dict[str, object], value)
+        role = message.get("role")
+        content = message.get("content")
+        if not isinstance(role, str) or role not in {
+            "user",
+            "assistant",
+            "system",
+        } or not isinstance(content, str):
+            return [{"role": "user", "content": prompt}]
+        normalized.append({"role": role, "content": content})
+    return normalized
 
 
 def main() -> int:

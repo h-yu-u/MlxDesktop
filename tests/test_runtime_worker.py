@@ -14,34 +14,64 @@ from mlx_studio_runtime.entrypoints.worker.main import Worker
 
 
 class WorkerHostTests(unittest.TestCase):
-    def test_text_prompt_includes_persisted_conversation_history(self) -> None:
+    def test_text_prompt_uses_sampler_and_persisted_history(self) -> None:
         worker = Worker()
-        captured: list[dict[str, str]] = []
+        captured_messages: list[dict[str, str]] = []
+        captured_sampler: list[object] = []
 
         class FakeTokenizer:
             def apply_chat_template(self, messages, **_kwargs):
-                captured.extend(messages)
+                captured_messages.extend(messages)
                 return "rendered prompt"
 
         worker.tokenizer = FakeTokenizer()
         worker.model = object()
         fake_library = ModuleType("mlx_lm")
-        fake_library.stream_generate = lambda *_args, **_kwargs: iter(
-            [SimpleNamespace(text="answer")]
-        )
+        fake_library.__path__ = []
+
+        def stream_generate(*_args, **kwargs):
+            captured_sampler.append(kwargs["sampler"])
+            return iter([SimpleNamespace(text="answer")])
+
+        fake_library.stream_generate = stream_generate
+        sample_utils = ModuleType("mlx_lm.sample_utils")
+        sample_utils.make_sampler = lambda temp: {"temperature": temp}
         messages = [
             {"role": "user", "content": "first question"},
             {"role": "assistant", "content": "first answer"},
             {"role": "user", "content": "follow-up"},
         ]
-        with patch.dict(sys.modules, {"mlx_lm": fake_library}):
+        with patch.dict(
+            sys.modules,
+            {"mlx_lm": fake_library, "mlx_lm.sample_utils": sample_utils},
+        ):
             chunks = list(worker._mlx_chunks("follow-up", 16, 0.2, messages))
 
         self.assertEqual(
-            [message["content"] for message in captured],
+            [message["content"] for message in captured_messages],
             ["first question", "first answer", "follow-up"],
         )
+        self.assertEqual(captured_sampler, [{"temperature": 0.2}])
         self.assertEqual(chunks, ["answer"])
+
+    def test_vlm_uses_streaming_api(self) -> None:
+        worker = Worker()
+        worker.model = object()
+        worker.processor = object()
+        worker.model_config = object()
+        fake_library = ModuleType("mlx_vlm")
+        fake_library.__path__ = []
+        fake_library.stream_generate = lambda **_kwargs: iter(
+            [SimpleNamespace(text="image "), SimpleNamespace(text="answer")]
+        )
+        prompt_utils = ModuleType("mlx_vlm.prompt_utils")
+        prompt_utils.apply_chat_template = lambda *_args, **_kwargs: "formatted"
+        with patch.dict(
+            sys.modules,
+            {"mlx_vlm": fake_library, "mlx_vlm.prompt_utils": prompt_utils},
+        ):
+            chunks = list(worker._vlm_chunks("describe", 16, 0.0, ["image.png"]))
+        self.assertEqual(chunks, ["image ", "answer"])
 
     def test_fake_worker_load_stream_cancel_and_restart(self) -> None:
         asyncio.run(self._exercise_worker())

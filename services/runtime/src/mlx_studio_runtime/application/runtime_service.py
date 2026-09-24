@@ -1,6 +1,7 @@
 """Runtime use cases: model lifecycle, chat jobs and event publication."""
 
 import asyncio
+import logging
 import time
 import uuid
 from pathlib import Path
@@ -9,15 +10,24 @@ from typing import Any
 from mlx_studio_runtime.adapters.event_hub import EventHub
 from mlx_studio_runtime.adapters.persistence.sqlite_store import SQLiteStore
 from mlx_studio_runtime.adapters.worker_host import WorkerHost, WorkerProtocolError
+from mlx_studio_runtime.application.chat_support import (
+    attachment_paths,
+    conversation_context,
+    validate_attachments,
+)
+from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
-from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState, transition_job
+from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState, terminal_state
 from mlx_studio_runtime.domain.models import (
     ModelManifest,
+    ModelSource,
     fake_text_manifest,
     manifest_from_dict,
     manifest_from_directory,
 )
 from mlx_studio_runtime.domain.runtime_state import RuntimeState
+
+LOGGER = logging.getLogger("mlx_studio.runtime")
 
 
 class RuntimeService:
@@ -26,7 +36,8 @@ class RuntimeService:
         self.runtime_source = runtime_source
         self.events = EventHub()
         self.models: dict[str, ModelManifest] = {}
-        self.jobs: dict[str, Job] = {}
+        self.job_lifecycle = JobLifecycle(self.store, self.events)
+        self.jobs = self.job_lifecycle.items
         self.job_tasks: dict[str, asyncio.Task[None]] = {}
         self.worker: WorkerHost | None = None
         self.active_model_id: str | None = None
@@ -34,25 +45,43 @@ class RuntimeService:
         self.generation_lock = asyncio.Lock()
         self.state = RuntimeState.READY
         self.started_at = time.monotonic()
+        self.worker_restarts = 0
+        self.store.recover_interrupted_jobs("RUNTIME_RESTARTED")
         self._seed_fake_model()
-        for item in self.store.list_models():
-            try:
-                manifest = manifest_from_dict(item)
-            except (KeyError, TypeError, ValueError):
-                continue
-            self.models[manifest.id] = manifest
+        self._restore_models()
 
     def _seed_fake_model(self) -> None:
         manifest = fake_text_manifest()
         self.models[manifest.id] = manifest
         self.store.upsert_model(manifest.to_dict(), "available")
 
+    def _restore_models(self) -> None:
+        for item in self.store.list_models():
+            try:
+                manifest = manifest_from_dict(item)
+            except (KeyError, TypeError, ValueError):
+                continue
+            self.models[manifest.id] = manifest
+            if item.get("state") in {"loaded", "loading", "unloading"}:
+                self.store.update_model_state(manifest.id, "available")
+
     def list_models(self) -> list[dict[str, Any]]:
         return self.store.list_models()
 
-    async def scan_model(self, path: Path) -> dict[str, Any]:
+    async def scan_model(
+        self,
+        path: Path,
+        source: ModelSource = "local",
+        revision: str | None = None,
+        display_name: str | None = None,
+    ) -> dict[str, Any]:
         try:
-            manifest = manifest_from_directory(path)
+            manifest = manifest_from_directory(
+                path,
+                source=source,
+                revision=revision,
+                display_name=display_name,
+            )
         except (OSError, ValueError) as error:
             raise RuntimeFault(
                 RuntimeErrorInfo("MODEL_METADATA_INVALID", "无法读取模型静态元数据")
@@ -79,20 +108,27 @@ class RuntimeService:
                     details={"engine": manifest.engine},
                 )
             )
+        if self.active_model_id == model_id and self.worker is not None:
+            return {"modelId": model_id, "state": "loaded"}
         await self._stop_worker()
+        self.store.update_model_state(model_id, "loading")
         await self.events.publish("model.loading", {"model_id": model_id})
         worker = WorkerHost(self.runtime_source)
+        self.worker = worker
         try:
             await worker.load(manifest.to_dict())
         except Exception as error:
             await worker.stop()
+            if self.worker is worker:
+                self.worker = None
+            self.store.update_model_state(model_id, "error")
             self.state = RuntimeState.DEGRADED
             await self.events.publish("runtime.degraded", {"reason": "worker_load_failed"})
             raise RuntimeFault(
                 RuntimeErrorInfo("MODEL_LOAD_FAILED", "模型加载失败", True)
             ) from error
-        self.worker = worker
         self.active_model_id = model_id
+        self.store.update_model_state(model_id, "loaded")
         self.state = RuntimeState.READY
         await self.events.publish("model.loaded", {"model_id": model_id})
         return {"modelId": model_id, "state": "loaded"}
@@ -122,56 +158,35 @@ class RuntimeService:
         attachment_ids: list[str] | None = None,
         persist_user_message: bool = True,
         turn_id: str | None = None,
+        replace_assistant_message_id: str | None = None,
     ) -> dict[str, str]:
         conversation = self.store.get_conversation(conversation_id)
         if conversation is None:
             raise RuntimeFault(RuntimeErrorInfo("CONVERSATION_NOT_FOUND", "找不到此会话"))
-        if model_id not in self.models:
+        selected_model = self.models.get(model_id)
+        if selected_model is None:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "找不到此模型"))
-        selected_model = self.models[model_id]
         attachment_ids = attachment_ids or []
-        if attachment_ids and "image" not in selected_model.input_modalities:
-            raise RuntimeFault(
-                RuntimeErrorInfo("MODEL_INPUT_UNSUPPORTED", "当前模型不支持图片输入")
-            )
-        if attachment_ids and selected_model.engine != "mlx-vlm":
-            raise RuntimeFault(
-                RuntimeErrorInfo("ENGINE_NOT_AVAILABLE", "此图片模型尚未通过 Runtime 验证")
-            )
-        if len(attachment_ids) > 1 and not selected_model.capabilities.multi_image:
-            raise RuntimeFault(
-                RuntimeErrorInfo("MODEL_INPUT_UNSUPPORTED", "当前模型仅声明支持单图片输入")
-            )
-        attachments = self.store.get_attachments(attachment_ids)
-        if attachments is None:
-            raise RuntimeFault(RuntimeErrorInfo("ATTACHMENT_NOT_FOUND", "请求包含不存在的附件"))
-        image_paths = [
-            str((self.store.media_path / item["relativePath"]).resolve()) for item in attachments
-        ]
+        validate_attachments(selected_model, attachment_ids)
+        image_paths = attachment_paths(self.store, attachment_ids)
         turn_id = turn_id or str(uuid.uuid4())
-        user_message = {
-            "id": turn_id,
-            "turnId": turn_id,
-            "conversationId": conversation_id,
-            "role": "user",
-            "content": content,
-            "parameters": {"maxTokens": max_tokens, "temperature": temperature},
-            "attachmentIds": attachment_ids,
-        }
         if persist_user_message:
-            self.store.save_message(user_message)
+            self.store.save_message(
+                {
+                    "id": turn_id,
+                    "turnId": turn_id,
+                    "conversationId": conversation_id,
+                    "role": "user",
+                    "content": content,
+                    "parameters": {"maxTokens": max_tokens, "temperature": temperature},
+                    "attachmentIds": attachment_ids,
+                }
+            )
         job = Job(str(uuid.uuid4()), "chat", JobState.QUEUED, model_id)
-        self.jobs[job.id] = job
-        self.store.save_job(
-            {
-                "id": job.id,
-                "kind": job.kind,
-                "state": job.state.value,
-                "modelId": model_id,
-                "request": {"conversationId": conversation_id, "maxTokens": max_tokens},
-            }
+        await self.job_lifecycle.register(
+            job,
+            {"conversationId": conversation_id, "maxTokens": max_tokens},
         )
-        await self.events.publish("job.updated", {"job_id": job.id, "state": job.state.value})
         task = asyncio.create_task(
             self._run_chat_job(
                 job,
@@ -181,6 +196,7 @@ class RuntimeService:
                 temperature,
                 image_paths,
                 turn_id,
+                replace_assistant_message_id,
             )
         )
         self.job_tasks[job.id] = task
@@ -193,9 +209,9 @@ class RuntimeService:
         job = self.jobs.get(job_id)
         if job is None:
             raise RuntimeFault(RuntimeErrorInfo("JOB_NOT_FOUND", "找不到此任务"))
-        self.jobs[job_id] = transition_job(job, JobEvent.CANCEL_REQUESTED)
-        self.store.update_job(job_id, JobState.CANCELLING.value)
-        await self.events.publish("job.updated", {"job_id": job_id, "state": "cancelling"})
+        if terminal_state(job.state) or job.state is JobState.CANCELLING:
+            return {"jobId": job_id, "state": job.state.value}
+        await self.job_lifecycle.transition(job_id, JobEvent.CANCEL_REQUESTED)
         if self.worker and self.active_job_id == job_id:
             await self.worker.cancel(job_id)
         task = self.job_tasks.get(job_id)
@@ -204,15 +220,17 @@ class RuntimeService:
                 await asyncio.wait_for(asyncio.shield(task), timeout=5)
             except TimeoutError:
                 await self._stop_worker()
-                current = self.jobs[job_id]
-                if current.state is JobState.CANCELLING:
-                    await self._finish_job(job_id, JobEvent.CANCEL_COMPLETE)
+                task.cancel()
+                await asyncio.gather(task, return_exceptions=True)
+        if self.jobs[job_id].state is JobState.CANCELLING and (not task or task.done()):
+            await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
         return {"jobId": job_id, "state": self.jobs[job_id].state.value}
 
     async def restart_worker(self) -> dict[str, str]:
         async with self.generation_lock:
             model_id = self.active_model_id
             await self._stop_worker()
+            self.worker_restarts += 1
             if model_id:
                 await self._load_model(model_id)
             self.state = RuntimeState.READY
@@ -227,26 +245,18 @@ class RuntimeService:
         temperature: float,
         image_paths: list[str],
         turn_id: str,
+        replace_assistant_message_id: str | None,
     ) -> None:
-        async with self.generation_lock:
-            if self.jobs[initial_job.id].state is JobState.CANCELLING:
-                await self._finish_job(initial_job.id, JobEvent.CANCEL_COMPLETE)
-                return
-            conversation = self.store.get_conversation(conversation_id) or {"messages": []}
-            context_messages: list[dict[str, str]] = []
-            for message in conversation.get("messages", []):
-                if message.get("role") in {"user", "assistant", "system"} and isinstance(
-                    message.get("content"), str
-                ):
-                    context_messages.append(
-                        {"role": message["role"], "content": message["content"]}
-                    )
-                if message.get("turnId") == turn_id and message.get("role") == "user":
-                    break
-            if self.active_model_id != initial_job.model_id or self.worker is None:
-                await self._load_model(initial_job.model_id or "")
-            self.active_job_id = initial_job.id
-            try:
+        job_id = initial_job.id
+        try:
+            async with self.generation_lock:
+                if self.jobs[job_id].state is JobState.CANCELLING:
+                    await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
+                    return
+                self.active_job_id = job_id
+                messages = conversation_context(self.store, conversation_id, turn_id)
+                if self.active_model_id != initial_job.model_id or self.worker is None:
+                    await self._load_model(initial_job.model_id or "")
                 await self._run_chat_job_serial(
                     initial_job,
                     conversation_id,
@@ -254,10 +264,20 @@ class RuntimeService:
                     max_tokens,
                     temperature,
                     image_paths,
-                    context_messages,
+                    messages,
                     turn_id,
+                    replace_assistant_message_id,
                 )
-            finally:
+        except asyncio.CancelledError:
+            await self.job_lifecycle.finish_failed_or_cancelled(job_id, "RUNTIME_SHUTDOWN")
+            raise
+        except RuntimeFault as error:
+            await self.job_lifecycle.finish_failed_or_cancelled(job_id, error.info.code)
+        except Exception:
+            LOGGER.exception("Unhandled chat job failure", extra={"job_id": job_id})
+            await self.job_lifecycle.finish_failed_or_cancelled(job_id, "INFERENCE_FAILED")
+        finally:
+            if self.active_job_id == job_id:
                 self.active_job_id = None
 
     async def _run_chat_job_serial(
@@ -270,78 +290,71 @@ class RuntimeService:
         image_paths: list[str],
         messages: list[dict[str, str]],
         turn_id: str,
+        replace_assistant_message_id: str | None,
     ) -> None:
         job_id = initial_job.id
         if self.jobs[job_id].state is JobState.CANCELLING:
-            await self._finish_job(job_id, JobEvent.CANCEL_COMPLETE)
+            await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
             return
-        self.jobs[job_id] = transition_job(initial_job, JobEvent.PREPARE)
-        self.store.update_job(job_id, JobState.PREPARING.value)
-        await self.events.publish("job.updated", {"job_id": job_id, "state": "preparing"})
-        running = transition_job(self.jobs[job_id], JobEvent.START)
-        self.jobs[job_id] = running
-        self.store.update_job(job_id, JobState.RUNNING.value)
-        await self.events.publish("job.updated", {"job_id": job_id, "state": "running"})
+        await self.job_lifecycle.transition(job_id, JobEvent.PREPARE)
+        await self.job_lifecycle.transition(job_id, JobEvent.START)
+        if self.worker is None:
+            raise WorkerProtocolError("worker is unavailable")
         output: list[str] = []
-        try:
-            if self.worker is None:
-                raise WorkerProtocolError("worker is unavailable")
-            async for event in self.worker.generate(
-                job_id, content, max_tokens, temperature, image_paths, messages
-            ):
-                event_type = event["type"]
-                payload = event["payload"]
-                if event_type == "generation.delta":
-                    delta = str(payload.get("text", ""))
-                    output.append(delta)
-                    await self.events.publish(event_type, {"job_id": job_id, "text": delta})
-                if event_type == "generation.cancelled":
-                    await self._finish_job(job_id, JobEvent.CANCEL_COMPLETE)
-                    return
-                if event_type == "generation.failed":
-                    await self._finish_job(job_id, JobEvent.FAIL, "INFERENCE_FAILED")
-                    return
-            self.store.save_message(
-                {
-                    "id": str(uuid.uuid4()),
-                    "turnId": turn_id,
-                    "conversationId": conversation_id,
-                    "role": "assistant",
-                    "content": "".join(output),
-                    "modelSnapshot": self.models[initial_job.model_id or ""].to_dict(),
-                    "parameters": {"maxTokens": max_tokens, "temperature": temperature},
-                }
-            )
-            await self._finish_job(job_id, JobEvent.COMPLETE)
-        except Exception:
-            await self._finish_job(job_id, JobEvent.FAIL, "INFERENCE_FAILED")
-
-    async def _finish_job(
-        self, job_id: str, event: JobEvent, error_code: str | None = None
-    ) -> None:
-        current = self.jobs[job_id]
-        try:
-            updated = transition_job(current, event, error_code)
-        except ValueError:
-            if current.state in {JobState.SUCCEEDED, JobState.FAILED, JobState.CANCELLED}:
+        async for event in self.worker.generate(
+            job_id,
+            content,
+            max_tokens,
+            temperature,
+            image_paths,
+            messages,
+        ):
+            event_type = event["type"]
+            payload = event["payload"]
+            if event_type == "generation.delta":
+                delta = str(payload.get("text", ""))
+                output.append(delta)
+                await self.events.publish(event_type, {"job_id": job_id, "text": delta})
+            elif event_type == "generation.cancelled":
+                await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
                 return
-            raise
-        self.jobs[job_id] = updated
-        self.store.update_job(job_id, updated.state.value, updated.error_code)
-        await self.events.publish(
-            f"job.{updated.state.value}",
-            {"job_id": job_id, "state": updated.state.value, "error_code": updated.error_code},
+            elif event_type == "generation.failed":
+                code = str(payload.get("error_code", "INFERENCE_FAILED"))
+                raise RuntimeFault(RuntimeErrorInfo(code, "模型推理失败", True))
+        if self.jobs[job_id].state is JobState.CANCELLING:
+            await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
+            return
+        self.store.save_message(
+            {
+                "id": str(uuid.uuid4()),
+                "turnId": turn_id,
+                "conversationId": conversation_id,
+                "role": "assistant",
+                "content": "".join(output),
+                "modelSnapshot": self.models[initial_job.model_id or ""].to_dict(),
+                "parameters": {"maxTokens": max_tokens, "temperature": temperature},
+            },
+            replace_message_id=replace_assistant_message_id,
         )
+        await self.job_lifecycle.finish(job_id, JobEvent.COMPLETE)
 
     async def _stop_worker(self) -> None:
+        model_id = self.active_model_id
         if self.worker:
             await self.worker.stop()
         self.worker = None
         self.active_model_id = None
+        if model_id:
+            self.store.update_model_state(model_id, "available")
+            await self.events.publish("model.unloaded", {"model_id": model_id})
 
     def _forget_job_task(self, job_id: str, task: asyncio.Task[None]) -> None:
         if self.job_tasks.get(job_id) is task:
             self.job_tasks.pop(job_id, None)
+        if not task.cancelled():
+            exception = task.exception()
+            if exception is not None:
+                LOGGER.error("Chat task escaped its guard: %r", exception)
 
     async def close(self) -> None:
         tasks = tuple(self.job_tasks.values())
