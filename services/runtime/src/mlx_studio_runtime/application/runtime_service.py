@@ -15,8 +15,10 @@ from mlx_studio_runtime.application.chat_support import (
     conversation_context,
     validate_attachments,
 )
+from mlx_studio_runtime.application.image_generation_service import ImageGenerationService
 from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.domain.image_generation import fake_image_manifest_dict
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState, terminal_state
 from mlx_studio_runtime.domain.models import (
     ModelManifest,
@@ -49,11 +51,15 @@ class RuntimeService:
         self.store.recover_interrupted_jobs("RUNTIME_RESTARTED")
         self._seed_fake_model()
         self._restore_models()
+        self.images = ImageGenerationService(self)
 
     def _seed_fake_model(self) -> None:
         manifest = fake_text_manifest()
         self.models[manifest.id] = manifest
         self.store.upsert_model(manifest.to_dict(), "available")
+        image_manifest = manifest_from_dict(fake_image_manifest_dict())
+        self.models[image_manifest.id] = image_manifest
+        self.store.upsert_model(image_manifest.to_dict(), "available")
 
     def _restore_models(self) -> None:
         for item in self.store.list_models():
@@ -100,7 +106,7 @@ class RuntimeService:
         manifest = self.models.get(model_id)
         if manifest is None:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "找不到此模型"))
-        if manifest.engine not in {"fake", "mlx-lm", "mlx-vlm"}:
+        if manifest.engine not in {"fake", "mlx-lm", "mlx-vlm", "mflux"}:
             raise RuntimeFault(
                 RuntimeErrorInfo(
                     "ENGINE_NOT_AVAILABLE",
@@ -113,7 +119,7 @@ class RuntimeService:
         await self._stop_worker()
         self.store.update_model_state(model_id, "loading")
         await self.events.publish("model.loading", {"model_id": model_id})
-        worker = WorkerHost(self.runtime_source)
+        worker = WorkerHost(self.runtime_source, self.store.media_path / "images")
         self.worker = worker
         try:
             await worker.load(manifest.to_dict())
@@ -166,6 +172,10 @@ class RuntimeService:
         selected_model = self.models.get(model_id)
         if selected_model is None:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "找不到此模型"))
+        if "text" not in selected_model.output_modalities:
+            raise RuntimeFault(
+                RuntimeErrorInfo("MODEL_CAPABILITY_INVALID", "请选择文本或多模态对话模型")
+            )
         attachment_ids = attachment_ids or []
         validate_attachments(selected_model, attachment_ids)
         image_paths = attachment_paths(self.store, attachment_ids)
@@ -215,6 +225,9 @@ class RuntimeService:
         if self.worker and self.active_job_id == job_id:
             await self.worker.cancel(job_id)
         task = self.job_tasks.get(job_id)
+        if task and self.active_job_id != job_id:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
         if task and self.active_job_id == job_id:
             try:
                 await asyncio.wait_for(asyncio.shield(task), timeout=5)
@@ -354,7 +367,7 @@ class RuntimeService:
         if not task.cancelled():
             exception = task.exception()
             if exception is not None:
-                LOGGER.error("Chat task escaped its guard: %r", exception)
+                LOGGER.error("Runtime task escaped its guard: %r", exception)
 
     async def close(self) -> None:
         tasks = tuple(self.job_tasks.values())

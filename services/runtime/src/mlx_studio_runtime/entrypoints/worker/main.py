@@ -1,5 +1,6 @@
 """NDJSON Worker used by the Supervisor. stdout is reserved for protocol frames."""
 
+import gc
 import json
 import logging
 import queue
@@ -9,9 +10,11 @@ import time
 import traceback
 import uuid
 from collections.abc import Iterator
+from contextlib import redirect_stdout
 from typing import Any, cast
 
 from mlx_studio_runtime import PROTOCOL_VERSION
+from mlx_studio_runtime.adapters.image_engines.worker_image import WorkerImageEngine
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 LOGGER = logging.getLogger("mlx_studio.worker")
@@ -29,6 +32,8 @@ class Worker:
         self.processor: Any = None
         self.model_config: Any = None
         self.engine = "fake"
+        self.image_engine: WorkerImageEngine | None = None
+        self.protocol_output = sys.stdout
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         self.sequence += 1
@@ -38,8 +43,10 @@ class Worker:
             "type": event_type,
             "payload": payload,
         }
-        sys.stdout.write(json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n")
-        sys.stdout.flush()
+        self.protocol_output.write(
+            json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n"
+        )
+        self.protocol_output.flush()
 
     def read_commands(self) -> None:
         for line in sys.stdin:
@@ -93,6 +100,10 @@ class Worker:
         payload = command.get("payload", {})
         if kind == "worker.load":
             self._load(payload)
+        elif kind == "image.start":
+            if self.image_engine is None:
+                raise RuntimeError("IMAGE_MODEL_NOT_LOADED")
+            self.image_engine.generate(payload, (self.cancel, self.shutdown), self.emit)
         elif kind == "generation.start":
             self._generate(payload)
         elif kind == "generation.cancel":
@@ -113,20 +124,26 @@ class Worker:
         self.model_id = str(manifest.get("id", ""))
         self.engine = str(manifest.get("engine", "fake"))
         self.emit("model.loading", {"model_id": self.model_id})
-        if self.engine == "mlx-lm":
+        if self.engine in {"mlx-lm", "mlx-vlm", "mflux"}:
+            self._configure_mlx()
+        if manifest.get("task") == "image-generation":
+            self.image_engine = WorkerImageEngine(self.engine, str(manifest["localPath"]))
+        elif self.engine == "mlx-lm":
             from mlx_lm import load  # type: ignore[import-not-found]
 
-            self.model, self.tokenizer = load(
-                str(manifest["localPath"]),
-                trust_remote_code=False,
-            )
+            with redirect_stdout(sys.stderr):
+                self.model, self.tokenizer = load(
+                    str(manifest["localPath"]),
+                    trust_remote_code=False,
+                )
         elif self.engine == "mlx-vlm":
             from mlx_vlm import load  # type: ignore[import-not-found]
             from mlx_vlm.utils import load_config  # type: ignore[import-not-found]
 
             model_path = str(manifest["localPath"])
-            self.model, self.processor = load(model_path, trust_remote_code=False)
-            self.model_config = load_config(model_path)
+            with redirect_stdout(sys.stderr):
+                self.model, self.processor = load(model_path, trust_remote_code=False)
+                self.model_config = load_config(model_path)
         elif self.engine != "fake":
             raise RuntimeError(f"engine is not available in this Worker: {self.engine}")
         self.emit("model.loaded", {"model_id": self.model_id, "engine": self.engine})
@@ -175,6 +192,7 @@ class Worker:
                 max_tokens,
                 temperature,
                 payload.get("image_paths", []),
+                payload.get("messages", []),
             )
         return self._fake_chunks(prompt)
 
@@ -211,6 +229,7 @@ class Worker:
         max_tokens: int,
         temperature: float,
         image_paths: object,
+        messages: object = None,
     ) -> Iterator[str]:
         if not isinstance(image_paths, list) or len(image_paths) > 4:
             raise ValueError("zero to four image paths are supported")
@@ -221,10 +240,13 @@ class Worker:
         formatted = apply_chat_template(
             self.processor,
             self.model_config,
-            prompt,
+            normalize_messages(messages, prompt),
             num_images=len(paths),
             add_generation_prompt=True,
+            enable_thinking=False,
         )
+        if not isinstance(formatted, str):
+            raise ValueError("Chat template did not produce a text prompt")
         for response in stream_generate(
             model=self.model,
             processor=self.processor,
@@ -250,11 +272,30 @@ class Worker:
             yield reply[start : start + 5]
 
     def _unload(self) -> None:
+        release_mlx = self.engine in {"mlx-lm", "mlx-vlm", "mflux"} and (
+            self.model is not None or self.image_engine is not None
+        )
         self.model = None
         self.tokenizer = None
         self.processor = None
         self.model_config = None
         self.model_id = None
+        self.image_engine = None
+        self.engine = "fake"
+        if release_mlx:
+            import mlx.core as mx  # type: ignore[import-not-found]
+
+            mx.synchronize()
+            gc.collect()
+            mx.clear_cache()
+
+    @staticmethod
+    def _configure_mlx() -> None:
+        import mlx.core as mx  # type: ignore[import-not-found]
+
+        # MLX 0.32.1's compiled-cache teardown can segfault after Qwen inference.
+        mx.disable_compile()
+        mx.set_cache_limit(4 * 1024**3)
 
 
 def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:
@@ -274,7 +315,7 @@ def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:
         } or not isinstance(content, str):
             return [{"role": "user", "content": prompt}]
         normalized.append({"role": role, "content": content})
-    return normalized
+    return normalized or [{"role": "user", "content": prompt}]
 
 
 def main() -> int:

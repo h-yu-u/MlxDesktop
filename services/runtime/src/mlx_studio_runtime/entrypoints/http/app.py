@@ -26,6 +26,8 @@ from mlx_studio_runtime import PROTOCOL_VERSION
 from mlx_studio_runtime.adapters.persistence.sqlite_store import SQLiteStore
 from mlx_studio_runtime.application.runtime_service import RuntimeService
 from mlx_studio_runtime.domain.errors import RuntimeFault, error_payload
+from mlx_studio_runtime.entrypoints.http.image_studio import register_image_studio_routes
+from mlx_studio_runtime.entrypoints.http.model_catalog import register_model_catalog_routes
 
 RUNTIME_SOURCE = Path(__file__).parents[3]
 
@@ -54,15 +56,6 @@ class ModelPathRequest(BaseModel):
 class ModelPullRequest(BaseModel):
     repo_id: str = Field(min_length=3, max_length=200)
     revision: str | None = Field(default=None, max_length=200)
-
-
-class ImageJobRequest(BaseModel):
-    prompt: str = Field(min_length=1, max_length=10_000)
-    model_id: str = Field(min_length=1, max_length=200)
-    seed: int | None = None
-    width: int = Field(default=512, ge=64, le=2048)
-    height: int = Field(default=512, ge=64, le=2048)
-    steps: int = Field(default=20, ge=1, le=100)
 
 
 def _data_path() -> Path:
@@ -246,6 +239,8 @@ def create_app(
     async def list_models() -> list[dict[str, Any]]:
         return service.list_models()
 
+    register_model_catalog_routes(app, authenticate)
+
     @app.get("/internal/v1/models/{model_id}", dependencies=[Depends(authenticate)])
     async def get_model(model_id: str) -> dict[str, Any]:
         model = next((model for model in service.list_models() if model["id"] == model_id), None)
@@ -292,7 +287,8 @@ def create_app(
 
     @app.delete("/internal/v1/models/{model_id}/registration", dependencies=[Depends(authenticate)])
     async def unregister_model(model_id: str) -> dict[str, bool]:
-        if model_id == "builtin-fake-text":
+        registered = service.models.get(model_id)
+        if registered is not None and registered.source == "builtin":
             raise RuntimeFault(_not_found("MODEL_NOT_FOUND", "内置模型不可移除"))
         if service.active_model_id == model_id:
             await service.unload_model()
@@ -402,9 +398,7 @@ def create_app(
     async def list_jobs() -> list[dict[str, Any]]:
         return service.store.list_jobs()
 
-    @app.post("/internal/v1/image-jobs", dependencies=[Depends(authenticate)])
-    async def create_image_job(_: ImageJobRequest) -> dict[str, str]:
-        raise RuntimeFault(_unavailable("ENGINE_NOT_AVAILABLE", "MFLUX Adapter 尚未通过基线验证"))
+    register_image_studio_routes(app, service, authenticate)
 
     @app.get("/internal/v1/events", dependencies=[Depends(authenticate)])
     async def event_stream(request: Request, after: int = 0):

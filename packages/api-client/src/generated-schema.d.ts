@@ -123,6 +123,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/internal/v1/models/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Model Catalog */
+        get: operations["model_catalog_internal_v1_models_catalog_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/internal/v1/models/{model_id}": {
         parameters: {
             query?: never;
@@ -405,10 +422,79 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /** List Image Jobs */
+        get: operations["list_image_jobs_internal_v1_image_jobs_get"];
         put?: never;
         /** Create Image Job */
         post: operations["create_image_job_internal_v1_image_jobs_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/image-jobs/{job_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Image Job */
+        get: operations["get_image_job_internal_v1_image_jobs__job_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/image-jobs/{job_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Cancel Image Job */
+        post: operations["cancel_image_job_internal_v1_image_jobs__job_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/image-artifacts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Image History */
+        get: operations["image_history_internal_v1_image_artifacts_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/internal/v1/image-artifacts/{artifact_id}/content": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Image Content */
+        get: operations["image_content_internal_v1_image_artifacts__artifact_id__content_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -475,14 +561,50 @@ export interface components {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
         };
-        /** ImageJobRequest */
-        ImageJobRequest: {
-            /** Prompt */
-            prompt: string;
+        /** HubModelOption */
+        HubModelOption: {
+            /** Repo Id */
+            repo_id: string;
+            /** Downloads */
+            downloads: number;
+            /** Likes */
+            likes: number;
+            /** Task */
+            task: string | null;
+            /** Updated At */
+            updated_at: string | null;
+        };
+        /** ImageArtifactView */
+        ImageArtifactView: {
             /** Model Id */
             model_id: string;
+            /** Model Name */
+            model_name: string;
+            /** Prompt */
+            prompt: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Steps */
+            steps: number;
             /** Seed */
-            seed?: number | null;
+            seed: number;
+            /** Simulated */
+            simulated: boolean;
+            /** Id */
+            id: string;
+            /** Job Id */
+            job_id: string;
+            /** Created At */
+            created_at: number;
+        };
+        /** ImageJobRequest */
+        ImageJobRequest: {
+            /** Model Id */
+            model_id: string;
+            /** Prompt */
+            prompt: string;
             /**
              * Width
              * @default 512
@@ -498,7 +620,44 @@ export interface components {
              * @default 20
              */
             steps: number;
+            /** Seed */
+            seed?: number | null;
         };
+        /** ImageJobView */
+        ImageJobView: {
+            /** Model Id */
+            model_id: string;
+            /** Model Name */
+            model_name: string;
+            /** Prompt */
+            prompt: string;
+            /** Width */
+            width: number;
+            /** Height */
+            height: number;
+            /** Steps */
+            steps: number;
+            /** Seed */
+            seed: number;
+            /** Simulated */
+            simulated: boolean;
+            /** Id */
+            id: string;
+            state: components["schemas"]["JobState"];
+            /** Progress */
+            progress: number;
+            /** Created At */
+            created_at: number;
+            /** Error Code */
+            error_code: string | null;
+            /** Artifact Id */
+            artifact_id: string | null;
+        };
+        /**
+         * JobState
+         * @enum {string}
+         */
+        JobState: "queued" | "preparing" | "running" | "cancelling" | "succeeded" | "failed" | "cancelled";
         /** ModelPathRequest */
         ModelPathRequest: {
             /** Path */
@@ -749,6 +908,40 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     }[];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    model_catalog_internal_v1_models_catalog_get: {
+        parameters: {
+            query?: {
+                query?: string;
+                limit?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HubModelOption"][];
                 };
             };
             /** @description Validation Error */
@@ -1444,6 +1637,37 @@ export interface operations {
             };
         };
     };
+    list_image_jobs_internal_v1_image_jobs_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageJobView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     create_image_job_internal_v1_image_jobs_post: {
         parameters: {
             query?: never;
@@ -1465,9 +1689,142 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
+                    "application/json": components["schemas"]["ImageJobView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_image_job_internal_v1_image_jobs__job_id__get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageJobView"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    cancel_image_job_internal_v1_image_jobs__job_id__cancel_post: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                job_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
                     "application/json": {
                         [key: string]: string;
                     };
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    image_history_internal_v1_image_artifacts_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: {
+                authorization?: string | null;
+            };
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ImageArtifactView"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    image_content_internal_v1_image_artifacts__artifact_id__content_get: {
+        parameters: {
+            query?: never;
+            header?: {
+                authorization?: string | null;
+            };
+            path: {
+                artifact_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
                 };
             };
             /** @description Validation Error */

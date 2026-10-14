@@ -7,10 +7,70 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).parents[1] / "services" / "runtime" / "src"))
 
-from mlx_studio_runtime.domain.models import manifest_from_directory
+from mlx_studio_runtime.domain.models import infer_model_kind, manifest_from_directory
 
 
 class ModelManifestTests(unittest.TestCase):
+    def test_native_mflux_qwen21_export_is_recognized_without_root_config(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "arbitrary-directory-name"
+            signatures = {
+                "transformer": [
+                    "modulation.layers.1.weight",
+                    "transformer_blocks.31.attn.to_q.weight",
+                    "transformer_blocks.31.img_mlp.gate_layer.weight",
+                ],
+                "text_encoder": ["layers.35.self_attn.q_norm.weight"],
+                "vae": ["decoder.conv_out.conv.weight"],
+            }
+            for name, keys in signatures.items():
+                component = root / name
+                component.mkdir(parents=True)
+                (component / "0.safetensors").write_bytes(b"weights")
+                (component / "model.safetensors.index.json").write_text(
+                    json.dumps(
+                        {
+                            "metadata": {"mflux_version": "0.20.0"},
+                            "weight_map": dict.fromkeys(keys, "0.safetensors"),
+                        }
+                    )
+                )
+            (root / "processor").mkdir()
+            for name in ("tokenizer.json", "tokenizer_config.json"):
+                (root / "processor" / name).write_text("{}")
+            model = manifest_from_directory(root)
+            self.assertEqual((model.engine, model.task), ("mflux", "image-generation"))
+            self.assertEqual(model.output_modalities, ("image",))
+            (root / "vae" / "0.safetensors").unlink()
+            with self.assertRaisesRegex(ValueError, "MODEL_WEIGHTS_INCOMPLETE"):
+                manifest_from_directory(root)
+            index = root / "transformer" / "model.safetensors.index.json"
+            value = json.loads(index.read_text())
+            value["weight_map"]["modulation.layers.1.weight"] = "../outside.safetensors"
+            index.write_text(json.dumps(value))
+            with self.assertRaisesRegex(ValueError, "MODEL_METADATA_INVALID"):
+                manifest_from_directory(root)
+
+    def test_qwen_multimodal_manifest_reads_nested_text_context(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory) / "Qwen3.8-27B-Uncensored-MLX" / "4-bit"
+            root.mkdir(parents=True)
+            (root / "config.json").write_text(
+                json.dumps(
+                    {
+                        "model_type": "qwen3_5",
+                        "architectures": ["Qwen3_5ForConditionalGeneration"],
+                        "vision_config": {},
+                        "text_config": {"max_position_embeddings": 262144},
+                    }
+                )
+            )
+            model = manifest_from_directory(root)
+            self.assertEqual(model.engine, "mlx-vlm")
+            self.assertEqual(model.context_length, 262144)
+            self.assertIn("text", model.output_modalities)
+            self.assertEqual(model.display_name, "Qwen3.8-27B-Uncensored-MLX · 4-bit")
+
     def test_model_id_is_stable_when_directory_moves(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first"
@@ -55,6 +115,24 @@ class ModelManifestTests(unittest.TestCase):
             )
             (root / "weights.safetensors").write_bytes(b"weights")
             self.assertEqual(manifest_from_directory(root).engine, "mlx-lm")
+
+    def test_missing_or_malformed_architectures_do_not_break_metadata_scan(
+        self,
+    ) -> None:
+        for value in (None, 42, "Qwen2ForCausalLM", {"unexpected": "object"}):
+            with self.subTest(architectures=value):
+                self.assertEqual(
+                    infer_model_kind(
+                        {"model_type": "qwen2", "architectures": value}, {}
+                    ),
+                    ("mlx-lm", "text-generation"),
+                )
+
+    def test_qwen_image_pipeline_is_an_image_model(self) -> None:
+        self.assertEqual(
+            infer_model_kind({}, {"_class_name": "QwenImagePipeline"}),
+            ("mflux", "image-generation"),
+        )
 
     def test_static_metadata_distinguishes_vlm_and_image_generation(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -79,22 +79,27 @@ def manifest_from_directory(
     resolved = path.expanduser().resolve()
     if not resolved.is_dir():
         raise ValueError("MODEL_METADATA_INVALID")
-    config = _read_json(resolved / "config.json")
-    model_index = _read_json(resolved / "model_index.json")
+    config, model_index = read_model_metadata(resolved)
     if not config and not model_index:
         raise ValueError("MODEL_METADATA_INVALID")
     engine, task = infer_model_kind(config, model_index)
     input_modalities = ("text", "image") if engine == "mlx-vlm" else ("text",)
     output_modalities = ("image",) if engine == "mflux" else ("text",)
+    text_config = config.get("text_config")
     context_length = config.get("max_position_embeddings")
+    if context_length is None and isinstance(text_config, dict):
+        context_length = cast(dict[str, object], text_config).get("max_position_embeddings")
     weight_files = sorted(
         (file for file in resolved.rglob("*.safetensors") if file.is_file()),
         key=lambda file: file.relative_to(resolved).as_posix(),
     )
+    directory_name = resolved.name
+    if directory_name.endswith("-bit") and directory_name.removesuffix("-bit").isdigit():
+        directory_name = f"{resolved.parent.name} · {directory_name}"
     return ModelManifest(
         id=f"model-{model_fingerprint(config, model_index, resolved, weight_files)[:24]}",
         display_name=display_name
-        or str(config.get("_name_or_path") or model_index.get("_name_or_path") or resolved.name),
+        or str(config.get("_name_or_path") or model_index.get("_name_or_path") or directory_name),
         source=source,
         local_path=str(resolved),
         engine=engine,
@@ -117,7 +122,10 @@ def infer_model_kind(
 ) -> tuple[EngineName, TaskName]:
     pipeline = str(model_index.get("_class_name", "")).lower().replace("_", "")
     model_type = str(config.get("model_type", "")).lower()
-    architectures = config.get("architectures", [])
+    raw_architectures = config.get("architectures")
+    architectures = (
+        cast(list[object], raw_architectures) if isinstance(raw_architectures, list) else []
+    )
     architecture_text = " ".join(
         str(item).lower() for item in architectures if isinstance(item, str)
     )
@@ -126,8 +134,16 @@ def infer_model_kind(
         "fluxpipeline",
         "stablediffusion",
         "zimage",
+        "qwenimage",
     )
-    image_model_types = {"flux", "stable_diffusion", "z_image", "zimage"}
+    image_model_types = {
+        "flux",
+        "stable_diffusion",
+        "z_image",
+        "zimage",
+        "qwen_image",
+        "qwen_image_21",
+    }
     if any(marker in pipeline for marker in image_pipeline_markers) or (
         model_type in image_model_types
     ):
@@ -204,13 +220,15 @@ def fake_text_manifest() -> ModelManifest:
 def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
     """Restore a persisted manifest without reading or executing model code."""
     capability_value = value.get("capabilities")
-    capabilities = cast(dict[str, object], capability_value) if isinstance(
-        capability_value, dict
-    ) else {}
+    capabilities = (
+        cast(dict[str, object], capability_value) if isinstance(capability_value, dict) else {}
+    )
     compatibility_value = value.get("compatibility")
-    compatibility = cast(dict[str, object], compatibility_value) if isinstance(
-        compatibility_value, dict
-    ) else {}
+    compatibility = (
+        cast(dict[str, object], compatibility_value)
+        if isinstance(compatibility_value, dict)
+        else {}
+    )
     engine = value.get("engine")
     task = value.get("task")
     source = value.get("source")
@@ -255,6 +273,51 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
             lora=capabilities.get("lora") is True,
         ),
     )
+
+
+def read_model_metadata(root: Path) -> tuple[dict[str, object], dict[str, object]]:
+    """Read bounded static metadata, including native MFLUX exports without root configs."""
+    config = _read_json(root / "config.json")
+    index = _read_json(root / "model_index.json")
+    if config or index:
+        return config, index
+    components = {
+        name: _read_json(root / name / "model.safetensors.index.json")
+        for name in ("transformer", "text_encoder", "vae")
+    }
+    maps: dict[str, dict[str, object]] = {}
+    for name, component in components.items():
+        weights = component.get("weight_map")
+        metadata = component.get("metadata")
+        if not isinstance(weights, dict) or not weights or not isinstance(metadata, dict):
+            return {}, {}
+        if not metadata.get("mflux_version"):
+            return {}, {}
+        maps[name] = cast(dict[str, object], weights)
+    # The shared modulation, 32 diffusion blocks and Q/K-normalized text encoder
+    # identify the 2.1 architecture independently of the directory/display name.
+    if (
+        not {
+            "modulation.layers.1.weight",
+            "transformer_blocks.31.attn.to_q.weight",
+            "transformer_blocks.31.img_mlp.gate_layer.weight",
+        }.issubset(maps["transformer"])
+        or "layers.35.self_attn.q_norm.weight" not in maps["text_encoder"]
+    ):
+        return {}, {}
+    for name, weights in maps.items():
+        for filename in weights.values():
+            if not isinstance(filename, str) or Path(filename).name != filename:
+                raise ValueError("MODEL_METADATA_INVALID")
+            file = root / name / filename
+            if file.suffix != ".safetensors" or not file.is_file():
+                raise ValueError("MODEL_WEIGHTS_INCOMPLETE")
+    for filename in ("tokenizer.json", "tokenizer_config.json"):
+        if not (root / "processor" / filename).is_file():
+            raise ValueError("MODEL_TOKENIZER_INCOMPLETE")
+    return {"model_type": "qwen_image_21", "export_manifest": _read_json(root / "manifest.json")}, {
+        "_class_name": "QwenImage21Pipeline",
+    }
 
 
 def _read_json(path: Path) -> dict[str, object]:

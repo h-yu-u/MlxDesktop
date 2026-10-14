@@ -112,7 +112,10 @@ fn launch_runtime(app: &AppHandle, process: Arc<RuntimeProcess>) -> Result<(), S
     emit_status(app, "starting", generation, None);
 
     let token = format!("{}{}", uuid::Uuid::new_v4(), uuid::Uuid::new_v4());
-    let data_directory = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    let data_directory = app
+        .path()
+        .app_data_dir()
+        .map_err(|error| error.to_string())?;
     std::fs::create_dir_all(&data_directory).map_err(|error| error.to_string())?;
 
     #[cfg(debug_assertions)]
@@ -125,8 +128,15 @@ fn launch_runtime(app: &AppHandle, process: Arc<RuntimeProcess>) -> Result<(), S
         app.shell()
             .command("uv")
             .args(["run", "--project"])
-            .args([runtime_project.to_str().ok_or("Invalid Runtime project path")?])
+            .args([runtime_project
+                .to_str()
+                .ok_or("Invalid Runtime project path")?])
             .args([
+                "--frozen",
+                "--extra",
+                "mlx-vlm",
+                "--extra",
+                "mflux",
                 "--python",
                 "3.12",
                 "python",
@@ -251,12 +261,7 @@ fn consume_handshakes(
     }
 }
 
-fn set_failed(
-    app: &AppHandle,
-    process: &RuntimeProcess,
-    generation: u64,
-    message: String,
-) {
+fn set_failed(app: &AppHandle, process: &RuntimeProcess, generation: u64, message: String) {
     if process.generation.load(Ordering::SeqCst) != generation {
         return;
     }
@@ -270,12 +275,7 @@ fn set_failed(
     emit_status(app, "failed", generation, Some(message));
 }
 
-fn emit_status(
-    app: &AppHandle,
-    status: &str,
-    generation: u64,
-    message: Option<String>,
-) {
+fn emit_status(app: &AppHandle, status: &str, generation: u64, message: Option<String>) {
     let _ = app.emit(
         "runtime-status",
         RuntimeStatusEvent {
@@ -315,7 +315,7 @@ fn main() {
         .plugin(tauri_plugin_single_instance::init(|_app, _args, _cwd| {}))
         .manage(process)
         .setup(move |app| {
-            if let Err(error) = launch_runtime(&app.handle(), Arc::clone(&process_for_setup)) {
+            if let Err(error) = launch_runtime(app.handle(), Arc::clone(&process_for_setup)) {
                 eprintln!("Runtime launch failed: {error}");
             }
             Ok(())

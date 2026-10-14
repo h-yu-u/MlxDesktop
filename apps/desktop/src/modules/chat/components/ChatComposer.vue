@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { NButton, NInput, NTag } from 'naive-ui'
+import { NButton, NInput, NTag, NTooltip } from 'naive-ui'
 import { computed, ref, watch } from 'vue'
+import StudioIcon from '../../../shared/components/StudioIcon.vue'
 
 const props = defineProps<{
   busy: boolean
+  generating?: boolean
   imageLimit: number
   draft: string
   images: File[]
@@ -26,6 +28,12 @@ watch(() => props.imageLimit, (limit) => {
   if (next.length !== props.images.length) emit('update:images', next)
 })
 
+function handleKeydown(event: KeyboardEvent): void {
+  if (event.key !== 'Enter' || event.isComposing || event.shiftKey || event.ctrlKey || event.metaKey || event.altKey) return
+  event.preventDefault()
+  submit()
+}
+
 function submit(): void {
   if (props.busy || (!props.draft.trim() && !props.images.length)) return
   emit('submit')
@@ -45,31 +53,82 @@ function removeImage(index: number): void {
 
 <template>
   <div class="composer">
-    <div v-if="images.length" class="attachment-list">
+    <div
+      v-if="images.length"
+      class="attachment-list"
+    >
       <NTag
         v-for="(image, index) in images"
         :key="`${image.name}-${image.size}-${index}`"
         closable
         size="small"
         @close="removeImage(index)"
-      >{{ image.name }}</NTag>
+      >
+        {{ image.name }}
+      </NTag>
     </div>
     <NInput
       v-model:value="draftValue"
       type="textarea"
       :autosize="{ minRows: 2, maxRows: 6 }"
-      placeholder="输入消息…（本地处理，不会发送到云端）"
+      placeholder="输入消息，开始与 AI 对话…"
       aria-label="消息内容"
-      @keydown.enter.exact.prevent="submit"
+      :bordered="false"
+      @keydown="handleKeydown"
     />
     <div class="composer-actions">
-      <span class="composer-hint">Enter 发送 · Shift + Enter 换行</span>
-      <NButton
-        v-if="imageLimit > 0"
-        secondary
-        :disabled="busy || images.length >= imageLimit"
-        @click="imageInput?.click()"
-      >添加图片 {{ images.length ? `(${images.length}/${imageLimit})` : '' }}</NButton>
+      <div class="composer-tools">
+        <NTooltip>
+          <template #trigger>
+            <span><NButton
+              secondary
+              class="attachment-add"
+              aria-label="添加图片附件"
+              :disabled="busy || imageLimit === 0 || images.length >= imageLimit"
+              @click="imageInput?.click()"
+            ><StudioIcon
+              name="plus"
+              :size="23"
+            /></NButton></span>
+          </template>
+          {{ imageLimit ? '添加图片附件' : '请先选择支持图片输入的模型' }}
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <span><NButton
+              secondary
+              :disabled="busy || imageLimit === 0 || images.length >= imageLimit"
+              @click="imageInput?.click()"
+            ><StudioIcon
+              name="image"
+              :size="16"
+            />图片<span v-if="images.length"> ({{ images.length }}/{{ imageLimit }})</span></NButton></span>
+          </template>
+          {{ imageLimit ? `最多添加 ${imageLimit} 张图片` : '当前模型不支持图片输入' }}
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <span><NButton
+              secondary
+              disabled
+            ><StudioIcon
+              name="paperclip"
+              :size="16"
+            />文件</NButton></span>
+          </template>文件解析尚未开放
+        </NTooltip>
+        <NTooltip>
+          <template #trigger>
+            <span><NButton
+              secondary
+              disabled
+            ><StudioIcon
+              name="globe"
+              :size="16"
+            />联网</NButton></span>
+          </template>联网检索尚未开放
+        </NTooltip>
+      </div>
       <input
         ref="imageInput"
         type="file"
@@ -78,19 +137,29 @@ function removeImage(index: number): void {
         hidden
         @change="addImages"
       >
-      <NButton v-if="busy" type="warning" @click="emit('cancel')">停止生成</NButton>
-      <NButton
-        v-else
-        type="primary"
-        :disabled="!draft.trim() && !images.length"
-        @click="submit"
-      >发送</NButton>
+      <div class="composer-send">
+        <span class="composer-hint">Enter 发送 · Shift + Enter 换行</span>
+        <NButton
+          v-if="generating ?? busy"
+          type="warning"
+          @click="emit('cancel')"
+        >
+          停止生成
+        </NButton>
+        <NButton
+          v-else
+          type="primary"
+          class="send-button"
+          :loading="busy"
+          :disabled="busy || (!draft.trim() && !images.length)"
+          @click="submit()"
+        >
+          <StudioIcon
+            name="send"
+            :size="21"
+          />发送
+        </NButton>
+      </div>
     </div>
   </div>
 </template>
-
-<style scoped>
-.attachment-list { display: flex; flex-wrap: wrap; gap: 6px; }
-.composer-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
-.composer-hint { color: #8790a0; font-size: 12px; }
-</style>

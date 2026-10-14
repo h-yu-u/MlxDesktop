@@ -12,5 +12,4 @@ apps/desktop/src-tauri/target/
 apps/desktop/src-tauri/binaries/
 services/runtime/data/
 services/runtime/.runtime/
-benchmarks/generated/
 *.log

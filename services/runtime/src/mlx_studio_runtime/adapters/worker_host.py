@@ -17,8 +17,9 @@ class WorkerProtocolError(RuntimeError):
 
 
 class WorkerHost:
-    def __init__(self, runtime_source: Path) -> None:
+    def __init__(self, runtime_source: Path, image_output_root: Path | None = None) -> None:
         self.runtime_source = runtime_source
+        self.image_output_root = image_output_root
         self.process: asyncio.subprocess.Process | None = None
         self.write_lock = asyncio.Lock()
         self.reader_task: asyncio.Task[None] | None = None
@@ -30,6 +31,8 @@ class WorkerHost:
         env = os.environ.copy()
         env.pop("MLX_STUDIO_SESSION_TOKEN", None)
         env.pop("MLX_STUDIO_EXTERNAL_API_TOKEN", None)
+        if self.image_output_root is not None:
+            env["MLX_STUDIO_IMAGE_OUTPUT_ROOT"] = str(self.image_output_root)
         current = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{self.runtime_source}{os.pathsep}{current}".rstrip(os.pathsep)
         command = (
@@ -75,6 +78,15 @@ class WorkerHost:
                 "messages": messages or [],
             },
         )
+        async for event in self._events_until_terminal(job_id):
+            yield event
+
+    async def generate_image(
+        self, job_id: str, parameters: dict[str, object], output_path: Path,
+    ) -> AsyncIterator[dict[str, Any]]:
+        await self._send("image.start", {
+            "job_id": job_id, "parameters": parameters, "output_path": str(output_path),
+        })
         async for event in self._events_until_terminal(job_id):
             yield event
 

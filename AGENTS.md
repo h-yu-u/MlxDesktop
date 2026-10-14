@@ -1,6 +1,6 @@
 # MLX Studio Engineering Rules
 
-This repository follows [AGENTS_MLX_Studio.template.md](./AGENTS_MLX_Studio.template.md) and the architecture in [MLX_Local_AI_Workbench_Technical_Development_Plan.md](./MLX_Local_AI_Workbench_Technical_Development_Plan.md).
+This repository follows the [engineering rules](./docs/engineering.md) and the [architecture](./docs/architecture.md).
 
 ## Local development
 

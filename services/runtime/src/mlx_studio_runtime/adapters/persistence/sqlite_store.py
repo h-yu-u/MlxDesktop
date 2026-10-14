@@ -9,6 +9,7 @@ from mlx_studio_runtime.adapters.persistence.attachment_repository import (
 from mlx_studio_runtime.adapters.persistence.conversation_repository import (
     ConversationRepository,
 )
+from mlx_studio_runtime.adapters.persistence.image_repository import ImageRepository
 from mlx_studio_runtime.adapters.persistence.job_repository import JobRepository
 from mlx_studio_runtime.adapters.persistence.model_repository import ModelRepository
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
@@ -21,6 +22,7 @@ class SQLiteStore:
         self.models = ModelRepository(self.database)
         self.conversations = ConversationRepository(self.database, self.attachments)
         self.jobs = JobRepository(self.database)
+        self.images = ImageRepository(self.database)
 
     @property
     def database_path(self) -> Path:

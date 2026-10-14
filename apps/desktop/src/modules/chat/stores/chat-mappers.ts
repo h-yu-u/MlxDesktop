@@ -6,6 +6,7 @@ export interface ModelOption {
   engine: string
   inputModalities: string[]
   multiImage: boolean
+  contextLength?: number
   state?: string
 }
 
@@ -17,13 +18,14 @@ export interface ConversationOption {
 
 export function readModels(value: unknown): ModelOption[] {
   if (!Array.isArray(value)) return []
-  return value.map((item) => ({
+  return value.filter((item) => stringArrayField(item, 'outputModalities').includes('text')).map((item) => ({
     id: stringField(item, 'id') ?? '',
     displayName: stringField(item, 'displayName') ?? 'Unknown model',
     engine: stringField(item, 'engine') ?? 'unknown',
     inputModalities: stringArrayField(item, 'inputModalities'),
     multiImage: nestedBooleanField(item, 'capabilities', 'multiImage'),
     state: stringField(item, 'state'),
+    contextLength: numberField(item, 'contextLength'),
   })).filter((item) => item.id)
 }
 

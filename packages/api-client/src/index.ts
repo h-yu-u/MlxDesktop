@@ -4,6 +4,7 @@ import { RuntimeEventStreamParser } from './sse'
 import type { RuntimeConnection, RuntimeEvent } from './types'
 
 export type { RuntimeConnection, RuntimeEvent } from './types'
+export type { components } from './generated-schema'
 
 export interface RuntimeClientOptions {
   onConnectionInvalid?: () => void
@@ -59,6 +60,15 @@ export class RuntimeClient {
       mimeType: item.mimeType ?? 'image/*',
       originalName: item.originalName ?? file.name,
     }
+  }
+
+  async downloadImageArtifact(id: string): Promise<Blob> {
+    const response = await this.fetch(`/internal/v1/image-artifacts/${encodeURIComponent(id)}/content`)
+    if (!response.ok) {
+      const payload: unknown = await response.json().catch(() => undefined)
+      throw new Error(readErrorMessage(payload) ?? `作品读取失败 (${response.status})`)
+    }
+    return response.blob()
   }
 
   async downloadDiagnosticBundle(): Promise<Blob> {

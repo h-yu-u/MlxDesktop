@@ -1,9 +1,11 @@
 import asyncio
+import io
+import json
 import sys
 import unittest
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 RUNTIME_SOURCE = Path(__file__).parents[1] / "services" / "runtime" / "src"
 sys.path.insert(0, str(RUNTIME_SOURCE))
@@ -72,6 +74,89 @@ class WorkerHostTests(unittest.TestCase):
         ):
             chunks = list(worker._vlm_chunks("describe", 16, 0.0, ["image.png"]))
         self.assertEqual(chunks, ["image ", "answer"])
+
+    def test_vlm_keeps_history_and_disables_thinking_for_chat(self) -> None:
+        worker = Worker()
+        worker.engine = "mlx-vlm"
+        worker.model = object()
+        worker.processor = object()
+        worker.model_config = object()
+        history = [
+            {"role": "user", "content": "记住暗号蓝鲸"},
+            {"role": "assistant", "content": "已记住"},
+            {"role": "user", "content": "暗号是什么？"},
+        ]
+        library = ModuleType("mlx_vlm")
+        library.__path__ = []
+        library.stream_generate = Mock(
+            return_value=iter([SimpleNamespace(text="蓝鲸")])
+        )
+        templates = ModuleType("mlx_vlm.prompt_utils")
+        templates.apply_chat_template = Mock(return_value="history prompt")
+        with patch.dict(
+            sys.modules, {"mlx_vlm": library, "mlx_vlm.prompt_utils": templates}
+        ):
+            chunks = list(
+                worker._chunks({"messages": history}, "暗号是什么？", 32, 0.0)
+            )
+        self.assertEqual(chunks, ["蓝鲸"])
+        self.assertEqual(templates.apply_chat_template.call_args.args[2], history)
+        self.assertFalse(
+            templates.apply_chat_template.call_args.kwargs["enable_thinking"]
+        )
+        self.assertEqual(library.stream_generate.call_args.kwargs["image"], [])
+
+    def test_vlm_load_preserves_protocol_and_configures_clean_shutdown(self) -> None:
+        worker = Worker()
+        worker.protocol_output = io.StringIO()
+        mlx = ModuleType("mlx")
+        mlx.__path__ = []
+        core = ModuleType("mlx.core")
+        core.disable_compile = Mock()
+        core.set_cache_limit = Mock()
+        core.synchronize = Mock()
+        core.clear_cache = Mock()
+        mlx.core = core
+        library = ModuleType("mlx_vlm")
+        library.__path__ = []
+
+        def load(path, **kwargs):
+            core.disable_compile.assert_called_once()
+            self.assertFalse(kwargs["trust_remote_code"])
+            print("upstream loading progress")
+            return object(), object()
+
+        library.load = load
+        utils = ModuleType("mlx_vlm.utils")
+        utils.load_config = lambda _path: {"model_type": "qwen3_5"}
+        with patch.dict(
+            sys.modules,
+            {
+                "mlx": mlx,
+                "mlx.core": core,
+                "mlx_vlm": library,
+                "mlx_vlm.utils": utils,
+            },
+        ):
+            worker._load(
+                {
+                    "manifest": {
+                        "id": "local-qwen",
+                        "engine": "mlx-vlm",
+                        "localPath": "/local/model",
+                        "task": "vision-language",
+                    }
+                }
+            )
+            worker._unload()
+        events = [
+            json.loads(line) for line in worker.protocol_output.getvalue().splitlines()
+        ]
+        self.assertEqual(
+            [item["type"] for item in events], ["model.loading", "model.loaded"]
+        )
+        core.synchronize.assert_called_once()
+        core.clear_cache.assert_called_once()
 
     def test_fake_worker_load_stream_cancel_and_restart(self) -> None:
         asyncio.run(self._exercise_worker())

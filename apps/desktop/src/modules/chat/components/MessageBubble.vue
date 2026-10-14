@@ -43,5 +43,5 @@ const html = computed(() => renderMarkdown(props.message.content))
 .markdown-body :deep(p:first-child) { margin-top: 0; }
 .markdown-body :deep(p:last-child) { margin-bottom: 0; }
 .message-attachments { display:flex; gap:8px; flex-wrap:wrap; list-style:none; padding:0; margin:0 0 10px; }
-.message-attachments li { padding:5px 9px; border-radius:8px; background:#f0f1f5; font-size:12px; }
+.message-attachments li { padding:5px 9px; border-radius:8px; background:#242d40; font-size:12px; }
 </style>

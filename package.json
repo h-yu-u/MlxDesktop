@@ -21,7 +21,7 @@
     "build:sidecar": "bash scripts/build-runtime.sh",
     "build:app": "pnpm build:web && pnpm build:sidecar && pnpm --filter @mlx-studio/desktop tauri build",
     "build:desktop": "pnpm build:app",
-    "bootstrap": "pnpm install --frozen-lockfile && uv sync --project services/runtime --frozen"
+    "bootstrap": "pnpm install --frozen-lockfile && uv sync --project services/runtime --frozen --extra mlx-vlm --extra mflux"
   },
   "devDependencies": {
     "dependency-cruiser": "^16.10.4"

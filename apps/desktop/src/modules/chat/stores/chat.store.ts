@@ -27,7 +27,8 @@ export const useChatStore = defineStore('chat', () => {
   const models = ref<ModelOption[]>([])
   const conversations = ref<ConversationOption[]>([])
   const conversationId = ref<string | null>(null)
-  const selectedModelId = ref('builtin-fake-text')
+  const selectedModelId = ref('')
+  const pending = ref(false)
   const maxTokens = ref(512)
   const temperature = ref(0.7)
   const busy = computed(() => state.value.status === 'sending')
@@ -44,7 +45,9 @@ export const useChatStore = defineStore('chat', () => {
       models.value = readModels(modelResult)
       conversations.value = readConversations(conversationResult)
       if (!models.value.some((model) => model.id === selectedModelId.value) && models.value[0]) {
-        selectedModelId.value = models.value[0].id
+        selectedModelId.value = models.value.find((model) => model.engine !== 'fake' && model.state === 'loaded')?.id
+          ?? models.value.find((model) => model.engine !== 'fake')?.id
+          ?? models.value[0].id
       }
       state.value = { ...state.value, status: 'idle' }
       if (conversationId.value) await openConversation(conversationId.value)
@@ -66,6 +69,16 @@ export const useChatStore = defineStore('chat', () => {
       type: 'conversation.loaded',
       messages: [],
     })
+  }
+
+  async function clearConversation(): Promise<void> {
+    if (busy.value || !conversationId.value) return
+    const id = conversationId.value
+    await (await runtimeClient()).delete(`/internal/v1/conversations/${encodeURIComponent(id)}`)
+    abortEventStream()
+    conversations.value = conversations.value.filter((item) => item.id !== id)
+    conversationId.value = null
+    state.value = { ...initialChatState, messages: [] }
   }
 
   async function openConversation(id: string): Promise<void> {
@@ -189,9 +202,11 @@ export const useChatStore = defineStore('chat', () => {
     maxTokens,
     temperature,
     busy,
+    pending,
     loadWorkspace,
     newConversation,
     openConversation,
+    clearConversation,
     send,
     cancel,
   }
