@@ -67,3 +67,36 @@ def artifact_path(media_root: Path, relative_path: str) -> Path:
     if not path.is_relative_to(root) or path.parent != root or path.suffix != ".png":
         raise ValueError("IMAGE_PATH_INVALID")
     return path
+
+
+class ImageFiles:
+    def __init__(self, root: Path) -> None:
+        self.root = root
+
+    def temporary(self, job_id: str) -> Path:
+        return image_output_path(self.root, job_id)
+
+    async def validate(self, path: Path, width: int, height: int) -> None:
+        import asyncio
+
+        await asyncio.to_thread(validate_png, path, width, height)
+
+    def commit(self, path: Path, artifact_id: str) -> str:
+        return commit_image(self.root, path, artifact_id)
+
+    def discard(self, path: Path) -> None:
+        path.unlink(missing_ok=True)
+
+    def compensate(self, relative: str) -> None:
+        (self.root / relative).unlink(missing_ok=True)
+
+    def read(self, relative: str) -> Path:
+        from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+
+        try:
+            path = artifact_path(self.root, relative)
+        except ValueError as error:
+            raise RuntimeFault(RuntimeErrorInfo("IMAGE_PATH_INVALID", "作品路径无效")) from error
+        if not path.is_file():
+            raise RuntimeFault(RuntimeErrorInfo("IMAGE_FILE_NOT_FOUND", "作品文件已不存在"))
+        return path

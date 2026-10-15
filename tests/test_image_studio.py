@@ -12,8 +12,10 @@ sys.path.insert(0, str(RUNTIME_SOURCE))
 from fastapi.testclient import TestClient
 from mlx_studio_runtime.adapters.image_engines.fake_image import write_fake_png
 from mlx_studio_runtime.adapters.image_files import artifact_path, validate_png
-from mlx_studio_runtime.adapters.persistence.sqlite_store import SQLiteStore
-from mlx_studio_runtime.application.runtime_service import RuntimeService
+from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
+    SQLiteRepositories,
+)
+from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.image_generation import ImageParameters
 from mlx_studio_runtime.domain.jobs import JobState
 from mlx_studio_runtime.entrypoints.http.app import create_app
@@ -144,7 +146,7 @@ class ImageStudioApiTests(unittest.TestCase):
             with (
                 TestClient(app) as client,
                 patch(
-                    "mlx_studio_runtime.application.runtime_service.WorkerHost.load",
+                    "mlx_studio_runtime.composition_root.WorkerHost.load",
                     new=AsyncMock(
                         side_effect=RuntimeError("optional engine unavailable")
                     ),
@@ -165,9 +167,9 @@ class ImageStudioApiTests(unittest.TestCase):
     def test_interrupted_tasks_are_failed_after_restart(self):
         with tempfile.TemporaryDirectory() as directory:
             database = Path(directory) / "app.db"
-            store = SQLiteStore(database)
+            store = SQLiteRepositories(database)
             request = dict(PARAMETERS, model_name="Development", simulated=True)
-            store.save_job(
+            store.jobs.save(
                 {
                     "id": "interrupted",
                     "kind": "image",
@@ -192,18 +194,18 @@ class ImageTaskConsistencyTests(unittest.TestCase):
 
     async def _queued_cancellation(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeService(
-                SQLiteStore(Path(directory) / "app.db"), RUNTIME_SOURCE
+            service = RuntimeApplication(
+                SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
-            await service.generation_lock.acquire()
+            await service.scheduler.lock.acquire()
             try:
                 job = await service.images.create(ImageParameters(**PARAMETERS))
                 await asyncio.sleep(0)
-                result = await service.cancel_job(job["id"])
+                result = await service.scheduler.cancel(job["id"])
                 self.assertEqual(result["state"], "cancelled")
-                self.assertIsNone(service.worker)
+                self.assertIsNone(service.inference.worker)
             finally:
-                service.generation_lock.release()
+                service.scheduler.lock.release()
                 await service.close()
 
     def test_late_completion_after_cancel_does_not_save_an_image(self):
@@ -231,15 +233,17 @@ class ImageTaskConsistencyTests(unittest.TestCase):
                 self.release.set()
 
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeService(
-                SQLiteStore(Path(directory) / "app.db"), RUNTIME_SOURCE
+            service = RuntimeApplication(
+                SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
-            service.worker = RaceWorker()
-            service.active_model_id = "builtin-fake-image"
+            service.inference.worker = RaceWorker()
+            service.inference.active_model_id = "builtin-fake-image"
             result = await service.images.create(ImageParameters(**PARAMETERS))
             await asyncio.sleep(0)
-            await service.cancel_job(result["id"])
-            self.assertEqual(service.jobs[result["id"]].state, JobState.CANCELLED)
+            await service.scheduler.cancel(result["id"])
+            self.assertEqual(
+                service.lifecycle.items[result["id"]].state, JobState.CANCELLED
+            )
             self.assertEqual(service.store.images.list_artifacts(), [])
             self.assertEqual(
                 list((service.store.media_path / "images").glob("*.png")), []
@@ -251,15 +255,17 @@ class ImageTaskConsistencyTests(unittest.TestCase):
 
     async def _registration_failure(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeService(
-                SQLiteStore(Path(directory) / "app.db"), RUNTIME_SOURCE
+            service = RuntimeApplication(
+                SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             with patch.object(
                 service.store.images, "save", side_effect=RuntimeError("disk full")
             ):
                 result = await service.images.create(ImageParameters(**PARAMETERS))
-                await service.job_tasks[result["id"]]
-            self.assertEqual(service.jobs[result["id"]].state, JobState.FAILED)
+                await service.scheduler.tasks[result["id"]]
+            self.assertEqual(
+                service.lifecycle.items[result["id"]].state, JobState.FAILED
+            )
             self.assertEqual(
                 list((service.store.media_path / "images").glob("*.png")), []
             )

@@ -1,7 +1,8 @@
 """Job state transitions with persistence and event publication."""
 
-from mlx_studio_runtime.adapters.event_hub import EventHub
-from mlx_studio_runtime.adapters.persistence.sqlite_store import SQLiteStore
+from collections.abc import Callable
+
+from mlx_studio_runtime.application.ports import EventPublisher, JobRepository, Transaction
 from mlx_studio_runtime.domain.jobs import (
     Job,
     JobEvent,
@@ -12,22 +13,31 @@ from mlx_studio_runtime.domain.jobs import (
 
 
 class JobLifecycle:
-    def __init__(self, store: SQLiteStore, events: EventHub) -> None:
+    def __init__(
+        self, store: JobRepository, events: EventPublisher, transaction: Transaction
+    ) -> None:
         self.store = store
         self.events = events
+        self.transaction = transaction
         self.items: dict[str, Job] = {}
+        self.output: dict[str, str] = {}
 
-    async def register(self, job: Job, request: dict[str, object]) -> None:
+    async def register(
+        self, job: Job, request: dict[str, object], persist: Callable[[], None] | None = None
+    ) -> None:
+        with self.transaction():
+            if persist:
+                persist()
+            self.store.save(
+                {
+                    "id": job.id,
+                    "kind": job.kind,
+                    "state": job.state.value,
+                    "modelId": job.model_id,
+                    "request": request,
+                }
+            )
         self.items[job.id] = job
-        self.store.save_job(
-            {
-                "id": job.id,
-                "kind": job.kind,
-                "state": job.state.value,
-                "modelId": job.model_id,
-                "request": request,
-            }
-        )
         await self.events.publish(
             "job.updated",
             {"job_id": job.id, "state": job.state.value},
@@ -35,8 +45,8 @@ class JobLifecycle:
 
     async def transition(self, job_id: str, event: JobEvent) -> Job:
         updated = transition_job(self.items[job_id], event)
+        self.store.update(job_id, updated.state.value)
         self.items[job_id] = updated
-        self.store.update_job(job_id, updated.state.value)
         await self.events.publish(
             "job.updated",
             {"job_id": job_id, "state": updated.state.value},
@@ -48,19 +58,25 @@ class JobLifecycle:
         job_id: str,
         event: JobEvent,
         error_code: str | None = None,
+        persist: Callable[[], None] | None = None,
+        finish_reason: str | None = None,
     ) -> Job:
         current = self.items[job_id]
         if terminal_state(current.state):
             return current
         updated = transition_job(current, event, error_code)
+        with self.transaction():
+            if persist:
+                persist()
+            self.store.update(job_id, updated.state.value, updated.error_code)
         self.items[job_id] = updated
-        self.store.update_job(job_id, updated.state.value, updated.error_code)
         await self.events.publish(
             f"job.{updated.state.value}",
             {
                 "job_id": job_id,
                 "state": updated.state.value,
                 "error_code": updated.error_code,
+                **({"finish_reason": finish_reason} if finish_reason else {}),
             },
         )
         return updated
@@ -72,3 +88,6 @@ class JobLifecycle:
         if current.state is JobState.CANCELLING:
             return await self.finish(job_id, JobEvent.CANCEL_COMPLETE)
         return await self.finish(job_id, JobEvent.FAIL, error_code)
+
+    def append_output(self, job_id: str, text: str) -> None:
+        self.output[job_id] = self.output.get(job_id, "") + text

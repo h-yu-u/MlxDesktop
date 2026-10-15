@@ -29,7 +29,12 @@ describe('ChatComposer', () => {
   it('shows a pending send instead of cancellation before a job starts', () => {
     const wrapper = mount(ChatComposer, { props: { ...baseProps, busy: true, generating: false } })
     expect(wrapper.text()).not.toContain('停止生成')
-    expect(wrapper.findAll('button').find((button) => button.text() === '发送')?.attributes('disabled')).toBeDefined()
+    expect(
+      wrapper
+        .findAll('button')
+        .find((button) => button.text() === '发送')
+        ?.attributes('disabled'),
+    ).toBeDefined()
     wrapper.unmount()
   })
 

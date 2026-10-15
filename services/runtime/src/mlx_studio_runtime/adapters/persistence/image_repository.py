@@ -75,3 +75,11 @@ class ImageRepository:
             )
             for row in rows
         ]
+
+    def find_submission(self, request_id: str) -> tuple[str, str] | None:
+        row = self.database.connection.execute(
+            "SELECT id,json_extract(request_json,'$.requestDigest') FROM jobs "
+            "WHERE kind='image' AND json_extract(request_json,'$.clientRequestId')=?",
+            (request_id,),
+        ).fetchone()
+        return (str(row[0]), str(row[1])) if row else None

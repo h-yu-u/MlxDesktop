@@ -11,6 +11,9 @@ importers:
       dependency-cruiser:
         specifier: ^16.10.4
         version: 16.10.4
+      prettier:
+        specifier: 3.6.2
+        version: 3.6.2
 
   apps/desktop:
     dependencies:
@@ -71,7 +74,7 @@ importers:
         version: 5.7.3
       typescript-eslint:
         specifier: ^8.24.0
-        version: 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
+        version: 8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)
       vite:
         specifier: ^6.1.0
         version: 6.4.3(@types/node@22.20.4)
@@ -1522,6 +1525,11 @@ packages:
     resolution: {integrity: sha512-vkcDPrRZo1QZLbn5RLGPpg/WmIQ65qoWWhcGKf/b5eplkkarX0m9z8ppCat4mlOqUsWpyNuYgO3VRyrYHSzX5g==}
     engines: {node: '>= 0.8.0'}
 
+  prettier@3.6.2:
+    resolution: {integrity: sha512-I7AIg5boAr5R0FFtJ6rCfD+LFsWHp81dolrFD8S79U9tb8Az2nGrJncnMSnys+bpQJfRUzqs9hnA81OAA3hCuQ==}
+    engines: {node: '>=14'}
+    hasBin: true
+
   prompts@2.4.2:
     resolution: {integrity: sha512-NxNv/kLguCA7p3jE8oL2aEBsrJWgAakBpgmgK6lpPWV+WuOmY6r2/zbAVnP+T8bQlA0nzHXSJSJW0Hq7ylaD2Q==}
     engines: {node: '>= 6'}
@@ -2316,12 +2324,12 @@ snapshots:
 
   '@types/web-bluetooth@0.0.21': {}
 
-  '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3))(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)':
+  '@typescript-eslint/eslint-plugin@8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3))(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)':
     dependencies:
       '@eslint-community/regexpp': 4.12.2
-      '@typescript-eslint/parser': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
+      '@typescript-eslint/parser': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)
       '@typescript-eslint/scope-manager': 8.70.1
-      '@typescript-eslint/type-utils': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
+      '@typescript-eslint/type-utils': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)
       '@typescript-eslint/utils': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
       '@typescript-eslint/visitor-keys': 8.70.1
       eslint: 9.39.5(supports-color@10.2.2)
@@ -2332,7 +2340,7 @@ snapshots:
     transitivePeerDependencies:
       - supports-color
 
-  '@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)':
+  '@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)':
     dependencies:
       '@typescript-eslint/scope-manager': 8.70.1
       '@typescript-eslint/types': 8.70.1
@@ -2362,7 +2370,7 @@ snapshots:
     dependencies:
       typescript: 5.7.3
 
-  '@typescript-eslint/type-utils@8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)':
+  '@typescript-eslint/type-utils@8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)':
     dependencies:
       '@typescript-eslint/types': 8.70.1
       '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.7.3)
@@ -3294,6 +3302,8 @@ snapshots:
 
   prelude-ls@1.2.1: {}
 
+  prettier@3.6.2: {}
+
   prompts@2.4.2:
     dependencies:
       kleur: 3.0.3
@@ -3470,10 +3480,10 @@ snapshots:
 
   type-fest@4.41.0: {}
 
-  typescript-eslint@8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3):
+  typescript-eslint@8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3):
     dependencies:
-      '@typescript-eslint/eslint-plugin': 8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3))(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
-      '@typescript-eslint/parser': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
+      '@typescript-eslint/eslint-plugin': 8.70.1(@typescript-eslint/parser@8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3))(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)
+      '@typescript-eslint/parser': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(supports-color@10.2.2)(typescript@5.7.3)
       '@typescript-eslint/typescript-estree': 8.70.1(typescript@5.7.3)
       '@typescript-eslint/utils': 8.70.1(eslint@9.39.5(supports-color@10.2.2))(typescript@5.7.3)
       eslint: 9.39.5(supports-color@10.2.2)

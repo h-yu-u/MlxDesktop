@@ -7,9 +7,14 @@ import AppProviders from './AppProviders.vue'
 const DialogProbe = defineComponent({
   setup() {
     const dialog = useDialog()
-    return () => h(NButton, {
-      onClick: () => dialog.info({ title: 'Provider works', content: 'Dialog content' }),
-    }, { default: () => 'Open dialog' })
+    return () =>
+      h(
+        NButton,
+        {
+          onClick: () => dialog.info({ title: 'Provider works', content: 'Dialog content' }),
+        },
+        { default: () => 'Open dialog' },
+      )
   },
 })
 

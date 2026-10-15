@@ -14,10 +14,15 @@ MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
 def search_mlx_models(query: str, limit: int) -> tuple[HubModel, ...]:
-    params = urlencode({
-        "filter": "mlx", "search": query.strip(), "sort": "downloads",
-        "direction": "-1", "limit": str(limit),
-    })
+    params = urlencode(
+        {
+            "filter": "mlx",
+            "search": query.strip(),
+            "sort": "downloads",
+            "direction": "-1",
+            "limit": str(limit),
+        }
+    )
     request = Request(
         f"{CATALOG_ENDPOINT}?{params}",
         headers={"Accept": "application/json", "User-Agent": "MLX-Studio/0.1"},
@@ -30,7 +35,10 @@ def search_mlx_models(query: str, limit: int) -> tuple[HubModel, ...]:
         payload: object = json.loads(content)
         return read_hub_models(payload)
     except (URLError, OSError, ValueError) as error:
-        raise RuntimeFault(RuntimeErrorInfo(
-            "HF_CATALOG_NOT_AVAILABLE", "无法获取 Hugging Face 模型，请检查网络后重试。",
-            retryable=True,
-        )) from error
+        raise RuntimeFault(
+            RuntimeErrorInfo(
+                "HF_CATALOG_NOT_AVAILABLE",
+                "无法获取 Hugging Face 模型，请检查网络后重试。",
+                retryable=True,
+            )
+        ) from error

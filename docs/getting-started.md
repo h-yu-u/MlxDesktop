@@ -34,6 +34,8 @@ pnpm dev
 
 聊天页优先选择已登记的真实文本模型，首次发送时自动加载。后续轮次使用已保存的对话历史；生成中可停止，连接失效后可重新启动 Runtime。发送失败会保留草稿和附件。
 
+默认最大输出长度为 4096 token，可在右上角模型设置中调整，最高 8192。达到上限时，回答下方会提示并提供「继续回答」；继续会沿用已有对话上下文发起下一轮。达到长度上限与推理失败分开显示，停止原因随历史保存。
+
 已验证的 Qwen3.8-27B MLX 模型应导入包含 `config.json` 和权重的 `4-bit` 子目录。当前已验证纯文本场景；模型经 `mlx-vlm` 运行不代表图片理解已经验收。没有真实模型时可选择明确标注的 Fake Text Engine 验证交互。
 
 ## 图片创作与历史
@@ -48,6 +50,16 @@ pnpm dev
 Runtime 接口允许宽高 64–2048 且为 16 的倍数，步数 1–100，Seed 为 0–4294967295；这只是参数校验范围，不能据此推定所有模型和分辨率已验证。
 
 Qwen Image 2.1 原生 MFLUX 导出应包含 `transformer/`、`text_encoder/`、`vae/` 的分片索引和权重，以及 `processor/` 分词器。模型通过结构识别，目录名称不影响行为。生成时只使用本地权重，不隐式下载缺失组件。Fake Image Engine 会明确标注为模拟图像。
+
+### 图片编辑与参考图
+
+- 页面提供「文字生图」「图片编辑」「局部重绘」三种模式；首次打开优先选完整的本地编辑模型。切换到编辑模式时会自动选择兼容模型，文生图专用导出不提供编辑能力。
+- 图片编辑中点击或拖入原图和参考图，最多 10 张 PNG/JPEG/WebP，每张不超过 20 MB。图 1 是原图，其余图片按编号引用，例如“把图 1 的茶壶改成图 2 的蓝色”。使用前移、后移按钮调整顺序；移除或更换原图后需重新涂抹区域。
+- 局部重绘中点击「涂抹需要修改的区域」，紫色表示会重新绘制的位置。画笔大小、橡皮擦、撤销和清空用于修整范围，保存区域后输入修改要求并开始编辑。
+- 修改强度越低越贴近原图；高强度更容易产生明显变化。比例常驻，步数、Seed 和自定义尺寸位于「更多设置」。Qwen Image 2.1 完整编辑管线要求宽高为 32 的倍数，默认编辑使用 40 步。
+- 结果支持原图对比和 PNG 导出。「继续编辑」把选中作品作为新的原图；「复用参数」恢复原任务的模型、指令、参考图、蒙版和强度。参考图与蒙版也保存在应用数据目录，重启后可复用。
+
+已本机验证 `OsaurusAI/Qwen-Image-2.1-mflux-8bit`，包含视觉编码器、组件配置和处理器。之前的文生图 BF16 导出继续用于文字生图。蒙版可固定未涂抹区域，但边界仍可能有接缝，需要按实际素材调整。
 
 ## 数据位置
 
@@ -66,13 +78,17 @@ Qwen Image 2.1 原生 MFLUX 导出应包含 `transformer/`、`text_encoder/`、`
 
 | 命令 | 用途 |
 |---|---|
-| `pnpm check` | 前端类型与 lint、Runtime Ruff/Pyright、依赖边界检查 |
+| `pnpm check` | 格式、类型、lint、AST 依赖边界与违规 fixture、文件长度和样式归属检查 |
 | `pnpm test` | 前端 Vitest 和 Runtime unittest |
+| `pnpm format` | 使用统一 Prettier/Ruff 规则格式化源码 |
 | `pnpm api:generate` | 根据 FastAPI OpenAPI 更新 API 类型 |
 | `pnpm check:rust` | Rust fmt 与 clippy |
+| `pnpm test:rust` | Rust 握手与连接代际回归测试 |
 | `pnpm build:web` | 构建 Vue 前端 |
 | `pnpm build:runtime:check` | Python 源码编译检查；`build:runtime` 为其别名 |
 | `pnpm build:sidecar` | Apple Silicon macOS 上构建 PyInstaller Runtime |
 | `pnpm build:app` | Web → Sidecar → Tauri `.app`/`.dmg`；`build:desktop` 为其别名 |
 
 Web 构建和源码检查不能代替打包应用、签名、公证或干净机器验收。真实模型复验命令见[验收状态](./status.md)。
+
+Sidecar 默认采用 `release` profile，安装真实引擎并在独立 `.build/runtime/venv-release` 环境构建；仅开发验证可使用 `MLX_STUDIO_BUILD_PROFILE=fake pnpm build:sidecar`。Fake profile 不包含真实推理依赖，不能作为正式发布产物。桌面壳通过专用 stdin 管道声明生命周期所有权；关闭或重启后，管道 EOF 触发 Runtime 清理，避免 onefile bootloader 被强制停止时遗留内部进程。

@@ -28,7 +28,7 @@ Entrypoints → Application
 - Vue 3 Composition API 与 `<script setup lang="ts">`，TypeScript 保持严格类型；外部边界使用 `unknown`，避免 `any` 和掩盖错误的类型断言。
 - Naive UI 提供按钮、输入、选择器、弹窗、上传、表格、进度等基础控件；自定义组件表达产品领域，不重复实现 UI 原语。通用响应式/浏览器能力优先 VueUse。
 - 页面组合功能，容器编排状态，展示组件通过 Props/Events 交互；复杂计算下沉到普通 TypeScript，生命周期和平台副作用放入 composable。
-- Pinia 编排状态和副作用，不作为数据库、不保存大型二进制、不集中所有领域规则；Store 间不得循环依赖。
+- Pinia 入口暴露已配置的工作区 controller；提交编排归属 application，查询和视图资源归属 presentation/capabilities，平台 I/O 归属 platform。Store 不直接持有 SSE、计时器、Object URL 或 RuntimeClient；Store 间不得循环依赖。
 - API DTO 从 FastAPI OpenAPI 生成，不手写重复协议；事件保持可辨识类型，协议不兼容时阻止继续调用。
 - 表单和外部输入明确校验，列表使用稳定 key，模板避免复杂表达式；按钮语义、label 和键盘操作应可访问。
 
@@ -79,6 +79,10 @@ pnpm check
 pnpm test
 ```
 
-Runtime/Engine 改动还需相关契约、集成或系统验证；构建与 Rust 改动使用[对应命令](./getting-started.md)。当前 CI 执行 API 类型生成一致性、check、test、Web 构建，Rust 单独运行 fmt/clippy；不能把规划中的全部质量项描述为现有门禁。
+Runtime/Engine 改动还需相关契约、集成或系统验证；构建与 Rust 改动使用[对应命令](./getting-started.md)。当前 CI 执行 API 类型生成一致性、check、test、Web 构建，Rust 单独运行 fmt/clippy/test；不能把规划中的全部质量项描述为现有门禁。
+
+`pnpm check` 包含 Prettier/Ruff 格式、类型、lint、TypeScript/Vue/Python AST 依赖边界及违规 fixture、生产源码长度与公共样式归属检查。AST 检查解析别名、re-export、动态导入和环路；生成文件与测试的豁免由检查器显式声明。长度门禁覆盖文件硬上限，函数长度、覆盖率目标和所有运行时行为仍需审查/测试，不宣称已经自动覆盖。Rust CI 同时运行 `cargo test`，占位 Sidecar 只用于编译期检查。
+
+`MLX_STUDIO_BUILD_PROFILE=release` 为默认 Sidecar 构建，使用独立 uv 环境和锁定构建工具并收集真实引擎及动态依赖；`fake` profile 明确排除真实引擎，仅供开发验证。发布包必须通过实际 Sidecar 启动和固定真实模型冒烟；正式签名、公证与干净机器验收另行执行，不由普通 CI 的占位文件代替。
 
 完成时检查验收条件、类型/lint、错误/空/加载/取消状态、依赖边界、文档和必要迁移，并说明修改文件、新增依赖、检查结果和未验证风险。缺工具或命令失败时如实记录，不宣称通过。不自动 commit、push、merge 或 rebase。

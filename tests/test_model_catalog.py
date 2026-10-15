@@ -1,9 +1,11 @@
+import hashlib
 import io
 import json
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
@@ -29,25 +31,40 @@ class HubCatalogMetadataTests(unittest.TestCase):
             {"id": "invalid", "tags": ["mlx"]},
         ]
         models = read_hub_models(items)
-        self.assertEqual([model.repo_id for model in models], ["community/good", "community/library"])
+        self.assertEqual(
+            [model.repo_id for model in models], ["community/good", "community/library"]
+        )
         self.assertEqual(models[0].downloads, 42)
         self.assertIsNone(models[1].task)
 
     def test_rejects_invalid_payload_and_normalizes_optional_fields(self) -> None:
         with self.assertRaises(ValueError):
             read_hub_models({"error": "unavailable"})
-        model = read_hub_models([
-            {"id": "community/model", "tags": ["mlx"], "downloads": -1, "likes": True},
-        ])[0]
+        model = read_hub_models(
+            [
+                {
+                    "id": "community/model",
+                    "tags": ["mlx"],
+                    "downloads": -1,
+                    "likes": True,
+                },
+            ]
+        )[0]
         self.assertEqual((model.downloads, model.likes), (0, 0))
 
 
 class HubCatalogAdapterTests(unittest.TestCase):
     @patch("mlx_studio_runtime.adapters.huggingface_catalog.urlopen")
-    def test_search_uses_mlx_filter_encoded_query_and_bounded_timeout(self, open_url) -> None:
-        open_url.return_value = io.BytesIO(json.dumps([
-            {"id": "community/Qwen", "tags": ["mlx"]},
-        ]).encode())
+    def test_search_uses_mlx_filter_encoded_query_and_bounded_timeout(
+        self, open_url
+    ) -> None:
+        open_url.return_value = io.BytesIO(
+            json.dumps(
+                [
+                    {"id": "community/Qwen", "tags": ["mlx"]},
+                ]
+            ).encode()
+        )
         self.assertEqual(len(search_mlx_models(" Qwen & 4-bit ", 20)), 1)
         request = open_url.call_args.args[0]
         query = parse_qs(urlparse(request.full_url).query)
@@ -59,7 +76,9 @@ class HubCatalogAdapterTests(unittest.TestCase):
         self.assertIsNone(request.get_header("Authorization"))
 
     @patch("mlx_studio_runtime.adapters.huggingface_catalog.urlopen")
-    def test_network_and_malformed_responses_map_to_retryable_errors(self, open_url) -> None:
+    def test_network_and_malformed_responses_map_to_retryable_errors(
+        self, open_url
+    ) -> None:
         for failure in [URLError("offline"), ValueError("malformed")]:
             open_url.side_effect = failure
             with self.assertRaises(RuntimeFault) as caught:
@@ -78,43 +97,83 @@ class HubCatalogApiTests(unittest.TestCase):
     def test_catalog_route_auth_validation_and_error_contract(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app = create_app("catalog-test", Path(directory) / "app.db")
-            with TestClient(app) as client, patch(
-                "mlx_studio_runtime.entrypoints.http.model_catalog.search_mlx_models",
-                return_value=(HubModel("community/model", 100, 5, "text-generation", None),),
-            ) as search:
+            with (
+                TestClient(app) as client,
+                patch(
+                    "mlx_studio_runtime.entrypoints.http.model_catalog.search_mlx_models",
+                    return_value=(
+                        HubModel("community/model", 100, 5, "text-generation", None),
+                    ),
+                ) as search,
+            ):
                 url = "/internal/v1/models/catalog"
                 headers = {"Authorization": "Bearer catalog-test"}
                 self.assertEqual(client.get(url).status_code, 401)
-                result = client.get(url, params={"query": "Qwen", "limit": 10}, headers=headers)
+                result = client.get(
+                    url, params={"query": "Qwen", "limit": 10}, headers=headers
+                )
                 self.assertEqual(result.status_code, 200)
                 self.assertEqual(result.json()[0]["repo_id"], "community/model")
                 search.assert_called_once_with("Qwen", 10)
-                self.assertEqual(client.get(url, params={"limit": 51}, headers=headers).status_code, 422)
-                self.assertEqual(client.get(url, params={"query": "x" * 101}, headers=headers).status_code, 422)
+                self.assertEqual(
+                    client.get(url, params={"limit": 51}, headers=headers).status_code,
+                    422,
+                )
+                self.assertEqual(
+                    client.get(
+                        url, params={"query": "x" * 101}, headers=headers
+                    ).status_code,
+                    422,
+                )
                 search.side_effect = TimeoutError("upstream timeout")
                 failed = client.get(url, headers=headers)
                 self.assertEqual(failed.status_code, 503)
-                self.assertEqual(failed.json()["error"]["code"], "HF_CATALOG_NOT_AVAILABLE")
+                self.assertEqual(
+                    failed.json()["error"]["code"], "HF_CATALOG_NOT_AVAILABLE"
+                )
 
     def test_selected_repository_download_is_registered(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            model_dir = root / "downloaded-model"
-            model_dir.mkdir()
+            model_dir = (
+                root
+                / "models"
+                / "community--selected-mlx"
+                / hashlib.sha256(b"resolved").hexdigest()[:16]
+            )
+            model_dir.mkdir(parents=True)
             (model_dir / "config.json").write_text(json.dumps({"model_type": "qwen2"}))
             (model_dir / "model.safetensors").write_bytes(b"test-placeholder")
             app = create_app("download-test", root / "app.db")
             headers = {"Authorization": "Bearer download-test"}
-            with TestClient(app) as client, patch(
-                "huggingface_hub.snapshot_download", return_value=str(model_dir),
-            ) as download, patch.dict("os.environ", {"MLX_STUDIO_MODELS_DIR": str(root / "models")}):
+            with (
+                TestClient(app) as client,
+                patch(
+                    "huggingface_hub.snapshot_download",
+                    return_value=str(model_dir),
+                ) as download,
+                patch(
+                    "huggingface_hub.HfApi.model_info",
+                    return_value=SimpleNamespace(sha="resolved"),
+                ),
+                patch.dict(
+                    "os.environ", {"MLX_STUDIO_MODELS_DIR": str(root / "models")}
+                ),
+            ):
                 result = client.post(
                     "/internal/v1/models/pull",
-                    json={"repo_id": "community/selected-mlx"}, headers=headers,
+                    json={"repo_id": "community/selected-mlx"},
+                    headers=headers,
                 )
                 self.assertEqual(result.status_code, 200)
-                self.assertEqual(download.call_args.kwargs["repo_id"], "community/selected-mlx")
+                self.assertEqual(
+                    download.call_args.kwargs["repo_id"], "community/selected-mlx"
+                )
                 models = client.get("/internal/v1/models", headers=headers).json()
-                model = next(item for item in models if item["id"] == result.json()["modelId"])
+                model = next(
+                    item for item in models if item["id"] == result.json()["modelId"]
+                )
                 self.assertEqual(model["displayName"], "community/selected-mlx")
                 self.assertEqual(model["source"], "huggingface")
+                self.assertEqual(model["revision"], "resolved")
+                self.assertTrue(model["managedInstallation"])

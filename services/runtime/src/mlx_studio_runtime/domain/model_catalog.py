@@ -34,13 +34,15 @@ def read_hub_models(payload: object) -> tuple[HubModel, ...]:
             continue
         if not is_mlx or fields.get("private") or fields.get("gated") or repo_id in seen:
             continue
-        models.append(HubModel(
-            repo_id=repo_id,
-            downloads=_count(fields.get("downloads")),
-            likes=_count(fields.get("likes")),
-            task=_text(fields.get("pipeline_tag")),
-            updated_at=_text(fields.get("lastModified")),
-        ))
+        models.append(
+            HubModel(
+                repo_id=repo_id,
+                downloads=_count(fields.get("downloads")),
+                likes=_count(fields.get("likes")),
+                task=_text(fields.get("pipeline_tag")),
+                updated_at=_text(fields.get("lastModified")),
+            )
+        )
         seen.add(repo_id)
     return tuple(models)
 

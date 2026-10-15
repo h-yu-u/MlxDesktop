@@ -16,9 +16,13 @@ describe('RuntimeClient', () => {
     const event = { seq: 1, type: 'generation.delta', payload: { text: 'hello' } }
     const json = JSON.stringify(event)
     const split = json.indexOf(',') + 1
-    const body = `id: 1\r\nevent: generation.delta\r\ndata: ${json.slice(0, split)}\r\n`
-      + `data: ${json.slice(split)}\r\n\r\n`
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(body, { status: 200 })))
+    const body =
+      `id: 1\r\nevent: generation.delta\r\ndata: ${json.slice(0, split)}\r\n` +
+      `data: ${json.slice(split)}\r\n\r\n`
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response(body, { status: 200 })),
+    )
 
     const received: unknown[] = []
     await new RuntimeClient(connection).subscribe(
@@ -31,10 +35,16 @@ describe('RuntimeClient', () => {
 
   it('invalidates a cached connection after authentication failure', async () => {
     const invalidated = vi.fn()
-    vi.stubGlobal('fetch', vi.fn(async () => new Response(
-      JSON.stringify({ error: { message: 'unauthorized' } }),
-      { status: 401, headers: { 'Content-Type': 'application/json' } },
-    )))
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ error: { message: 'unauthorized' } }), {
+            status: 401,
+            headers: { 'Content-Type': 'application/json' },
+          }),
+      ),
+    )
 
     const client = new RuntimeClient(connection, { onConnectionInvalid: invalidated })
     await expect(client.get('/internal/v1/runtime/info')).rejects.toThrow('unauthorized')

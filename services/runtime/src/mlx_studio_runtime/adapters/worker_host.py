@@ -13,7 +13,9 @@ from mlx_studio_runtime import PROTOCOL_VERSION
 
 
 class WorkerProtocolError(RuntimeError):
-    pass
+    def __init__(self, message: str, code: str = "WORKER_PROTOCOL_INVALID") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 class WorkerHost:
@@ -24,6 +26,12 @@ class WorkerHost:
         self.write_lock = asyncio.Lock()
         self.reader_task: asyncio.Task[None] | None = None
         self.last_sequence = 0
+
+    @property
+    def pid(self) -> int | None:
+        if self.process is None or self.process.returncode is not None:
+            return None
+        return self.process.pid
 
     async def start(self) -> None:
         if self.process and self.process.returncode is None:
@@ -55,8 +63,8 @@ class WorkerHost:
 
     async def load(self, manifest: dict[str, Any]) -> None:
         await self.start()
-        await self._send("worker.load", {"manifest": manifest})
-        await self._wait_for("model.loaded")
+        command_id = await self._send("worker.load", {"manifest": manifest})
+        await self._wait_for("model.loaded", command_id)
 
     async def generate(
         self,
@@ -67,7 +75,7 @@ class WorkerHost:
         image_paths: list[str] | None = None,
         messages: list[dict[str, str]] | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
-        await self._send(
+        command_id = await self._send(
             "generation.start",
             {
                 "job_id": job_id,
@@ -78,16 +86,24 @@ class WorkerHost:
                 "messages": messages or [],
             },
         )
-        async for event in self._events_until_terminal(job_id):
+        async for event in self._events_until_terminal(job_id, command_id):
             yield event
 
     async def generate_image(
-        self, job_id: str, parameters: dict[str, object], output_path: Path,
+        self,
+        job_id: str,
+        parameters: dict[str, object],
+        output_path: Path,
     ) -> AsyncIterator[dict[str, Any]]:
-        await self._send("image.start", {
-            "job_id": job_id, "parameters": parameters, "output_path": str(output_path),
-        })
-        async for event in self._events_until_terminal(job_id):
+        command_id = await self._send(
+            "image.start",
+            {
+                "job_id": job_id,
+                "parameters": parameters,
+                "output_path": str(output_path),
+            },
+        )
+        async for event in self._events_until_terminal(job_id, command_id):
             yield event
 
     async def cancel(self, job_id: str) -> None:
@@ -115,7 +131,7 @@ class WorkerHost:
         await self.stop()
         await self.start()
 
-    async def _send(self, command_type: str, payload: dict[str, Any]) -> None:
+    async def _send(self, command_type: str, payload: dict[str, Any]) -> str:
         if (
             self.process is None
             or self.process.stdin is None
@@ -131,6 +147,7 @@ class WorkerHost:
         async with self.write_lock:
             self.process.stdin.write((json.dumps(frame) + "\n").encode())
             await self.process.stdin.drain()
+        return frame["id"]
 
     async def _read_event(self) -> dict[str, Any]:
         if self.process is None or self.process.stdout is None:
@@ -142,6 +159,8 @@ class WorkerHost:
             event = json.loads(line)
         except json.JSONDecodeError as error:
             raise WorkerProtocolError("worker emitted invalid JSON") from error
+        if not isinstance(event, dict):
+            raise WorkerProtocolError("worker event must be an object")
         if event.get("protocol_version") != PROTOCOL_VERSION:
             raise WorkerProtocolError("worker protocol version mismatch")
         if event.get("seq") != self.last_sequence + 1:
@@ -151,20 +170,33 @@ class WorkerHost:
         self.last_sequence = event["seq"]
         return event
 
-    async def _wait_for(self, event_type: str) -> dict[str, Any]:
+    async def _wait_for(self, event_type: str, command_id: str) -> dict[str, Any]:
         while True:
             event = await asyncio.wait_for(self._read_event(), timeout=120)
-            if event["type"] == "worker.command_failed":
-                raise WorkerProtocolError("worker command failed")
+            self._check_failure(event, command_id)
             if event["type"] == event_type:
                 return event
 
-    async def _events_until_terminal(self, job_id: str) -> AsyncIterator[dict[str, Any]]:
+    @staticmethod
+    def _check_failure(event: dict[str, Any], command_id: str | None) -> None:
+        if event["type"] == "worker.command_failed":
+            if event["payload"].get("command_id") != command_id:
+                raise WorkerProtocolError("worker failed an unexpected command")
+            raise WorkerProtocolError("worker command failed", "WORKER_COMMAND_FAILED")
+        if event["type"] in {"worker.protocol_error", "worker.stopped"}:
+            raise WorkerProtocolError("worker stopped or rejected the protocol")
+
+    async def _events_until_terminal(
+        self,
+        job_id: str,
+        command_id: str | None = None,
+    ) -> AsyncIterator[dict[str, Any]]:
         terminal = {"generation.completed", "generation.cancelled", "generation.failed"}
         while True:
             event = await self._read_event()
+            self._check_failure(event, command_id)
             payload = event["payload"]
-            if payload.get("job_id") not in {None, job_id}:
+            if payload.get("job_id") != job_id:
                 raise WorkerProtocolError("Worker returned an event for another job")
             yield event
             if event["type"] in terminal:

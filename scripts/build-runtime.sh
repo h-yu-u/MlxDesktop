@@ -6,6 +6,23 @@ runtime_project="$repo_root/services/runtime"
 target_triple="aarch64-apple-darwin"
 output_directory="$repo_root/apps/desktop/src-tauri/binaries"
 build_directory="$repo_root/.build/runtime"
+profile="${MLX_STUDIO_BUILD_PROFILE:-release}"
+engine_flags=()
+collect_flags=()
+if [[ "$profile" == "release" ]]; then
+  engine_flags=(--extra mlx-lm --extra mlx-vlm --extra mflux)
+  collect_flags=(--collect-all mlx --collect-all mlx_lm --collect-all mlx_vlm --collect-all mflux
+    --collect-all transformers --collect-all tokenizers --collect-all huggingface_hub
+    --collect-all scipy)
+elif [[ "$profile" == "fake" ]]; then
+  collect_flags=(--exclude-module mlx --exclude-module mlx_lm --exclude-module mlx_vlm --exclude-module mflux)
+elif [[ "$profile" != "fake" ]]; then
+  echo "Build profile must be release or fake." >&2
+  exit 2
+fi
+export UV_PROJECT_ENVIRONMENT="$build_directory/venv-$profile"
+export PYINSTALLER_CONFIG_DIR="$build_directory/pyinstaller-$profile"
+export PYTHONPATH="$runtime_project/src${PYTHONPATH:+:$PYTHONPATH}"
 
 mkdir -p "$output_directory"
 if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
@@ -14,7 +31,7 @@ if [[ "$(uname -s)" != "Darwin" || "$(uname -m)" != "arm64" ]]; then
 fi
 
 uv run --frozen --project "$runtime_project" --python 3.12 \
-  --extra mlx-lm --extra mlx-vlm --extra mflux --with pyinstaller \
+  --group build "${engine_flags[@]}" \
   pyinstaller --clean --noconfirm --onefile \
   --name mlx-studio-runtime \
   --distpath "$build_directory/dist" \
@@ -22,9 +39,7 @@ uv run --frozen --project "$runtime_project" --python 3.12 \
   --specpath "$build_directory/spec" \
   --paths "$runtime_project/src" \
   --collect-all mlx_studio_runtime \
-  --collect-all mlx_lm \
-  --collect-all mlx_vlm \
-  --collect-all mflux \
+  "${collect_flags[@]}" \
   "$runtime_project/src/mlx_studio_runtime/entrypoints/http/main.py"
 
 install -m 755 "$build_directory/dist/mlx-studio-runtime" \

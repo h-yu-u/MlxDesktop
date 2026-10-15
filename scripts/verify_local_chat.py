@@ -20,6 +20,7 @@ async def turn(
     model_id: str,
     prompt: str,
     cancel: bool = False,
+    attachment_ids: list[str] | None = None,
 ) -> tuple[str, int]:
     info = (await client.get("/internal/v1/runtime/info")).json()
     async with client.stream(
@@ -33,6 +34,7 @@ async def turn(
                 "model_id": model_id,
                 "temperature": 0,
                 "max_tokens": 2048 if cancel else 64,
+                "attachment_ids": attachment_ids or [],
             },
         )
         sent.raise_for_status()
@@ -81,11 +83,13 @@ async def verify(client: httpx.AsyncClient, path: str) -> dict[str, Any]:
     first = await turn(
         client, conversation, manifest["id"], "记住测试暗号是蓝鲸。只回复已记住。"
     )
+    print("First real-model turn passed", flush=True)
     second = await turn(
         client, conversation, manifest["id"], "刚才的测试暗号是什么？只回答暗号。"
     )
     if "蓝鲸" not in second[0]:
         raise RuntimeError("Second turn did not retain conversation history")
+    print("Multi-turn context passed", flush=True)
     restarted = await client.post("/internal/v1/runtime/restart-worker")
     restarted.raise_for_status()
     third = await turn(
@@ -93,6 +97,7 @@ async def verify(client: httpx.AsyncClient, path: str) -> dict[str, Any]:
     )
     if "蓝鲸" not in third[0]:
         raise RuntimeError("Conversation context was lost after Worker restart")
+    print("Worker restart and context passed", flush=True)
     saved = (await client.get(f"/internal/v1/conversations/{conversation}")).json()
     if len(saved["messages"]) != 6 or saved["messages"][-1]["content"] != third[0]:
         raise RuntimeError("Streamed output did not match persisted conversation")
@@ -115,20 +120,22 @@ async def verify(client: httpx.AsyncClient, path: str) -> dict[str, Any]:
     }
 
 
-async def run(path: str) -> None:
+async def run(path: str, sidecar: str | None = None) -> None:
     source = Path(__file__).resolve().parents[1] / "services/runtime/src"
     with tempfile.TemporaryDirectory(prefix="mlx-real-chat-") as directory:
         env = {
             **os.environ,
-            "PYTHONPATH": str(source),
+            "PYTHONPATH": "" if sidecar else str(source),
             "MLX_STUDIO_DATA_DIR": directory,
             "MLX_STUDIO_SESSION_TOKEN": secrets.token_urlsafe(32),
             "HF_HUB_OFFLINE": "1",
         }
         process = await asyncio.create_subprocess_exec(
-            sys.executable,
-            "-m",
-            "mlx_studio_runtime.entrypoints.http.main",
+            *(
+                [sidecar]
+                if sidecar
+                else [sys.executable, "-m", "mlx_studio_runtime.entrypoints.http.main"]
+            ),
             env=env,
             stdout=asyncio.subprocess.PIPE,
         )
@@ -143,7 +150,7 @@ async def run(path: str) -> None:
                 trust_env=False,
                 headers={"Authorization": f"Bearer {env['MLX_STUDIO_SESSION_TOKEN']}"},
             ) as client:
-                async with asyncio.timeout(180):
+                async with asyncio.timeout(600):
                     result = await verify(client, path)
         finally:
             if process.returncode is None:
@@ -165,4 +172,6 @@ async def run(path: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True)
-    asyncio.run(run(parser.parse_args().model_path))
+    parser.add_argument("--sidecar")
+    arguments = parser.parse_args()
+    asyncio.run(run(arguments.model_path, arguments.sidecar))

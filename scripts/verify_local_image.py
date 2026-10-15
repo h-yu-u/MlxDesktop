@@ -19,16 +19,19 @@ from verify_local_chat import turn
 
 async def start_runtime(
     directory: str,
+    sidecar: str | None = None,
 ) -> tuple[asyncio.subprocess.Process, httpx.AsyncClient]:
     source = Path(__file__).resolve().parents[1] / "services/runtime/src"
     token = secrets.token_urlsafe(32)
     process = await asyncio.create_subprocess_exec(
-        sys.executable,
-        "-m",
-        "mlx_studio_runtime.entrypoints.http.main",
+        *(
+            [sidecar]
+            if sidecar
+            else [sys.executable, "-m", "mlx_studio_runtime.entrypoints.http.main"]
+        ),
         env={
             **os.environ,
-            "PYTHONPATH": str(source),
+            "PYTHONPATH": "" if sidecar else str(source),
             "MLX_STUDIO_DATA_DIR": directory,
             "MLX_STUDIO_SESSION_TOKEN": token,
             "HF_HUB_OFFLINE": "1",
@@ -177,9 +180,11 @@ async def prepare_chat(client: httpx.AsyncClient, path: str) -> tuple[str, str]:
     return conversation, model_id
 
 
-async def run(path: str, output: Path, chat_path: str | None) -> None:
+async def run(
+    path: str, output: Path, chat_path: str | None, sidecar: str | None = None
+) -> None:
     with tempfile.TemporaryDirectory(prefix="mlx-real-image-") as directory:
-        process, client = await start_runtime(directory)
+        process, client = await start_runtime(directory, sidecar)
         try:
             async with client:
                 chat = await prepare_chat(client, chat_path) if chat_path else None
@@ -195,7 +200,7 @@ async def run(path: str, output: Path, chat_path: str | None) -> None:
                     result["chat_image_chat"] = "passed"
         finally:
             await stop_runtime(process)
-        process, client = await start_runtime(directory)
+        process, client = await start_runtime(directory, sidecar)
         try:
             async with client:
                 await check_restart(client, result)
@@ -214,6 +219,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--model-path", required=True)
     parser.add_argument("--chat-model-path")
+    parser.add_argument("--sidecar")
     parser.add_argument(
         "--output",
         type=Path,
@@ -221,5 +227,10 @@ if __name__ == "__main__":
     )
     arguments = parser.parse_args()
     asyncio.run(
-        run(arguments.model_path, arguments.output.resolve(), arguments.chat_model_path)
+        run(
+            arguments.model_path,
+            arguments.output.resolve(),
+            arguments.chat_model_path,
+            arguments.sidecar,
+        )
     )

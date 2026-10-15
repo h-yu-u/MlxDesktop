@@ -1,0 +1,23 @@
+import { createEndpoints, type RuntimeClient } from '@mlx-studio/api-client'
+import type { ImageRequest } from '../domain/image-state'
+export function createImageGateway(provider: () => Promise<RuntimeClient>) {
+  const endpoints = async () => createEndpoints(await provider()).images
+  return {
+    listJobs: async (signal?: AbortSignal) => (await endpoints()).listJobs(signal),
+    history: async (offset: number, signal?: AbortSignal) =>
+      (await endpoints()).history(offset, signal),
+    generate: async (request: ImageRequest) =>
+      (await endpoints()).generate({
+        ...request,
+        mode: request.mode ?? 'generate',
+        strength: request.strength ?? 1,
+      }),
+    job: async (id: string, signal?: AbortSignal) => (await endpoints()).job(id, signal),
+    cancel: async (id: string) => (await endpoints()).cancel(id),
+    image: async (id: string, signal?: AbortSignal) =>
+      (await provider()).downloadImageArtifact(id, signal),
+    upload: async (file: File) => (await provider()).uploadImage(file),
+    attachment: async (id: string, signal?: AbortSignal) =>
+      (await provider()).downloadAttachment(id, signal),
+  }
+}

@@ -1,0 +1,101 @@
+.composer {
+  flex-shrink: 0;
+  border: 1px solid #414141;
+  border-radius: 24px;
+  background: #303030;
+  padding: 17px 18px 13px;
+  box-shadow: 0 5px 22px #0000000d;
+  transition: border-color 0.18s;
+}
+.composer:focus-within {
+  border-color: #666;
+}
+.composer :deep(.n-input) {
+  --n-color: transparent !important;
+  --n-color-hover: transparent !important;
+  --n-color-focus: transparent !important;
+  --n-box-shadow-focus: none !important;
+  --n-text-color: #eee;
+  --n-placeholder-color: #979797;
+  --n-font-size: 15px;
+}
+.composer :deep(.n-input-wrapper) {
+  padding: 2px 1px;
+}
+.composer :deep(.n-input__textarea-el) {
+  min-height: 56px;
+}
+.composer-actions {
+  margin-top: 15px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+.composer-tools,
+.composer-send {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.composer-tools :deep(.n-button) {
+  height: 32px;
+  padding: 0 8px;
+  color: #bbb;
+}
+.composer-tools :deep(.n-button__content) {
+  gap: 6px;
+  font-size: 12px;
+}
+.composer-tools .attachment-add {
+  height: 32px;
+  width: 32px;
+  padding: 0;
+}
+.send-button.n-button {
+  --n-text-color: #252525 !important;
+  --n-text-color-hover: #111 !important;
+  --n-text-color-disabled: #777 !important;
+  --n-color: #ececec;
+  --n-color-hover: #fff;
+  --n-color-disabled: #494949;
+  --n-border: none;
+  --n-border-disabled: none;
+  --n-opacity-disabled: 1;
+  height: 34px;
+  width: 34px;
+  flex-shrink: 0;
+}
+.send-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.attachment-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-bottom: 8px;
+}
+@media (max-width: 680px) {
+  .composer {
+    padding: 14px 12px 11px;
+    border-radius: 20px;
+  }
+  .composer-actions {
+    gap: 4px;
+  }
+  .composer-tools {
+    gap: 0;
+  }
+  .composer-tools .image-attachment {
+    padding: 0 4px;
+    font-size: 11px;
+  }
+}

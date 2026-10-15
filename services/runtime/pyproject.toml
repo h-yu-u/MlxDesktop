@@ -22,6 +22,9 @@ mflux = [
 ]
 
 [dependency-groups]
+build = [
+    "pyinstaller==6.16.0",
+]
 dev = [
   "httpx>=0.28,<1",
   "pyright>=1.1.390,<2",

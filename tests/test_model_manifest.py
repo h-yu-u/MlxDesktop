@@ -5,12 +5,44 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from mlx_studio_runtime.adapters.model_scan import manifest_from_directory
+
 sys.path.insert(0, str(Path(__file__).parents[1] / "services" / "runtime" / "src"))
 
-from mlx_studio_runtime.domain.models import infer_model_kind, manifest_from_directory
+from mlx_studio_runtime.domain.models import infer_model_kind
 
 
 class ModelManifestTests(unittest.TestCase):
+    def test_complete_qwen21_export_advertises_editing_from_vision_metadata(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "model_index.json").write_text(
+                json.dumps({"_class_name": "QwenImage21Pipeline"})
+            )
+            for name in ["transformer", "vae", "text_encoder", "processor"]:
+                (root / name).mkdir()
+            for name in ["transformer", "vae", "text_encoder"]:
+                (root / name / "config.json").write_text(
+                    json.dumps(
+                        {"vision_config": {}}
+                        if name == "text_encoder"
+                        else {"type": name}
+                    )
+                )
+            (root / "text_encoder/model.safetensors.index.json").write_text(
+                json.dumps(
+                    {"weight_map": {"visual.patch_embed.proj.weight": "0.safetensors"}}
+                )
+            )
+            (root / "processor/preprocessor_config.json").write_text("{}")
+            manifest = manifest_from_directory(root)
+            self.assertTrue(manifest.capabilities.image_editing)
+            self.assertTrue(manifest.capabilities.multi_image)
+            self.assertTrue(manifest.capabilities.inpainting)
+            self.assertIn("image", manifest.input_modalities)
+            (root / "text_encoder/config.json").write_text("{}")
+            self.assertFalse(manifest_from_directory(root).capabilities.image_editing)
+
     def test_native_mflux_qwen21_export_is_recognized_without_root_config(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory) / "arbitrary-directory-name"
@@ -71,7 +103,7 @@ class ModelManifestTests(unittest.TestCase):
             self.assertIn("text", model.output_modalities)
             self.assertEqual(model.display_name, "Qwen3.8-27B-Uncensored-MLX · 4-bit")
 
-    def test_model_id_is_stable_when_directory_moves(self) -> None:
+    def test_installation_identity_is_distinct_when_directory_moves(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             first = Path(directory) / "first"
             second = Path(directory) / "second"
@@ -100,7 +132,8 @@ class ModelManifestTests(unittest.TestCase):
                 encoding="utf-8",
             )
             moved = manifest_from_directory(second)
-            self.assertEqual(original.id, moved.id)
+            self.assertNotEqual(original.id, moved.id)
+            self.assertEqual(original.artifact_identity, moved.artifact_identity)
             self.assertNotEqual(original.local_path, moved.local_path)
 
     def test_stablelm_is_not_misclassified_as_an_image_model(self) -> None:

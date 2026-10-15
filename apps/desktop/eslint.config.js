@@ -15,6 +15,13 @@ export default [
     rules: {
       'vue/multi-word-component-names': 'off',
       'vue/no-v-html': 'error',
+      // Prettier owns template layout; ESLint retains semantic and safety rules.
+      'vue/max-attributes-per-line': 'off',
+      'vue/html-closing-bracket-newline': 'off',
+      'vue/singleline-html-element-content-newline': 'off',
+      'vue/multiline-html-element-content-newline': 'off',
+      'vue/html-indent': 'off',
+      'vue/html-self-closing': 'off',
     },
   },
 ]

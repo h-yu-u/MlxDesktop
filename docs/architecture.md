@@ -36,11 +36,17 @@ Vue UI ──Tauri Commands──> Tauri Shell ──启停──> Runtime Super
 
 前端源码位于 [apps/desktop/src](../apps/desktop/src)，Runtime 位于 [services/runtime/src/mlx_studio_runtime](../services/runtime/src/mlx_studio_runtime)，生成的跨端 DTO 位于 [packages/api-client](../packages/api-client)。依赖方向和组件职责见工程规范。
 
+前端由 `app/composition-root.ts` 装配工作区；Pinia 入口仅暴露已配置的 controller。`application` 定义用例与端口，`presentation` 管理展示状态和视图生命周期，`infrastructure` 绑定类型化端点。跨工作区的模型目录、Runtime、任务观察和媒体缓存归属 `capabilities`，目录对消费者只读；Tauri、目录选择和导出归属 `platform`。展示组件只通过 props/events 交互。
+
+Runtime 的 `composition_root.py` 构造 Repository、文件和 Worker 适配器。ChatService 与 ImageGenerationService 依赖窄端口；JobScheduler 统一串行租约、排队、取消及故障终态，ModelRuntime 管理驻留模型，RuntimeControl 编排加载/卸载/重启。HTTP 路由只做协议适配。旧 RuntimeService 和 SQLite CRUD 转发 Facade 已删除。具体决策见 [ADR 0001](./adr/0001-runtime-boundaries.md)，迁移与验证见[本次重构记录](./refactor-2026-10-15.md)。
+
 ## 通信与生命周期
 
 桌面壳生成一次性 Session Token，通过进程环境交给 Runtime。Runtime 绑定 `127.0.0.1` 随机端口，就绪后输出包含端口、PID 和 `protocol_version` 的握手帧；Token 不写入磁盘或握手内容。前端通过带认证的 API 客户端访问业务接口，连接代际变化时清理旧客户端和连接信息。
 
 内部 API 前缀为 `/internal/v1`，包括 Runtime 状态/诊断/重启、模型目录与管理、附件、会话、任务和事件。聊天使用 SSE 接收增量结果，图片创作通过任务接口查询状态；`/image-artifacts` 提供分页历史和经认证的 PNG 读取。HTTP 契约以 [FastAPI 入口](../services/runtime/src/mlx_studio_runtime/entrypoints/http/app.py) 及其 OpenAPI 为准，更新后运行 `pnpm api:generate`。
+
+RuntimeSession 以 epoch 隔离旧连接回调；JobObserver 按 Job 分发并去重事件，缺口触发快照同步。离开页面只释放观察/轮询和 Object URL，不等于取消后台任务；返回聊天页面通过任务快照恢复。主动 AbortSignal 不使当前连接失效。
 
 Supervisor 与 Worker 使用版本化 NDJSON：命令包含 ID、类型和 payload，事件包含递增 `seq`、类型和 payload，生成事件关联 `job_id`。stdout 专用于协议，诊断写 stderr；非法消息或版本不符按 Worker 故障处理。
 
@@ -63,6 +69,8 @@ queued / preparing / running → cancelling → cancelled
 ## 存储、安全与恢复
 
 SQLite 保存会话文本、模型登记、任务和作品参数；附件、PNG 等二进制写入媒体目录。数据库写入需事务保护，文件保存失败或数据库落库失败需补偿清理；文件读取校验目录约束、类型和大小。作品读取通过认证接口完成。
+
+提交请求使用持久化编号去重；用户消息/任务与结果/终态分别属于一个用例事务。重新生成沿用轮次的附件与参数，成功前保留旧结果。迁移采用增量表/索引，旧模型 ID 与会话引用保留。安装身份与制品元数据分开；物理删除要求明确托管所有权，受活跃、排队及同路径登记保护，并先卸载 Worker。启动时将孤立的受管理媒体文件隔离到 `.recovery`，不静默清空用户数据。
 
 Runtime 仅监听回环地址。内部 Session Token 临时有效；外部 API 默认关闭，启用时要求独立 Token。当前兼容聊天接口仍返回 501，不能作为完整 OpenAI 兼容服务使用。
 

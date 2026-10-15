@@ -22,14 +22,14 @@ class ConversationRepository:
 
     def list(self) -> list[dict[str, Any]]:
         rows = self.database.connection.execute(
-            "SELECT id,title,model_id,parameters_json,created_at,updated_at "
-            "FROM conversations ORDER BY updated_at DESC"
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned "
+            "FROM conversations ORDER BY pinned DESC, updated_at DESC, rowid DESC"
         ).fetchall()
         return [_conversation(row) for row in rows]
 
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         row = self.database.connection.execute(
-            "SELECT id,title,model_id,parameters_json,created_at,updated_at "
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned "
             "FROM conversations WHERE id=?",
             (conversation_id,),
         ).fetchone()
@@ -75,10 +75,15 @@ class ConversationRepository:
             )
 
     def rename(self, conversation_id: str, title: str) -> bool:
+        return self.update_metadata(conversation_id, title, None)
+
+    def update_metadata(self, conversation_id: str, title: str | None, pinned: bool | None) -> bool:
         with self.database.transaction() as connection:
             cursor = connection.execute(
-                "UPDATE conversations SET title=?,updated_at=? WHERE id=?",
-                (title, int(time.time()), conversation_id),
+                "UPDATE conversations SET title=COALESCE(?,title), "
+                "pinned=COALESCE(?,pinned), "
+                "updated_at=CASE WHEN ? IS NULL THEN updated_at ELSE ? END WHERE id=?",
+                (title, pinned, title, int(time.time()), conversation_id),
             )
         return cursor.rowcount > 0
 
@@ -152,6 +157,7 @@ def _conversation(row: sqlite3.Row) -> dict[str, Any]:
         "parameters": json.loads(row[3]),
         "createdAt": row[4],
         "updatedAt": row[5],
+        "pinned": bool(row[6]),
     }
 
 

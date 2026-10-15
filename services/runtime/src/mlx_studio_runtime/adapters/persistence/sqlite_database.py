@@ -24,6 +24,10 @@ class SQLiteDatabase:
 
     @contextmanager
     def transaction(self) -> Iterator[sqlite3.Connection]:
+        if self.connection.in_transaction:
+            # Repository calls compose inside an application unit of work.
+            yield self.connection
+            return
         try:
             self.connection.execute("BEGIN IMMEDIATE")
             yield self.connection
@@ -68,6 +72,11 @@ class SQLiteDatabase:
               model_id TEXT, request_json TEXT NOT NULL, error_code TEXT,
               created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
             );
+            CREATE UNIQUE INDEX IF NOT EXISTS image_submission_request
+              ON jobs(json_extract(request_json, '$.clientRequestId'))
+              WHERE kind='image' AND json_extract(request_json, '$.clientRequestId') IS NOT NULL;
+            INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+              VALUES (3, CAST(strftime('%s','now') AS INTEGER));
             CREATE TABLE IF NOT EXISTS artifacts (
               id TEXT PRIMARY KEY, job_id TEXT REFERENCES jobs(id), kind TEXT NOT NULL,
               relative_path TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -86,14 +95,31 @@ class SQLiteDatabase:
               id TEXT PRIMARY KEY, protocol_version INTEGER NOT NULL,
               started_at INTEGER NOT NULL, ended_at INTEGER
             );
+            CREATE TABLE IF NOT EXISTS chat_submissions (
+              conversation_id TEXT NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+              request_id TEXT NOT NULL, digest TEXT NOT NULL, job_id TEXT NOT NULL,
+              PRIMARY KEY(conversation_id, request_id)
+            );
+            INSERT OR IGNORE INTO schema_migrations(version, applied_at)
+              VALUES (2, CAST(strftime('%s','now') AS INTEGER));
             INSERT OR IGNORE INTO schema_migrations(version, applied_at)
               VALUES (1, CAST(strftime('%s','now') AS INTEGER));
             """
         )
         columns = {
-            row[1]
-            for row in self.connection.execute("PRAGMA table_info(messages)").fetchall()
+            row[1] for row in self.connection.execute("PRAGMA table_info(messages)").fetchall()
         }
         if "turn_id" not in columns:
             self.connection.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+        conversation_columns = {
+            row[1] for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
+        }
+        if "pinned" not in conversation_columns:
+            self.connection.execute(
+                "ALTER TABLE conversations ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0"
+            )
+        self.connection.execute(
+            "INSERT OR IGNORE INTO schema_migrations(version, applied_at) "
+            "VALUES (4, CAST(strftime('%s','now') AS INTEGER))"
+        )
         self.connection.commit()

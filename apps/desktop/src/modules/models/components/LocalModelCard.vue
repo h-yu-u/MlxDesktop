@@ -1,0 +1,119 @@
+<script setup lang="ts">
+import { NButton, NCard, NTag } from 'naive-ui'
+import type { ModelSummary } from '../../../capabilities/models'
+import StudioIcon from '../../../shared/components/StudioIcon.vue'
+defineProps<{ model: ModelSummary; activeAction: string | null }>()
+defineEmits<{
+  load: [id: string]
+  unregister: [id: string]
+  deleteFiles: [id: string, name: string]
+}>()
+</script>
+<template>
+  <NCard size="small" class="local-model-card">
+    <div class="local-model-title">
+      <div class="local-model-icon">
+        <StudioIcon name="cube" :size="23" />
+      </div>
+      <NTag size="small" :bordered="false" :type="model.state === 'loaded' ? 'success' : 'default'">
+        {{
+          model.source === 'builtin' ? '开发测试' : model.state === 'loaded' ? '已加载' : '本地模型'
+        }}
+      </NTag>
+    </div>
+    <h3>{{ model.displayName }}</h3>
+    <div class="local-model-meta">
+      <span>{{ model.engine }}</span
+      ><span>{{ model.task }}</span>
+    </div>
+    <p class="local-model-source">
+      {{
+        model.source === 'huggingface'
+          ? 'Hugging Face'
+          : model.source === 'builtin'
+            ? '内置引擎'
+            : '本地导入'
+      }}
+    </p>
+    <template #footer>
+      <div class="local-model-actions">
+        <NButton
+          size="small"
+          type="primary"
+          :loading="activeAction === `load:${model.id}`"
+          :disabled="!!activeAction"
+          @click="$emit('load', model.id)"
+        >
+          加载模型
+        </NButton>
+        <NButton
+          v-if="model.source !== 'builtin'"
+          size="small"
+          :disabled="!!activeAction"
+          @click="$emit('unregister', model.id)"
+        >
+          移除注册
+        </NButton>
+        <NButton
+          v-if="model.managedInstallation"
+          size="small"
+          type="error"
+          quaternary
+          :disabled="!!activeAction"
+          @click="$emit('deleteFiles', model.id, model.displayName)"
+        >
+          删除文件
+        </NButton>
+      </div>
+    </template>
+  </NCard>
+</template>
+<style scoped>
+.local-model-card {
+  background: linear-gradient(135deg, #202a3c, #192331);
+  border-radius: 12px;
+}
+.local-model-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.local-model-icon {
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  color: #9bb1ff;
+  background: #34496c55;
+}
+.local-model-card h3 {
+  font-size: 15px;
+  font-weight: 550;
+  margin: 17px 0 10px;
+  overflow-wrap: anywhere;
+}
+.local-model-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+.local-model-meta span {
+  font-size: 10px;
+  color: #a2b4d0;
+  padding: 3px 7px;
+  border-radius: 5px;
+  background: #2a3549;
+}
+.local-model-source {
+  font-size: 11px;
+  color: #7e90ae;
+  margin: 13px 0 0;
+}
+.local-model-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+</style>

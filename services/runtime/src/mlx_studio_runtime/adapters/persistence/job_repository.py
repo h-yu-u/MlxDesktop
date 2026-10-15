@@ -61,3 +61,19 @@ class JobRepository:
             }
             for row in rows
         ]
+
+    def get(self, job_id: str) -> dict[str, Any] | None:
+        row = self.database.connection.execute(
+            "SELECT id,kind,state,model_id,error_code,request_json FROM jobs WHERE id=?",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return {
+            "id": row[0],
+            "kind": row[1],
+            "state": row[2],
+            "modelId": row[3],
+            "errorCode": row[4],
+            "request": json.loads(row[5]),
+        }

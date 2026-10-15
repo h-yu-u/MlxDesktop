@@ -1,0 +1,35 @@
+import type { GlobalThemeOverrides } from 'naive-ui'
+export const themeOverrides: GlobalThemeOverrides = {
+  common: {
+    primaryColor: '#d4d4d4',
+    primaryColorHover: '#eeeeee',
+    primaryColorPressed: '#b5b5b5',
+    bodyColor: '#181818',
+    cardColor: '#242424',
+    modalColor: '#242424',
+    popoverColor: '#2c2c2c',
+    textColorBase: '#ececec',
+    textColor1: '#f4f4f4',
+    textColor2: '#cccccc',
+    textColor3: '#999999',
+    borderColor: '#3a3a3a',
+    borderRadius: '10px',
+    fontFamily: 'inherit',
+  },
+  Button: {
+    heightMedium: '40px',
+    fontWeight: '500',
+    textColorPrimary: '#202020',
+    textColorHoverPrimary: '#181818',
+    textColorPressedPrimary: '#181818',
+    textColorFocusPrimary: '#181818',
+  },
+  Slider: {
+    fillColor: '#b5b5b5',
+    fillColorHover: '#d0d0d0',
+    railColor: '#414141',
+    handleSize: '17px',
+  },
+  Input: { color: '#202020', colorFocus: '#262626', borderHover: '1px solid #747474' },
+  Select: { peers: { InternalSelection: { color: '#303030', colorActive: '#303030' } } },
+}

@@ -19,7 +19,8 @@ class HubModelOption(BaseModel):
 
 
 def register_model_catalog_routes(
-    app: FastAPI, authenticate: Callable[..., Awaitable[None]],
+    app: FastAPI,
+    authenticate: Callable[..., Awaitable[None]],
 ) -> None:
     @app.get(
         "/internal/v1/models/catalog",
@@ -32,13 +33,24 @@ def register_model_catalog_routes(
     ) -> list[HubModelOption]:
         try:
             models = await asyncio.wait_for(
-                asyncio.to_thread(search_mlx_models, query, limit), timeout=15,
+                asyncio.to_thread(search_mlx_models, query, limit),
+                timeout=15,
             )
         except TimeoutError as error:
-            raise RuntimeFault(RuntimeErrorInfo(
-                "HF_CATALOG_NOT_AVAILABLE", "Hugging Face 响应超时，请稍后重试。", retryable=True,
-            )) from error
-        return [HubModelOption(
-            repo_id=model.repo_id, downloads=model.downloads, likes=model.likes,
-            task=model.task, updated_at=model.updated_at,
-        ) for model in models]
+            raise RuntimeFault(
+                RuntimeErrorInfo(
+                    "HF_CATALOG_NOT_AVAILABLE",
+                    "Hugging Face 响应超时，请稍后重试。",
+                    retryable=True,
+                )
+            ) from error
+        return [
+            HubModelOption(
+                repo_id=model.repo_id,
+                downloads=model.downloads,
+                likes=model.likes,
+                task=model.task,
+                updated_at=model.updated_at,
+            )
+            for model in models
+        ]

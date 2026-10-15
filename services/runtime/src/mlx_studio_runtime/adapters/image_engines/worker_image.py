@@ -36,7 +36,9 @@ class WorkerImageEngine:
         cancel.clear()
         output: Path | None = None
         try:
-            parameters = ImageParameters(**payload["parameters"])
+            values = dict(payload["parameters"])
+            input_files = values.pop("input_files", {})
+            parameters = ImageParameters(**values)
             output = self._output_path(str(payload["output_path"]))
             emit("generation.started", {"job_id": job_id})
 
@@ -52,7 +54,11 @@ class WorkerImageEngine:
                 write_fake_png(output, parameters.width, parameters.height, parameters.seed)
             else:
                 with redirect_stdout(sys.stderr):
-                    self.adapter.generate(parameters.to_dict(), output, progress)
+                    self.adapter.generate(
+                        dict(parameters.to_dict(), **self._input_files(input_files)),
+                        output,
+                        progress,
+                    )
             if cancel.is_set() or shutdown.is_set():
                 raise InterruptedError("IMAGE_CANCELLED")
             emit("generation.completed", {"job_id": job_id})
@@ -67,6 +73,29 @@ class WorkerImageEngine:
                     "error_code": "IMAGE_GENERATION_FAILED",
                 },
             )
+
+    @staticmethod
+    def _input_files(value: object) -> dict[str, Any]:
+        if not isinstance(value, dict):
+            raise ValueError("IMAGE_REFERENCES_INVALID")
+        paths = value.get("image_paths", [])
+        mask = value.get("mask_path")
+        if not isinstance(paths, list) or len(paths) > 10:
+            raise ValueError("IMAGE_REFERENCES_INVALID")
+        configured = os.getenv("MLX_STUDIO_IMAGE_OUTPUT_ROOT")
+        if not configured:
+            raise ValueError("IMAGE_OUTPUT_ROOT_MISSING")
+        root = Path(configured).resolve().parent / "attachments"
+        for path in [*paths, *([mask] if mask else [])]:
+            if not isinstance(path, str) or Path(path).resolve().parent != root:
+                raise ValueError("IMAGE_REFERENCE_PATH_INVALID")
+            from PIL import Image
+
+            with Image.open(path) as image:
+                if image.width * image.height > 16_777_216:
+                    raise ValueError("IMAGE_REFERENCE_TOO_LARGE")
+                image.verify()
+        return {"image_paths": paths, "mask_path": mask}
 
     @staticmethod
     def _output_path(value: str) -> Path:

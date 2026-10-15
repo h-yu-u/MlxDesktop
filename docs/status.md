@@ -10,11 +10,17 @@
 |---|---|
 | 桌面与 Runtime | 启停/重启、认证握手、连接代际与失效清理、状态和诊断接口 |
 | 任务与持久化 | 唯一终态、幂等取消、重启中断标记、SQLite 事务与文件补偿清理 |
-| 聊天 | 模型选择、HTTP/SSE、停止生成、多轮上下文、会话持久化、失败保留草稿/附件 |
+| 聊天 | 模型选择、HTTP/SSE、停止生成、多轮上下文、会话持久化、重命名/删除/置顶及取消置顶、失败保留草稿/附件 |
 | 模型库 | 静态扫描/导入、能力识别、加载/卸载、登记与文件删除分离、HF MLX 下拉搜索/下载/自动登记 |
-| 图片创作 | 模型与参数选择、排队/进度/取消、最近任务、PNG/参数保存、分页历史、预览/导出/复用 |
+| 图片创作 | 文生图/图片编辑/局部重绘、参考图上传/排序、区域画笔与橡皮擦/撤销、原图对比、继续编辑、排队/进度/取消、PNG/参数/参考附件保存和历史复用 |
 | 引擎 | Fake Text/Image 开发路径、mlx-lm / mlx-vlm Worker、可选 MFLUX 适配器 |
 | 工具链 | 前端/Runtime/边界检查、测试、API 类型生成、Web 与 Sidecar/桌面构建脚本、CI 配置 |
+
+侧栏资源卡片显示实时系统内存（已用/总量）、使用率进度条、推理 Worker 当前占用和可用磁盘；设置页同步展示。每 2.5 秒后台采样，文档隐藏时暂停、重新可见时立即更新，后台采样不触发设置页加载遮罩。macOS 读取原生 VM/进程计数，不安装额外依赖：系统已用包含匿名页、不可分页页和实际压缩存储，排除文件缓存及可回收页；Worker 使用 physical footprint（含压缩内存），不称为专属显存或整个 App 占用。Linux 开发路径使用 MemAvailable 和 Worker RSS；采集不可用显示 `—`，未启动 Worker 显示“未启动”。旧峰值 RSS 字段仅为协议兼容保留。
+
+实时指标更新已通过 `pnpm check`、前端 62 项和 Runtime 81 项测试、API 类型重复生成一致性与实际 App 构建。发布 Sidecar 验证系统总量/已用/可用一致、Worker 加载后占用大于零、卸载后归零；本机 64 MiB 映射申请/释放实验证明进程计数随当前占用升降。UI 已检查实时卡片、真实进度条、设置页同步及短窗口布局。证据位于忽略的 `.build/memory-validation/evidence.json`，App 内 Sidecar 与测试二进制哈希一致；没有新增依赖。
+
+本次架构重构的阶段 0–8 实施、数据兼容策略及完整本机证据见[重构验收记录](./refactor-2026-10-15.md)。用户已确认正式签名、公证和干净机器验收另行执行。
 
 ## 真实模型验证
 
@@ -22,14 +28,17 @@
 
 | 模型 | 环境与已通过范围 | 尚不能推定 |
 |---|---|---|
-| `orcarouter/Qwen3.8-27B-Uncensored-MLX`，`4-bit` 子目录 | mlx-vlm 0.6.14；文本流式回复、多轮上下文、SQLite 持久化、取消、Worker 重启 | 图片理解、长上下文、长期稳定性、其他模型 |
-| Qwen Image 2.1 原生 MFLUX BF16 导出 | MFLUX 0.22.0，缓存上限 4 GiB；512×512、12 steps、Seed 42；文生图、进度、取消后再生成、PNG/参数保存、Runtime 重启后历史、聊天→生图→继续原对话 | 图片编辑、LoRA、高分辨率、其他导出/模型或设备 |
+| `orcarouter/Qwen3.8-27B-Uncensored-MLX`，`4-bit` 子目录 | mlx-vlm 0.6.14；源码与实际 release Sidecar 的文本流式回复、多轮上下文、SQLite 持久化、取消、Worker 重启；测试 PNG 图片理解及保留附件/参数的重新生成 | 多图、长上下文、长期稳定性、其他模型 |
+| Qwen Image 2.1 原生 MFLUX BF16 导出 | MFLUX 0.22.0，缓存上限 4 GiB；源码与实际 release Sidecar 的 512×512、12 steps、Seed 42；文生图、进度、取消后再生成、PNG/参数保存、Runtime 重启后历史、聊天→生图→继续原对话 | 图片编辑、LoRA、高分辨率、其他导出/模型或设备 |
+| `OsaurusAI/Qwen-Image-2.1-mflux-8bit` 完整编辑导出 | MFLUX 0.22.0；模型级改色、中文换背景、双参考图、蒙版、提示词改写；源码真实 Runtime 的编辑取消/再生成、PNG 和参考顺序/蒙版保存、重启读取；浏览器实操双图编辑与画笔重绘，1440/1024/768 窗口布局与刷新恢复 | 十参考图、高分辨率、人物一致性、LoRA/ControlNet、长期运行、此次新增编辑功能的发布 Sidecar/原生打包交互 |
 
 当前 Worker 显式关闭思考输出和 MLX JIT，作为已验证环境的配置；不将此结论推广到其他版本。
 
-Qwen2.5-0.5B（mlx-lm）、Qwen2-VL-2B 图片理解、Z-Image-Turbo 仍为候选未验证模型。FLUX/Qwen Image 其他适配分支的存在也不代表真机验收通过。
+Qwen2.5-0.5B（mlx-lm）、Qwen2-VL-2B、Z-Image-Turbo 仍为候选未验证模型。FLUX/Qwen Image 其他适配分支的存在也不代表真机验收通过。
 
 ## 复验命令
+
+图片编辑 UI 与真实接口的本机证据保存在忽略目录 `.build/validation/image-edit-integration/`。没有新增依赖；完整模型根据静态视觉组件识别能力，接口只接受已登记附件 ID，Worker 限制输入到受管附件目录并检查图像像素上限。
 
 以下命令在仓库根目录、具有完整本地模型的 Apple Silicon Mac 上执行。脚本使用临时数据库并在结束时关闭测试 Runtime，不操作正式会话数据。
 
@@ -51,6 +60,29 @@ uv run --frozen --project services/runtime --extra mlx-vlm --extra mflux --pytho
 
 只验证图片时可省略 `--chat-model-path`。输出路径会保存验收 PNG。
 
+真实图片编辑（红茶壶基线原图、蓝色参考图与对应黑白蒙版；白色修改、黑色保留）：
+
+```bash
+uv run --frozen --project services/runtime --extra mlx-vlm --extra mflux --python 3.12 \
+  python scripts/verify_local_edit.py --model-path /path/to/qwen-image-2.1-edit-mlx-8bit \
+  --source /path/to/source.png --reference /path/to/reference.png \
+  --mask /path/to/mask.png --output /tmp/mlx-edit-check
+```
+
+脚本用 512×512、40 步、Seed 42 测试编辑、双参考顺序、取消后重新生成、区域修改和重启后的图片/附件读取。该脚本专用于红茶壶与蓝色参考图的基线复验；自有素材应按修改需求调整脚本中的测试指令。参考图与蒙版必须对应原图。
+
+真实图片理解和重新生成：
+
+```bash
+uv run --frozen --project services/runtime --extra mlx-vlm --python 3.12 \
+  python scripts/verify_local_vision.py --model-path /path/to/Qwen3.8-27B-Uncensored-MLX/4-bit \
+  --image /path/to/verification.png
+```
+
+上述三个脚本均接受 `--sidecar /path/to/mlx-studio-runtime`，此时从实际二进制启动，并清除开发源码 PYTHONPATH。`scripts/verify_packaged_runtime.py --sidecar ...` 验证同一包的 FakeEngine、诊断、取消与重启持久化；不能单独代替真实引擎验证。
+
+`scripts/verify_desktop_shutdown.py --sidecar ...` 模拟桌面壳强制停止 onefile bootloader，并关闭它持有的 stdin 管道；已验证内部 Runtime 和已加载 Worker 全部退出。冻结入口同时处理 multiprocessing 辅助进程，避免误启动额外 Runtime。最终 `.app` 已本机构建，签名、公证、原生 GUI 的正式安装与干净机器验收另行执行。
+
 系统与早期独立探针保留为辅助工具，脚本能执行不代表对应模型已经通过：
 
 ```bash
@@ -64,13 +96,36 @@ uv run --project spikes/mflux-image --python 3.12 python spikes/mflux-image/run_
 
 系统探针只读硬件、系统、Python 和磁盘，不安装依赖或访问网络。输出仅表示采集时环境，不是最低配置承诺。
 
+## 聊天流式输出专项复验（2026-10-15）
+
+已确认本机最近一条提前结束的回答恰好生成 512 token，达到旧默认上限。默认输出上限已提高到 4096，设置允许 8192；Worker 的 `finish_reason` 与生成 token 数传递到任务完成事件和会话参数，页面区分长度截断并提供「继续回答」。
+
+对于 MLX-VLM 的 ByteLevel BPE 解码器，已改为按完整 UTF-8 字符输出，避免中文等待空格；其他解码器保留原行为。前端合并密集增量、限制 Markdown 解析频率、缓存未变化消息，并在实际 DOM 更新后按帧跟随滚动，向上阅读时暂停跟随。
+
+本机 Apple M5 Pro / 64 GB、同一本地 Qwen 4-bit 模型、同一确定性测试输入：两次均生成 942 token 并自然结束；分片中位间隔从 339.06 ms 降至 56.60 ms，最大间隔从 411.77 ms 降至 61.13 ms，生成总耗时基本相同（53.33 / 53.36 秒）。这是显示分片粒度改善，不代表推理吞吐增加。中文、英文空格、Markdown 代码、表情及特殊 token 的最终解码与原解码器和分词器一致。
+
+真实 HTTP/SSE 验证覆盖旧上限之外的长回答、16-token 截断原因、持久化一致性、主动断流后的游标重放、取消和正常退出。
+
+独立浏览器使用 FakeEngine 的密集长文本验证页面渲染：跟随滚动和向上阅读保持通过，最终文本尾部完整，无页面异常及横向溢出；该次采样未记录超过 50 ms 的主线程任务。该浏览器验证使用临时数据，真实模型的输出与恢复另由上述 API 验证覆盖。
+
+复验命令：
+
+```bash
+uv run --frozen --project services/runtime --extra mlx-vlm --python 3.12 \
+  python scripts/verify_chat_streaming.py \
+  --model-path /path/to/Qwen3.8-27B-Uncensored-MLX/4-bit \
+  --output /tmp/mlx-chat-streaming.json
+```
+
+本次未重新打包 Sidecar，也未做长时间压力测试；开发应用需重启 Runtime 后使用新的解码器和完成原因。
+
 ## 后续工作与发布条件
 
 | 方向 | 剩余工作及验收要求 |
 |---|---|
 | 模型与下载 | 扩展真实架构/量化矩阵；完善下载进度、跨重启恢复及磁盘压力处理 |
-| 多模态 | 真实图片理解与连续追问、多图/像素解码限制；音视频能力后续评估 |
-| 图片创作 | 其他模型/导出、高分辨率和编辑分别验收；批量、LoRA 等扩展单独确定范围 |
+| 多模态 | 扩展连续图片追问、多图/像素解码限制；音视频能力后续评估 |
+| 图片创作 | 扩展编辑素材、蒙版边界质量、十参考图、高分辨率和其他模型/导出；批量、LoRA 等扩展单独确定范围 |
 | 稳定性 | 真模型故障注入、自动退避恢复、长时间运行、连续切换/取消与 Worker RSS 回收对照 |
 | 性能与安全 | 固定设备/模型/参数的 TTFT、吞吐、内存与生图基线；路径/超大附件/Markdown/日志隐私及诊断导出验收 |
 | 外部 API | 当前默认关闭；兼容聊天接口返回 501，协议、流式响应和独立认证需完成后再开放 |

@@ -13,6 +13,34 @@ from mlx_studio_runtime.entrypoints.http.app import create_app
 
 
 class RuntimeApiTests(unittest.TestCase):
+    def test_live_memory_tracks_worker_load_and_unload(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app("metrics-test", Path(directory) / "app.db")
+            with TestClient(
+                app, headers={"Authorization": "Bearer metrics-test"}
+            ) as client:
+                before = client.get("/internal/v1/runtime/metrics")
+                self.assertEqual(before.status_code, 200)
+                self.assertEqual(before.json()["worker_memory_bytes"], 0)
+                loaded = client.post("/internal/v1/models/builtin-fake-text/load")
+                self.assertEqual(loaded.status_code, 200)
+                sample = client.get("/internal/v1/runtime/metrics").json()
+                self.assertGreater(sample["worker_memory_bytes"], 0)
+                self.assertGreater(sample["system_memory_total_bytes"], 0)
+                self.assertEqual(
+                    sample["system_memory_total_bytes"],
+                    sample["system_memory_used_bytes"]
+                    + sample["system_memory_available_bytes"],
+                )
+                unloaded = client.post("/internal/v1/models/builtin-fake-text/unload")
+                self.assertEqual(unloaded.status_code, 200)
+                self.assertEqual(
+                    client.get("/internal/v1/runtime/metrics").json()[
+                        "worker_memory_bytes"
+                    ],
+                    0,
+                )
+
     def test_auth_chat_persistence_and_external_api_default(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             app = create_app("test-session-token", Path(directory) / "app.db")
@@ -28,7 +56,8 @@ class RuntimeApiTests(unittest.TestCase):
                     headers={**headers, "Origin": "tauri://localhost"},
                 )
                 self.assertEqual(
-                    allowed_origin.headers["access-control-allow-origin"], "tauri://localhost"
+                    allowed_origin.headers["access-control-allow-origin"],
+                    "tauri://localhost",
                 )
                 blocked_origin = client.get(
                     "/internal/v1/runtime/health",

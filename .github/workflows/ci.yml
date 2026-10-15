@@ -48,3 +48,4 @@ jobs:
           touch apps/desktop/src-tauri/binaries/mlx-studio-runtime-aarch64-apple-darwin
       - run: cargo fmt --check --manifest-path apps/desktop/src-tauri/Cargo.toml
       - run: cargo clippy --manifest-path apps/desktop/src-tauri/Cargo.toml -- -D warnings
+      - run: cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml

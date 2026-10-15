@@ -5,3 +5,7 @@ onlyBuiltDependencies:
   - esbuild
 allowBuilds:
   esbuild: true
+
+# Keep workspace installs reproducible across interactive and sandboxed shells.
+enableGlobalVirtualStore: false
+storeDir: .build/pnpm-store

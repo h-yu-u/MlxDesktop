@@ -1,12 +1,20 @@
+import { installWorkspaces } from '../../../app/composition-root'
+import { modelFixture } from '../../../test-fixtures/runtime'
 import { flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { useModelsStore } from './models.store'
 
 const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }))
-vi.mock('../../../shared/api/runtime', () => ({ runtimeClient: async () => api }))
+vi.mock('../../../platform/runtime-bridge', () => ({ runtimeClient: async () => api }))
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: vi.fn() }))
-const model = { repo_id: 'mlx-community/Qwen', downloads: 100, likes: 12, task: 'text-generation', updated_at: null }
+const model = {
+  repo_id: 'mlx-community/Qwen',
+  downloads: 100,
+  likes: 12,
+  task: 'text-generation',
+  updated_at: null,
+}
 
 async function selectedStore(): Promise<ReturnType<typeof useModelsStore>> {
   api.get.mockResolvedValueOnce([model])
@@ -17,11 +25,18 @@ async function selectedStore(): Promise<ReturnType<typeof useModelsStore>> {
 }
 
 describe('Hugging Face model discovery', () => {
-  beforeEach(() => { setActivePinia(createPinia()); vi.resetAllMocks() })
+  beforeEach(() => {
+    setActivePinia(createPinia())
+    vi.resetAllMocks()
+  })
 
   it('encodes searches and ignores stale responses', async () => {
     let finishOld: (value: unknown) => void = () => undefined
-    api.get.mockReturnValueOnce(new Promise((resolve) => { finishOld = resolve }))
+    api.get.mockReturnValueOnce(
+      new Promise((resolve) => {
+        finishOld = resolve
+      }),
+    )
     api.get.mockResolvedValueOnce([model])
     const store = useModelsStore()
     const oldSearch = store.searchCatalog('old')
@@ -37,7 +52,9 @@ describe('Hugging Face model discovery', () => {
   it('downloads the selected repository and refreshes the local library', async () => {
     const store = await selectedStore()
     api.post.mockResolvedValue({ modelId: 'local-model' })
-    api.get.mockResolvedValue([{ id: 'local-model', displayName: model.repo_id, source: 'huggingface' }])
+    api.get.mockResolvedValue([
+      modelFixture({ id: 'local-model', displayName: model.repo_id, source: 'huggingface' }),
+    ])
     expect(await store.pullModel()).toBe(true)
     expect(api.post).toHaveBeenCalledWith('/internal/v1/models/pull', { repo_id: model.repo_id })
     expect(store.items[0]?.displayName).toBe(model.repo_id)
@@ -66,7 +83,11 @@ describe('Hugging Face model discovery', () => {
     expect(await store.pullModel()).toBe(false)
     await selectedStore()
     let finish: (value: unknown) => void = () => undefined
-    api.post.mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    api.post.mockReturnValue(
+      new Promise((resolve) => {
+        finish = resolve
+      }),
+    )
     api.get.mockResolvedValue([])
     const first = store.pullModel()
     await flushPromises()
@@ -89,3 +110,5 @@ describe('Hugging Face model discovery', () => {
     expect(store.catalog).toHaveLength(1)
   })
 })
+
+installWorkspaces()

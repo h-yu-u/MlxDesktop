@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import multiprocessing
 import os
 import secrets
 import socket
@@ -10,6 +11,7 @@ import sys
 import uvicorn
 
 from mlx_studio_runtime import PROTOCOL_VERSION
+from mlx_studio_runtime.adapters.parent_lifetime import watch_parent_pipe
 
 
 async def serve() -> None:
@@ -36,6 +38,11 @@ async def serve() -> None:
         server_header=False,
     )
     server = uvicorn.Server(config)
+
+    def parent_exited() -> None:
+        server.should_exit = True
+
+    release_parent_watch = watch_parent_pipe(parent_exited)
     server_task = asyncio.create_task(server.serve(sockets=[sock]))
     while not server.started and not server_task.done():
         await asyncio.sleep(0.02)
@@ -50,7 +57,10 @@ async def serve() -> None:
     }
     sys.stdout.write(json.dumps(handshake, separators=(",", ":")) + "\n")
     sys.stdout.flush()
-    await server_task
+    try:
+        await server_task
+    finally:
+        release_parent_watch()
 
 
 def main() -> int:
@@ -69,4 +79,5 @@ def main() -> int:
 
 
 if __name__ == "__main__":
+    multiprocessing.freeze_support()
     raise SystemExit(main())

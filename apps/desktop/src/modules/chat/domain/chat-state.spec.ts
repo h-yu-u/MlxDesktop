@@ -8,8 +8,16 @@ describe('reduceChatState', () => {
       userMessage: { id: 'user-1', role: 'user', content: 'hello' },
       assistantMessage: { id: 'job-1', role: 'assistant', content: '', state: 'streaming' },
     })
-    const stale = reduceChatState(started, { type: 'generation.delta', jobId: 'other', text: 'ignore' })
-    const delta = reduceChatState(stale, { type: 'generation.delta', jobId: 'job-1', text: 'world' })
+    const stale = reduceChatState(started, {
+      type: 'generation.delta',
+      jobId: 'other',
+      text: 'ignore',
+    })
+    const delta = reduceChatState(stale, {
+      type: 'generation.delta',
+      jobId: 'job-1',
+      text: 'world',
+    })
     const complete = reduceChatState(delta, { type: 'generation.completed', jobId: 'job-1' })
     expect(complete.messages[1]?.content).toBe('world')
     expect(complete.messages[1]?.state).toBe('complete')

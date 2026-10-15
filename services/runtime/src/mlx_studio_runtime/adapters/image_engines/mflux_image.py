@@ -6,7 +6,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
-from mlx_studio_runtime.domain.models import read_model_metadata
+from mlx_studio_runtime.adapters.model_scan import read_model_metadata, supports_qwen21_edit
 
 
 class MfluxImageEngine:
@@ -19,12 +19,21 @@ class MfluxImageEngine:
         metadata, index = read_model_metadata(root)
         model_type = metadata.get("model_type")
         pipeline = index.get("_class_name")
-        if pipeline == "QwenImage21Pipeline" or model_type == "qwen_image_21":
+        self.editing = supports_qwen21_edit(root, index)
+        if self.editing:
+            from mflux.models.qwen21.variants.edit.qwen_image_21_edit import (  # type: ignore[import-not-found]
+                QwenImage21Edit,
+            )
+
+            self.model: Any = QwenImage21Edit(
+                model_config=ModelConfig.qwen_image_21(), model_path=path
+            )
+        elif pipeline == "QwenImage21Pipeline" or model_type == "qwen_image_21":
             from mflux.models.qwen21.variants.txt2img.qwen_image_21 import (  # type: ignore[import-not-found]
                 QwenImage21,
             )
 
-            self.model: Any = QwenImage21(model_config=ModelConfig.qwen_image_21(), model_path=path)
+            self.model = QwenImage21(model_config=ModelConfig.qwen_image_21(), model_path=path)
         elif pipeline == "FluxPipeline" or model_type == "flux":
             from mflux.models.flux.variants.txt2img.flux import (  # type: ignore[import-not-found]
                 Flux1,
@@ -54,12 +63,23 @@ class MfluxImageEngine:
         callback = ProgressCallback()
         self.model.callbacks.register(callback)
         try:
+            edit_options: dict[str, Any] = {}
+            if getattr(self, "editing", False):
+                edit_options = {
+                    "image_paths": parameters.get("image_paths", []),
+                    "mask_image": parameters.get("mask_path"),
+                    "strength": parameters.get("strength", 1.0),
+                    "output_resolution": min(
+                        1024, max(512, parameters["width"], parameters["height"])
+                    ),
+                }
             image = self.model.generate_image(
                 seed=parameters["seed"],
                 prompt=parameters["prompt"],
                 width=parameters["width"],
                 height=parameters["height"],
                 num_inference_steps=parameters["steps"],
+                **edit_options,
             )
             image.save(path=str(output))
         finally:
