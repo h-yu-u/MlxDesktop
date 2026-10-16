@@ -12,7 +12,13 @@
   "app": {
     "withGlobalTauri": false,
     "windows": [
-      { "title": "MLX Studio", "width": 1360, "height": 900, "minWidth": 900, "minHeight": 640 }
+      {
+        "title": "MLX Studio",
+        "width": 1360,
+        "height": 900,
+        "minWidth": 900,
+        "minHeight": 640
+      }
     ],
     "security": {
       "csp": "default-src 'self'; connect-src ipc: http://ipc.localhost http://127.0.0.1:*; img-src 'self' asset: http://asset.localhost data: blob:; style-src 'self' 'unsafe-inline'; font-src 'self' data:"
@@ -20,11 +26,25 @@
   },
   "bundle": {
     "active": true,
-    "targets": ["dmg", "app"],
+    "targets": [
+      "dmg",
+      "app"
+    ],
     "category": "public.app-category.productivity",
-    "externalBin": ["binaries/mlx-studio-runtime"]
+    "externalBin": [
+      "binaries/mlx-studio-runtime"
+    ],
+    "resources": {
+      "resources/coding-agent/": "coding-agent/"
+    },
+    "macOS": {
+      "signingIdentity": "-",
+      "entitlements": "Entitlements.plist"
+    }
   },
   "plugins": {
-    "shell": { "open": false }
+    "shell": {
+      "open": false
+    }
   }
 }

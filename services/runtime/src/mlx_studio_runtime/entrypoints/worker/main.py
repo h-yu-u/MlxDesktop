@@ -103,6 +103,10 @@ class Worker(EngineSession):
             if self.image_engine is None:
                 raise RuntimeError("IMAGE_MODEL_NOT_LOADED")
             self.image_engine.generate(payload, (self.cancel, self.shutdown), self.emit)
+        elif kind == "inference.start":
+            from mlx_studio_runtime.adapters.text_engines.structured import generate_structured
+
+            generate_structured(self, payload)
         elif kind == "generation.start":
             self._generate(payload)
         elif kind == "generation.cancel":

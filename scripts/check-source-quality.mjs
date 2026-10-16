@@ -20,6 +20,7 @@ for (const path of [
   'apps/desktop/src-tauri/src',
   'packages/api-client/src',
   'services/runtime/src',
+  'services/coding-agent/src',
 ])
   await inspect(path)
 const publicStyles = await readdir('apps/desktop/src/shared/styles')

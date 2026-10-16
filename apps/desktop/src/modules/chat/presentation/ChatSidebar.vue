@@ -4,10 +4,10 @@ import { storeToRefs } from 'pinia'
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { Conversation } from '@mlx-studio/api-client'
-import ConversationListItem from '../modules/chat/components/ConversationListItem.vue'
-import { visibleConversations as selectConversations } from '../modules/chat/domain/conversation-list'
-import { useChatStore } from '../modules/chat/stores/chat.store'
-import StudioIcon from '../shared/components/StudioIcon.vue'
+import ConversationListItem from '../components/ConversationListItem.vue'
+import { visibleConversations as selectConversations } from '../domain/conversation-list'
+import { useChatStore } from '../stores/chat.store'
+import StudioIcon from '../../../shared/components/StudioIcon.vue'
 
 const props = defineProps<{ showConversations: boolean }>()
 const chat = useChatStore()
@@ -24,12 +24,6 @@ const { pending } = storeToRefs(chat)
 const visibleConversations = computed(() =>
   selectConversations(chat.conversations, query.value, showSearch.value ? undefined : 30),
 )
-const links = [
-  { to: '/chat', icon: 'chat', label: '聊天' },
-  { to: '/models', icon: 'cube', label: '模型库' },
-  { to: '/image-studio', icon: 'image', label: '图片创作' },
-  { to: '/settings', icon: 'settings', label: '设置' },
-]
 
 watch(
   () => props.showConversations,
@@ -100,18 +94,6 @@ function toggleSearch(): void {
 
 <template>
   <aside class="sidebar" :class="{ 'sidebar-chat': showConversations }">
-    <nav class="icon-rail" aria-label="主导航">
-      <RouterLink to="/chat" class="rail-brand" aria-label="MLX Studio 首页">M</RouterLink>
-      <RouterLink
-        v-for="link in links"
-        :key="link.to"
-        class="rail-link"
-        :to="link.to"
-        :title="link.label"
-        :aria-label="link.label"
-        ><StudioIcon :name="link.icon" :size="21"
-      /></RouterLink>
-    </nav>
     <div v-if="showConversations" class="sidebar-content">
       <div class="sidebar-heading">
         <RouterLink to="/chat" class="brand"
@@ -202,4 +184,4 @@ function toggleSearch(): void {
   </aside>
 </template>
 
-<style scoped src="./StudioSidebar.styles.css"></style>
+<style scoped src="./ChatSidebar.styles.css"></style>

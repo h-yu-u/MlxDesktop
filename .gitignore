@@ -13,3 +13,4 @@ apps/desktop/src-tauri/binaries/
 services/runtime/data/
 services/runtime/.runtime/
 *.log
+apps/desktop/src-tauri/resources/coding-agent/

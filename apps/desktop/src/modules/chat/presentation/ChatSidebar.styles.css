@@ -4,37 +4,6 @@
   display: grid;
   grid-template-columns: minmax(0, 1fr);
 }
-.sidebar.sidebar-chat {
-  grid-template-columns: 54px minmax(0, 1fr);
-}
-.icon-rail {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 14px;
-  padding: 16px 6px;
-  color: #9d9d9d;
-}
-.rail-brand,
-.rail-link {
-  display: grid;
-  place-items: center;
-  width: 38px;
-  height: 38px;
-  border-radius: 11px;
-  text-decoration: none;
-}
-.rail-brand {
-  color: #eee;
-  font-size: 22px;
-  font-weight: 650;
-  margin-bottom: 10px;
-}
-.rail-link:hover,
-.rail-link.router-link-active {
-  background: #3a3a3a;
-  color: #fff;
-}
 .sidebar-content {
   min-height: 0;
   min-width: 0;
@@ -157,7 +126,7 @@
 }
 @media (max-width: 680px) {
   .sidebar {
-    display: block;
+    display: none;
   }
   .icon-rail {
     flex-direction: row;

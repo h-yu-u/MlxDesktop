@@ -76,6 +76,13 @@ pub(crate) fn launch_runtime(app: &AppHandle, process: Arc<RuntimeProcess>) -> R
         .shell()
         .sidecar("mlx-studio-runtime")
         .map_err(|error| format!("Runtime sidecar unavailable: {error}"))?
+        .env(
+            "MLX_STUDIO_CODING_RESOURCES",
+            app.path()
+                .resource_dir()
+                .map_err(|error| error.to_string())?
+                .join("coding-agent"),
+        )
         .env("MLX_STUDIO_DATA_DIR", &data_directory)
         .env("MLX_STUDIO_PARENT_PIPE", "1")
         .env("MLX_STUDIO_SESSION_TOKEN", &token);

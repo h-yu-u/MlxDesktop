@@ -241,7 +241,7 @@ def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:
     normalized: list[dict[str, str]] = []
     for value in messages:
         if not isinstance(value, dict):
-            return [{"role": "user", "content": prompt}]
+            raise ValueError("MESSAGE_STRUCTURE_UNSUPPORTED")
         message = cast(dict[str, object], value)
         role = message.get("role")
         content = message.get("content")
@@ -255,6 +255,6 @@ def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:
             }
             or not isinstance(content, str)
         ):
-            return [{"role": "user", "content": prompt}]
+            raise ValueError("MESSAGE_STRUCTURE_UNSUPPORTED")
         normalized.append({"role": role, "content": content})
     return normalized or [{"role": "user", "content": prompt}]

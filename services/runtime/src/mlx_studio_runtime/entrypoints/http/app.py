@@ -16,12 +16,14 @@ from fastapi.responses import JSONResponse
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeFault, error_payload
+from mlx_studio_runtime.entrypoints.http.coding_routes import register_coding_routes
 from mlx_studio_runtime.entrypoints.http.contracts import (
     ErrorEnvelope,
 )
 from mlx_studio_runtime.entrypoints.http.conversation_routes import register_conversation_routes
 from mlx_studio_runtime.entrypoints.http.event_routes import register_event_routes
 from mlx_studio_runtime.entrypoints.http.image_studio import register_image_studio_routes
+from mlx_studio_runtime.entrypoints.http.inference_routes import register_inference_routes
 from mlx_studio_runtime.entrypoints.http.model_routes import register_model_routes
 from mlx_studio_runtime.entrypoints.http.runtime_routes import register_runtime_routes
 
@@ -142,6 +144,8 @@ def create_app(
     register_conversation_routes(app, service, authenticate)
     register_image_studio_routes(app, service, authenticate)
     register_event_routes(app, service, authenticate)
+    register_coding_routes(app, service, authenticate)
+    register_inference_routes(app, service, authenticate)
 
     if external_enabled:
         _register_openai_api(app, service, os.getenv("MLX_STUDIO_EXTERNAL_API_TOKEN", ""))
@@ -175,7 +179,17 @@ def _status_for_code(code: str) -> int:
         return 413
     if code == "IMAGE_FORMAT_UNSUPPORTED":
         return 415
-    if code in {"MODEL_IN_USE", "CONVERSATION_IN_USE", "IDEMPOTENCY_CONFLICT", "JOB_QUEUE_FULL"}:
+    if code in {
+        "MODEL_IN_USE",
+        "CONVERSATION_IN_USE",
+        "IDEMPOTENCY_CONFLICT",
+        "JOB_QUEUE_FULL",
+        "CODING_BUSY",
+        "SESSION_IN_USE",
+        "RESTORE_CONFLICT",
+        "FILE_VERSION_CONFLICT",
+        "PROJECT_HAS_SESSIONS",
+    }:
         return 409
     if code == "MODEL_REMOVAL_FAILED":
         return 503

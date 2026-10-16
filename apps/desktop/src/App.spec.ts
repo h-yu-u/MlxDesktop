@@ -17,8 +17,9 @@ vi.mock('./modules/chat/stores/chat.store', async () => {
 async function render(path: string) {
   const router = createRouter({
     history: createMemoryHistory(),
-    routes: ['/chat', '/models', '/image-studio', '/settings'].map((path) => ({
+    routes: ['/chat', '/coding', '/models', '/image-studio', '/settings'].map((path) => ({
       path,
+      meta: { workspace: path === '/chat' ? 'chat' : path === '/coding' ? 'coding' : undefined },
       component: { template: '<div class="test-page">页面内容</div>' },
     })),
   })
@@ -35,15 +36,15 @@ async function render(path: string) {
 }
 beforeEach(() => vi.clearAllMocks())
 describe('workspace sidebar visibility', () => {
-  it.each(['/chat', '/models', '/image-studio', '/settings'])(
+  it.each(['/chat', '/coding', '/models', '/image-studio', '/settings'])(
     'shows conversation navigation only on chat when opening %s',
     async (path) => {
       const { wrapper } = await render(path)
       const chat = path === '/chat'
       expect(wrapper.find('.sidebar-content').exists()).toBe(chat)
       expect(wrapper.get('.app-shell').classes().includes('has-chat-sidebar')).toBe(chat)
-      expect(wrapper.find('.topbar').exists()).toBe(!chat)
-      expect(wrapper.get('[aria-label="主导航"]').findAll('.rail-link')).toHaveLength(4)
+      expect(wrapper.find('.topbar').exists()).toBe(!chat && path !== '/coding')
+      expect(wrapper.get('[aria-label="主导航"]').findAll('.rail-link')).toHaveLength(5)
       expect(mocks.loadWorkspace).toHaveBeenCalledTimes(chat ? 1 : 0)
       expect(wrapper.get('.test-page').text()).toBe('页面内容')
       wrapper.unmount()

@@ -1,4 +1,5 @@
 import type { Transport } from './transport/ports'
+import { codingEndpoints } from './coding-endpoints'
 import { imageEndpoints } from './image-endpoints'
 import { decodeCatalog } from './model-catalog'
 import { decodeRuntimeMetrics } from './runtime-metrics'
@@ -127,6 +128,7 @@ export function decodeSubmission(value: unknown): Submission {
 export function createEndpoints(transport: Transport) {
   return {
     images: imageEndpoints(transport),
+    coding: codingEndpoints(transport),
     jobs: {
       get: async (id: string): Promise<JobSnapshot> => {
         const item = record(await transport.get(`${root}/jobs/${idPath(id)}`))

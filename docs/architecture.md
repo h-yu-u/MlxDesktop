@@ -75,3 +75,12 @@ SQLite 保存会话文本、模型登记、任务和作品参数；附件、PNG 
 Runtime 仅监听回环地址。内部 Session Token 临时有效；外部 API 默认关闭，启用时要求独立 Token。当前兼容聊天接口仍返回 501，不能作为完整 OpenAI 兼容服务使用。
 
 模型扫描、附件上传、Markdown 渲染和文件导出均需遵循工程规范中的安全约束。日志默认不记录完整提示词、模型输出、文件内容或凭据；诊断信息需要脱敏。确定性内存释放依靠 Worker 退出，实际 RSS、长时间运行和打包后的清理行为仍需专项验收。
+
+
+## Coding 工作区
+
+Coding 使用独立的 TypeScript Pi Host；Python 只桥接产品 NDJSON、认证 HTTP/SSE 和 Host 生命周期。Node 是 `coding.db` 的唯一写入者，Pi SessionManager 管理模型上下文；普通聊天的 Conversation/ChatService 不参与 Coding 历史保存。
+
+Pi 本地 Provider 使用受限短期凭据访问 `/internal/v1/inference`，每次模型请求通过原有 JobScheduler 取得单次租约。文件工具、审批和命令执行不占推理锁。工具消息及结果 ID 保真传入 Worker 的工具模板，JSON/Qwen XML 解析失败不会降级为普通提示词。外部 `/v1` 仍维持原有边界。
+
+主导航已从聊天侧栏拆分，根布局通过 route meta 组合聊天与 Coding。Coding Store 仅暴露 composition root 装配的 controller；独立 CodingObserver 管理事件观察与恢复，离开页面不取消任务。具体权限、持久化、变更归因、验证版本及交付范围见 [Coding](./coding.md)。

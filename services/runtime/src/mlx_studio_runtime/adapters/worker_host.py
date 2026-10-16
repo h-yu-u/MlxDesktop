@@ -89,6 +89,11 @@ class WorkerHost:
         async for event in self._events_until_terminal(job_id, command_id):
             yield event
 
+    async def infer(self, job_id: str, request: dict[str, object]) -> AsyncIterator[dict[str, Any]]:
+        command_id = await self._send("inference.start", {"job_id": job_id, **request})
+        async for event in self._events_until_terminal(job_id, command_id):
+            yield event
+
     async def generate_image(
         self,
         job_id: str,

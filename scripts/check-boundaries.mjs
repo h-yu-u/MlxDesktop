@@ -59,7 +59,11 @@ function imports(source, path) {
       dependencies.push(node.argument.literal.text)
     if (ts.isCallExpression(node)) {
       const name = node.expression.getText(ast)
-      if (name === 'fetch' && !rel(path).startsWith('packages/api-client/'))
+      if (
+        name === 'fetch' &&
+        !rel(path).startsWith('packages/api-client/') &&
+        !rel(path).startsWith('services/coding-agent/src/adapters/')
+      )
         violations.push(`${rel(path)}: network I/O outside API transport`)
       if (
         rel(path).includes('/stores/') &&
@@ -83,11 +87,13 @@ async function inspect(path) {
     const fail = (reason) => violations.push(`${name}: ${reason} (${specifier})`)
     if (
       name.includes('/domain/') &&
-      (/@mlx-studio\/api-client|^(?:vue|pinia|naive-ui|@tauri-apps)/.test(specifier) ||
+      (/@mlx-studio\/api-client|^(?:node:|@earendil-works|vue|pinia|naive-ui|@tauri-apps)/.test(
+        specifier,
+      ) ||
         /\/(?:stores|infrastructure|presentation|platform|app)\//.test(targetName))
     )
       fail('domain imports UI or infrastructure')
-    if (name.includes('/application/') && /\/infrastructure\//.test(targetName))
+    if (name.includes('/application/') && /\/(?:infrastructure|adapters)\//.test(targetName))
       fail('application imports concrete infrastructure')
     if (name.includes('/presentation/') && /\/infrastructure\//.test(targetName))
       fail('controller imports a concrete adapter')
@@ -135,6 +141,7 @@ async function visit(directory) {
 }
 await visit(join(root, 'apps/desktop/src'))
 await visit(join(root, 'packages/api-client/src'))
+await visit(join(root, 'services/coding-agent/src'))
 const visited = new Set(),
   active = new Set()
 function cycles(path) {

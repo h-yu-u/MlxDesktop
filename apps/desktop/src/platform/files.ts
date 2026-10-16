@@ -15,3 +15,8 @@ export function exportBlob(blob: Blob, filename: string): void {
     URL.revokeObjectURL(url)
   }
 }
+
+export async function pickProjectDirectory(): Promise<string | null> {
+  const path = await open({ directory: true, multiple: false, title: '选择开发项目' })
+  return typeof path === 'string' ? path : null
+}

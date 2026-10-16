@@ -3,7 +3,9 @@
 import time
 from pathlib import Path
 
+from mlx_studio_runtime.adapters.agent_host import AgentHost
 from mlx_studio_runtime.adapters.attachment_files import AttachmentFiles
+from mlx_studio_runtime.adapters.coding_model_identity import coding_model_identity
 from mlx_studio_runtime.adapters.diagnostics import HostDiagnostics
 from mlx_studio_runtime.adapters.event_hub import EventHub
 from mlx_studio_runtime.adapters.image_files import ImageFiles
@@ -16,8 +18,10 @@ from mlx_studio_runtime.adapters.persistence.submission_journal import Submissio
 from mlx_studio_runtime.adapters.worker_host import WorkerHost
 from mlx_studio_runtime.application.attachments import Attachments
 from mlx_studio_runtime.application.chat_service import ChatService
+from mlx_studio_runtime.application.coding_gateway import CodingGateway
 from mlx_studio_runtime.application.downloads import Downloads
 from mlx_studio_runtime.application.image_generation_service import ImageGenerationService
+from mlx_studio_runtime.application.inference_service import InferenceService
 from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
 from mlx_studio_runtime.application.job_scheduler import JobScheduler
 from mlx_studio_runtime.application.model_catalog import ModelCatalog
@@ -49,6 +53,10 @@ class RuntimeApplication:
         )
         self.lifecycle = JobLifecycle(store.jobs, self.events, store.database.transaction)
         self.scheduler = JobScheduler(self.lifecycle, self.inference)
+        self.agent_host = AgentHost(store.database_path.parent / "coding")
+        self.coding_identity = coding_model_identity
+        self.coding = CodingGateway(self.agent_host.request)
+        self.provider_inference = InferenceService(self.scheduler)
         self.controls = RuntimeControl(self.scheduler, self.inference)
         self.queries = Queries(
             store.conversations,
@@ -100,6 +108,7 @@ class RuntimeApplication:
         )
 
     async def close(self) -> None:
+        await self.agent_host.close()
         await self.scheduler.close()
         self.store.close()
 

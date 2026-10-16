@@ -2,7 +2,7 @@
 
 [文档入口](./README.md) · [使用说明](./getting-started.md) · [架构](./architecture.md)
 
-本文根据当前实现与 2026-10-15 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
+本文根据当前实现与 2026-10-15 至 2026-10-16 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
 
 ## 已有实现
 
@@ -11,6 +11,7 @@
 | 桌面与 Runtime | 启停/重启、认证握手、连接代际与失效清理、状态和诊断接口 |
 | 任务与持久化 | 唯一终态、幂等取消、重启中断标记、SQLite 事务与文件补偿清理 |
 | 聊天 | 模型选择、HTTP/SSE、停止生成、多轮上下文、会话持久化、重命名/删除/置顶及取消置顶、失败保留草稿/附件 |
+| Coding | 独立 Pi 工作区、项目与会话、三种模式、工具时间线、命令/测试修改审批、停止与补充、下一任务排队、按需文件/Diff、冲突撤销与验证证据、重启恢复 |
 | 模型库 | 静态扫描/导入、能力识别、加载/卸载、登记与文件删除分离、HF MLX 下拉搜索/下载/自动登记 |
 | 图片创作 | 文生图/图片编辑/局部重绘、参考图上传/排序、区域画笔与橡皮擦/撤销、原图对比、继续编辑、排队/进度/取消、PNG/参数/参考附件保存和历史复用 |
 | 引擎 | Fake Text/Image 开发路径、mlx-lm / mlx-vlm Worker、可选 MFLUX 适配器 |
@@ -119,6 +120,41 @@ uv run --frozen --project services/runtime --extra mlx-vlm --python 3.12 \
 
 本次未重新打包 Sidecar，也未做长时间压力测试；开发应用需重启 Runtime 后使用新的解码器和完成原因。
 
+## Coding 接入验收（2026-10-16）
+
+已接入 Pi / pi-ai 1.2.0、TypeBox 1.3.27、内置 Node 22.23.1。Node Host 单独管理 Coding 元数据与 Pi 会话；新增内部结构化推理 API，按单次请求取得现有 MLX 推理租约。模型工具能力需经过实际闭环验证，关联引擎、模板/配置与权重版本信息；失败保持未验证。完整使用、协议范围和权限边界见 [Coding](./coding.md)。
+
+本次通过的验证：
+
+| 验证 | 结果与证据范围 |
+|---|---|
+| `pnpm check` | Prettier、Vue/TypeScript、ESLint、Ruff/Pyright、前后端与新增 Host 依赖边界、源码长度均通过 |
+| `pnpm test` + 新增 Host 回归 | 前端 108 项、Runtime 101 项、Host 8 项；含结构化消息/ID、JSON/XML/Unicode/截断、权限凭据、路径和 symlink、已有 staged/unstaged/untracked 变更保留、大文件按需读取、审批拒绝/失效、取消与队列、人工编辑冲突、验证过期及 Host 崩溃后的进程组清理 |
+| Rust | `pnpm check:rust` 与 `pnpm test:rust` 通过，3 项 Rust 单元测试通过 |
+| Web / Sidecar / 应用 | Web、release Sidecar、`.app` 和 `.dmg` 均构建成功；DMG 使用 CI 模式跳过 Finder 外观脚本，正式签名/公证未进行 |
+| 分发资源 | Host/Node/SDK 为实际文件布局，避免 Tauri 漏复制 pnpm 链接；包内 19 个 Host 模块与当前构建摘要一致，不依赖全局 Node 或 Pi |
+| 最终应用包的脚本化闭环 | 直接调用 `.app` 内 Runtime、Node 和 Pi，完成 read → write → 检查失败（退出码 1）→ 修复 → 通过（退出码 0）；证据 `.build/coding-packaged-fake.json` |
+| 最终应用包普通聊天回归 | 发布 Sidecar 的 Fake 文本生成、取消、Worker 重启、Runtime 重启后的历史、资源指标及退出均通过 |
+| 最终应用包 API 回归 | 2 项端到端场景通过：幂等提交、审批、失败修复、版本撤销与普通聊天回归；拒绝/取消、排队及审批时不持推理锁 |
+| 最终应用包的真实 MLX 闭环 | 同机 Qwen3.8-27B-Uncensored-MLX 4-bit / mlx-vlm 0.6.14，真实 read / write / run_command 共 3 次工具调用，模型发起检查及宿主收尾检查退出码均为 0；证据 `.build/coding-packaged-real.json` |
+| 浏览器 | 验证了发送与两次独立审批、失败后的修复、验证退出码与旧记录过期显示；Runtime 重启后的会话恢复、按需读取修改内容；界面证据 `.build/coding-ui-final.png` |
+
+安装制品位于忽略目录 `apps/desktop/src-tauri/target/release/bundle/`，没有提交模型、私有诊断或构建产物。本次新增依赖仅用于 Pi Host，不新增 Python 推理系统或 SQLite 原生模块。
+
+上述真实模型验证只覆盖固定隔离项目的工具闭环，不能推定任意真实项目都能自动修复，也不能扩展为所有模板、长上下文、多模态 Coding 或长期稳定性结论。推理响应目前在完整结构化解析后发送，正文逐 Token 展示仍未实现。Worktree、PTY、外部 Skills/MCP、多 Agent 和周期任务按原设计属于后续阶段；正式签名、公证、干净机器及长期压力验收仍未进行。
+
+### 首轮多工具调用回归（2026-10-16）
+
+用户的“完成一个简单的web图书馆系统”任务暴露了固定单调用探针遗漏的问题：原解析器将同一响应中的多个 `<tool_call>` 当作格式错误，Host 又将具体错误归并为 `MODEL_INFERENCE_FAILED`。`mlx-tools-v2` 先校验完整调用批次，再通过已声明顺序执行的 Pi 工具逐个执行；每次命令仍独立审批。截断、缺失结束标记、未知工具及超过 48 个调用的批次整体拒绝。模型错误保留稳定 Runtime 错误码，界面显示中文说明与详情；不存储任意 Provider 错误正文。工具验证探针现在明确要求首轮同时发起目录列表和文件读取。
+
+源码运行的同机真实 Qwen 模型已在隔离空目录完成原文任务：首轮 list / git_status、第二轮两个独立 write 均正常顺序执行，最终生成 HTML、CSS、JS 和使用说明，7 次工具调用，审批后的 `node --check app.js && ls -la` 退出码 0，任务终态 completed / passed。非 Git 空目录的 git_status 返回工具错误，模型正常继续；没有改动用户原项目。证据 `.build/coding-multicall-real-task.json` 及相邻 `.project/`。
+
+Chrome 手工回归通过初始书目、添加、实时搜索、借出后库存减少、刷新后借阅保存、归还后库存恢复、删除及关联记录清理；页面无 console error。内置浏览器不支持原生 prompt，借阅弹窗由 Chrome 原生界面完成。证据 `.build/coding-library-browser.json`、`.build/coding-library-regression.png`。
+
+最终 `.app` 内真实 MLX 再验收通过：新的批量调用探针共 4 次工具调用，模型检查与宿主收尾检查退出码均为 0；脚本化探针共 7 次工具调用，退出码序列 `[1, 0, 0]`。证据 `.build/coding-multicall-packaged-real.json`、`.build/coding-multicall-packaged-fake.json`。包内 19 个 Host 模块与源码构建摘要一致。重新构建 Host 后验证工作区仍同时保留运行依赖与开发工具；构建失败路径也执行依赖恢复。最终本机临时签名包及 `/Applications/MLX Studio.app` 通过 `codesign --verify --deep --strict`；保持 hardened runtime，声明 Python/MLX 动态库加载所需权限。签名后的独立 Runtime 真实模型 4 次工具调用、两个退出码 0，Fake 失败修复 `[1, 0, 0]` 均通过，证据 `coding-multicall-signed-real.json` / `coding-multicall-signed-fake.json`。正式 Developer ID 签名与公证未进行。
+
+最终安装版桌面启动、Runtime 就绪、当前两条开发会话及 Qwen 工具验证状态恢复均已实际确认。用户授权关闭运行中的源码开发版后，在 `/Applications/MLX Studio.app` 创建独立“安装版回归验收（只读）”会话：真实 Qwen 在单一模型响应中发起 list / git_status，按序完成，任务 completed；只读任务无命令检查，正确保留 not_run。原项目目录仍为空。证据 `.build/coding-installed-real.json`、`.build/coding-installed-regression.png`。界面已恢复开发模式，保留安装版窗口。连接中断与超时也已映射为独立稳定错误码和中文提示。
+
 ## 后续工作与发布条件
 
 | 方向 | 剩余工作及验收要求 |
@@ -134,3 +170,36 @@ uv run --frozen --project services/runtime --extra mlx-vlm --python 3.12 \
 正式发布仍需执行 `pnpm build:app`，并在无开发工具/Python 的干净 Apple Silicon Mac 上验证安装、Sidecar、离线使用、历史保留、退出清理和 Gatekeeper。至少覆盖两种内存规格，升级失败时旧版本可启动、会话/模型登记/作品完整，卸载不得默认删除外部模型目录。
 
 质量检查通过、Web 构建成功或某个本地模型通过，均不能代替这些发布条件。后续验收结果直接更新本文件，不再累积旧 P0–P9 阶段状态或临时修复日报。
+
+
+## Coding 界面简化（2026-10-16）
+
+- 顶部移除运行验证、项目设置、验证，仅保留变更与文件。对话、输入与可调整宽度的完整右侧浏览面板并列。
+- 文件使用 Naive UI 目录树和 CodeMirror 只读源码；变更使用 Diff2Html，支持行内/并排、本会话/Git、打开文件与冲突保护撤销。依赖许可随包保留。
+- 发送时自动准备首次使用的模型，失败保留输入；普通任务不再执行旧项目验证命令，命令工具继续逐次审批。
+- 源码检查、117 项前端测试、102 项 Runtime 测试、8 项 Host 测试与 Web 构建通过。浏览器隔离项目验收覆盖目录搜索、空文件、源码搜索、红绿与并排差异、Git 列表内部跳转及面板拖动。
+- 新版 `.app` / `.dmg` 构建通过，`codesign --verify --deep --strict` 通过，已更新 `/Applications/MLX Studio.app`；旧版保存在 `.build/application-backups/MLX Studio-before-ui-redesign-20261016.app`。
+- 最终安装版的独立 Runtime + 内置 Node Host 工具探针通过：7 次工具调用，预期先失败再修复的退出码为 `[1, 0, 0]`，证据 `.build/coding-ui-installed-fake.json`。首次直接发送任务的自动准备浏览器验收记录 `.build/coding-ui-auto-prepare.json`。
+- 桌面已确认仅剩“变更、文件”，原项目的文件访问曾等待 macOS 重新授权文稿目录（临时签名更新导致旧授权不匹配）。用户已允许最终安装包访问，现已恢复；正式签名、公证及干净机器验收仍未完成。
+- 安装版桌面隔离项目验收通过：自动准备/发送、逐次命令审批、失败后修复、受管差异、文件树搜索、TypeScript 动态语法模块与 ⌘F 源码搜索。会话名“界面回归验收（隔离）”，只修改隔离项目的 `probe.txt`；任务完成，检查退出码 `[1, 0]`，无额外收尾检查。证据 `.build/coding-ui-installed-task.json`，截图 `.build/coding-ui-installed.png`。
+
+本次主要改动文件：
+
+- `apps/desktop/src/modules/coding/pages/CodingPage.vue` / `CodingPage.styles.css`：简化入口与左右面板布局。
+- `components/CodingInspector.vue`、`CodingChangesView.vue`、`CodingFileBrowser.vue`、`CodePreview.vue`、`DiffPreview.vue`：开源查看器与目录浏览（以上组件路径均位于 `apps/desktop/src/modules/coding/`）。
+- `presentation/coding-controller.ts`、`coding-inspector-controller.ts`、`coding-activity.ts` 与 `infrastructure/code-preview.ts`、`diff-preview.ts`、`domain/inspector.ts`：自动模型准备、独立浏览状态与安全渲染（同一 Coding 模块）。
+- `apps/desktop/src/capabilities/coding-settings/presentation/CodingSettingsPanel.vue`、`components/CodingComposer.vue` / `CodingTimeline.vue`（Coding 模块）：清理旧验证/修复轮数界面与折叠操作记录。
+- `services/coding-agent/src/application/runs.ts` / `adapters/workspace.ts`：普通任务不运行旧配置检查，新仓库 Git 差异正确展示工作树。
+- `apps/desktop/package.json`、`pnpm-lock.yaml`、`apps/desktop/public/third-party-notices.txt`：添加查看器依赖，保留 57 项依赖许可；新增相应单元/集成回归用例，更新 `docs/coding.md` 与本文。
+
+检查记录：`pnpm check`；`pnpm test`（117 前端 + 102 Runtime + 8 Host）；最后控制器调整后重新运行 `pnpm check` / `pnpm test:frontend`，Git 调整后重新运行 `pnpm check:coding` / `pnpm test:coding`；`pnpm build:web`、`pnpm build:coding:bundle`、`CI=true pnpm --filter @mlx-studio/desktop tauri build --ci` 均通过。Web 构建保留大于 500 kB 的主包提示，查看器已按需拆分；本次未改 Rust 或 Python 生产代码，未重复 Rust 检查或真实 MLX 长任务，之前真实模型回归记录仍保留。
+
+### 原项目授权后的最终验收补充
+
+用户已在 macOS 文稿目录提示中允许访问。安装版重新切回原项目后，原有会话、四个项目文件（`app.js`、`index.html`、`README.md`、`style.css`）与 HTML 源码正常加载；四个受管文件差异正常读取，未修改原项目文件。
+
+此次补查修正了 Diff2Html 将 `/dev/null` 到新文件误判为重命名的展示问题：受管新增文件现在带明确的 Git 新文件标记，并以 A 显示；现有空文件仍标为修改。新增路径含空格/中文和空文件区分的回归覆盖。`pnpm check`、`pnpm test` 再次全部通过：119 项前端 + 102 项 Runtime + 8 项 Host，共 229 项。
+
+最终包已重新生成、安装并通过签名完整性检查；用户允许最终包访问文稿目录后，再次在安装版中打开原项目，四个文件均正确显示 A，`app.js` 差异标记为 ADDED，点击“打开文件”成功读取原始 JavaScript 源码并显示语法着色。无目录权限错误或待处理的系统授权。本次补查仅修改 `diff-preview.ts`、`diff-preview.spec.ts`、`CodingChangesView.vue` 与本文，未新增依赖，未修改用户项目文件。
+
+最终截图：`.build/coding-ui-original-project-changes.png`、`.build/coding-ui-original-project-files.png`。完整源码检查、229 项测试、Web/桌面构建、安装版隔离任务及原项目文件/变更读取验收完成。

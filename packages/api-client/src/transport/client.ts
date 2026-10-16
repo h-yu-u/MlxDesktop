@@ -1,3 +1,4 @@
+import { decodeCodingEvent, type CodingEvent } from '../coding-decoders'
 import { record, text } from '../decoders'
 /** Authenticated transport boundary for the local Runtime. */
 
@@ -108,6 +109,40 @@ export class RuntimeClient {
         if (done) return
         for (const event of parser.push(decoder.decode(value, { stream: true }))) {
           onEvent(event)
+        }
+      }
+    } finally {
+      await reader.cancel().catch(() => undefined)
+    }
+  }
+
+  async subscribeCoding(
+    onEvent: (event: CodingEvent) => void,
+    signal: AbortSignal,
+    after = 0,
+  ): Promise<void> {
+    const response = await this.fetch(`/internal/v1/coding/events?after_seq=${after}`, { signal })
+    if (!response.ok || !response.body) throw new Error('无法连接 Coding 事件流')
+    const reader = response.body.getReader(),
+      decoder = new TextDecoder()
+    let buffer = ''
+    try {
+      while (!signal.aborted) {
+        const { value, done } = await reader.read()
+        if (done) return
+        buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n')
+        if (buffer.length > 1048576) throw new Error('Coding 事件帧过大')
+        let boundary = buffer.indexOf('\n\n')
+        while (boundary >= 0) {
+          const frame = buffer.slice(0, boundary)
+          buffer = buffer.slice(boundary + 2)
+          const data = frame
+            .split('\n')
+            .filter((line) => line.startsWith('data:'))
+            .map((line) => line.slice(5).trimStart())
+            .join('\n')
+          if (data) onEvent(decodeCodingEvent(JSON.parse(data) as unknown))
+          boundary = buffer.indexOf('\n\n')
         }
       }
     } finally {

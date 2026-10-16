@@ -1,3 +1,10 @@
+import { configureCodingSettings } from '../capabilities/coding-settings/store'
+import { createCodingSettingsController } from '../capabilities/coding-settings/controller'
+import { createCodingSettingsGateway } from '../capabilities/coding-settings/gateway'
+import { configureCodingWorkspace } from '../modules/coding/stores/coding.store'
+import { createCodingController } from '../modules/coding/presentation/coding-controller'
+import { createCodingGateway } from '../modules/coding/infrastructure/coding-gateway'
+import { observeCoding } from '../modules/coding/presentation/coding-observer'
 import { configureChatWorkspace } from '../modules/chat/stores/chat.store'
 import { configureImageWorkspace } from '../modules/image-studio/stores/image-studio.store'
 import { configureModelsWorkspace } from '../modules/models/stores/models.store'
@@ -15,7 +22,7 @@ import { createImageGateway } from '../modules/image-studio/infrastructure/image
 import { createImageController } from '../modules/image-studio/presentation/image-controller'
 import { createModelsGateway } from '../modules/models/infrastructure/models-gateway'
 import { createModelsController } from '../modules/models/presentation/models-controller'
-import { exportBlob, pickModelDirectory } from '../platform/files'
+import { exportBlob, pickModelDirectory, pickProjectDirectory } from '../platform/files'
 
 const observer = new JobObserver(runtimeClient)
 function directoryDependencies() {
@@ -59,7 +66,22 @@ export function createRuntimeOverview() {
   })
 }
 
+export function createCodingWorkspace() {
+  const { directory, refreshModels } = directoryDependencies()
+  return createCodingController({
+    gateway: createCodingGateway(runtimeClient),
+    models: toRef(directory, 'items'),
+    refreshModels,
+    pickDirectory: pickProjectDirectory,
+    observe: (after, refresh, fail) => observeCoding(runtimeClient, after, refresh, fail),
+  })
+}
+
 export function installWorkspaces(): void {
+  configureCodingSettings(() =>
+    createCodingSettingsController(createCodingSettingsGateway(runtimeClient)),
+  )
+  configureCodingWorkspace(createCodingWorkspace)
   configureChatWorkspace(createChatWorkspace)
   configureImageWorkspace(createImageWorkspace)
   configureModelsWorkspace(createModelsWorkspace)
