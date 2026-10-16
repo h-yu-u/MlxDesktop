@@ -10,6 +10,7 @@ import tempfile
 from pathlib import Path
 
 import httpx
+from verification_models import seed_fake_text
 from verify_local_chat import turn
 
 
@@ -37,6 +38,7 @@ async def descendants(root: int) -> set[int]:
 
 async def verify(sidecar: str) -> None:
     with tempfile.TemporaryDirectory(prefix="mlx-desktop-exit-") as directory:
+        seed_fake_text(Path(directory) / "app.db")
         token = secrets.token_urlsafe(32)
         process = await asyncio.create_subprocess_exec(
             str(Path(sidecar).resolve()),

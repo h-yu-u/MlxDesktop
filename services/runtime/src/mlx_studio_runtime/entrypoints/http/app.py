@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeFault, error_payload
+from mlx_studio_runtime.entrypoints.http.audio_routes import register_audio_routes
 from mlx_studio_runtime.entrypoints.http.coding_routes import register_coding_routes
 from mlx_studio_runtime.entrypoints.http.contracts import (
     ErrorEnvelope,
@@ -143,6 +144,7 @@ def create_app(
     register_model_routes(app, service, authenticate)
     register_conversation_routes(app, service, authenticate)
     register_image_studio_routes(app, service, authenticate)
+    register_audio_routes(app, service, authenticate)
     register_event_routes(app, service, authenticate)
     register_coding_routes(app, service, authenticate)
     register_inference_routes(app, service, authenticate)
@@ -175,12 +177,13 @@ def _register_openai_api(app: FastAPI, service: RuntimeApplication, token: str) 
 
 
 def _status_for_code(code: str) -> int:
-    if code == "ATTACHMENT_TOO_LARGE":
+    if code in {"ATTACHMENT_TOO_LARGE", "AUDIO_TOO_LARGE"}:
         return 413
-    if code == "IMAGE_FORMAT_UNSUPPORTED":
+    if code in {"IMAGE_FORMAT_UNSUPPORTED", "AUDIO_FORMAT_UNSUPPORTED"}:
         return 415
     if code in {
         "MODEL_IN_USE",
+        "AUDIO_ASSET_IN_USE",
         "CONVERSATION_IN_USE",
         "IDEMPOTENCY_CONFLICT",
         "JOB_QUEUE_FULL",

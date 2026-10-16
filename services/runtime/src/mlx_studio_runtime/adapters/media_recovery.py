@@ -12,8 +12,20 @@ def recover_media(store: SQLiteDatabase) -> int:
     known.update(
         str(row[0]) for row in store.connection.execute("SELECT relative_path FROM artifacts")
     )
+    if store.connection.execute("SELECT 1 FROM sqlite_master WHERE name='audio_assets'").fetchone():
+        known.update(
+            str(row[0])
+            for row in store.connection.execute("SELECT relative_path FROM audio_assets")
+        )
     recovered = 0
-    for subdirectory in ["attachments", "images", "images/.pending"]:
+    for subdirectory in [
+        "attachments",
+        "images",
+        "images/.pending",
+        "audio/references",
+        "audio/generated",
+        "audio/staging",
+    ]:
         directory = store.media_path / subdirectory
         if not directory.is_dir():
             continue
@@ -24,6 +36,7 @@ def recover_media(store: SQLiteDatabase) -> int:
             if relative in known:
                 continue
             identifier = path.name.removeprefix(".").removesuffix(".upload").removesuffix(".png")
+            identifier = identifier.removesuffix(".wav")
             try:
                 uuid.UUID(identifier)
             except ValueError:

@@ -5,6 +5,7 @@ const links = [
   { to: '/coding', icon: 'code', label: 'Coding' },
   { to: '/models', icon: 'cube', label: '模型库' },
   { to: '/image-studio', icon: 'image', label: '图片创作' },
+  { to: '/audio-studio', icon: 'audio', label: '语音创作' },
   { to: '/settings', icon: 'settings', label: '设置' },
 ]
 </script>

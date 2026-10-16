@@ -7,8 +7,8 @@ from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
     SQLiteRepositories,
 )
 from mlx_studio_runtime.adapters.text_engines.session import EngineSession
-from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.entrypoints.http.contracts import ChatMessageRequest
+from runtime_fixtures import create_test_runtime
 
 RUNTIME_SOURCE = Path(__file__).parents[1] / "services/runtime/src"
 
@@ -70,7 +70,7 @@ class CompletionPersistenceTests(unittest.IsolatedAsyncioTestCase):
 
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "app.db"
-            service = RuntimeApplication(SQLiteRepositories(path), RUNTIME_SOURCE)
+            service = create_test_runtime(SQLiteRepositories(path), RUNTIME_SOURCE)
             service.inference.worker = Worker()  # type: ignore[assignment]
             service.inference.active_model_id = "builtin-fake-text"
             queue = await service.events.subscribe()

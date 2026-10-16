@@ -10,6 +10,7 @@ from pathlib import Path
 
 import httpx
 from mlx_studio_runtime.adapters.agent_host import AgentHost
+from runtime_fixtures import seed_fake_database
 
 ROOT = Path(__file__).parents[1]
 PREFIX = "/internal/v1/coding"
@@ -20,6 +21,7 @@ class CodingWorkspaceTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="mlx-coding-integration-")
         self.directory = Path(self.temp.name)
+        seed_fake_database(self.directory / "app.db")
         self.project = self.directory / "中文 project"
         self.project.mkdir()
         (self.project / "probe.txt").write_text("before\n")

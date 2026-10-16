@@ -4,7 +4,7 @@
 
 ## 产品边界与已采纳决策
 
-第一版面向 Apple Silicon macOS，主线为本地模型导入/下载、流式聊天、取消与历史、模型切换、文生图和作品参数复用。图片理解及正式分发的实际验收范围单独维护。
+第一版面向 Apple Silicon macOS，主线为本地模型导入/下载、流式聊天、取消与历史、模型切换、图片与语音创作和作品参数复用。图片理解及正式分发的实际验收范围单独维护。
 
 | 决策 | 目的 |
 |---|---|
@@ -12,6 +12,7 @@
 | Vue 3 + Vite + TypeScript + Naive UI + Pinia | 统一界面、类型、主题与交互状态，复用基础控件 |
 | Python 3.12 + uv + FastAPI | 集成 MLX 生态，并由 Supervisor 统一产品协议 |
 | 直接封装 mlx-lm、mlx-vlm、MFLUX 的 Python API | 隔离上游变更，不直接依赖上游 Server 作为产品服务 |
+| mlx-audio 语音适配器 | Base / CustomVoice 复用单活 Worker 与统一调度，推理中不下载资源 |
 | 单活推理 Worker | 同时只持有一个大型模型，隔离崩溃，以进程退出兜底释放内存 |
 | HTTP + SSE，进程间 NDJSON | 请求响应、增量事件和推理进程协议分开处理 |
 | SQLite 元数据 + 本地文件 | 会话和索引可查询，附件与生成图片不作为大 BLOB 存入数据库 |
@@ -84,3 +85,9 @@ Coding 使用独立的 TypeScript Pi Host；Python 只桥接产品 NDJSON、认�
 Pi 本地 Provider 使用受限短期凭据访问 `/internal/v1/inference`，每次模型请求通过原有 JobScheduler 取得单次租约。文件工具、审批和命令执行不占推理锁。工具消息及结果 ID 保真传入 Worker 的工具模板，JSON/Qwen XML 解析失败不会降级为普通提示词。外部 `/v1` 仍维持原有边界。
 
 主导航已从聊天侧栏拆分，根布局通过 route meta 组合聊天与 Coding。Coding Store 仅暴露 composition root 装配的 controller；独立 CodingObserver 管理事件观察与恢复，离开页面不取消任务。具体权限、持久化、变更归因、验证版本及交付范围见 [Coding](./coding.md)。
+
+## 语音创作工作区
+
+Audio Studio 提供预设合成、参考克隆、版本化音色库、作品历史、WAV 试听与导出。`SpeechGenerationService` 依赖模型目录、任务提交、音频文件与仓库窄端口；`VoiceProfileService` 保存音色及授权记录，任务冻结输入快照。Worker 组合文本/图像 Session 与语音引擎，语音不扩展文本 Session 的职责。
+
+Qwen3-TTS Base 和 CustomVoice 由静态配置区分，资源完整性检查支持 tokenizer.json 或 vocab.json + merges.txt，并检查 codec、克隆 encoder 与分片权重。能力描述记录适配版本和候选状态，未知模型不会默认作为文本模型开放。SQLite 迁移 5 与 `media/audio` 保存资产、音色、任务和作品，音频文件经认证读取，失败补偿和启动媒体恢复纳入统一生命周期。范围、使用流程与验收证据见[语音创作](./audio-studio.md)。

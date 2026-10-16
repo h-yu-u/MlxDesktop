@@ -9,9 +9,9 @@ from mlx_studio_runtime.adapters.event_hub import EventHub
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
     SQLiteRepositories,
 )
-from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.jobs import JobState
 from mlx_studio_runtime.domain.models import fake_text_manifest
+from runtime_fixtures import create_test_runtime
 
 RUNTIME_SOURCE = Path(__file__).parents[1] / "services/runtime/src"
 
@@ -19,7 +19,7 @@ RUNTIME_SOURCE = Path(__file__).parents[1] / "services/runtime/src"
 class ConsistencyTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         self.directory = tempfile.TemporaryDirectory()
-        self.service = RuntimeApplication(
+        self.service = create_test_runtime(
             SQLiteRepositories(Path(self.directory.name) / "app.db"), RUNTIME_SOURCE
         )
         self.conversation = await self.service.chat.create_conversation(
@@ -74,7 +74,7 @@ class ConsistencyTests(unittest.IsolatedAsyncioTestCase):
         await self.service.scheduler.tasks[first["jobId"]]
         database = self.service.store.database_path
         await self.service.close()
-        self.service = RuntimeApplication(SQLiteRepositories(database), RUNTIME_SOURCE)
+        self.service = create_test_runtime(SQLiteRepositories(database), RUNTIME_SOURCE)
         third = await self.service.chat.send_message(
             self.conversation["id"],
             "hello",
@@ -283,7 +283,7 @@ class ImageSubmissionTests(unittest.IsolatedAsyncioTestCase):
         from mlx_studio_runtime.domain.image_generation import ImageParameters
 
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             first_parameters = ImageParameters(
@@ -304,7 +304,7 @@ class ImageSubmissionTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_model_directory_alias_is_protected_by_another_installation_job(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             first = replace(

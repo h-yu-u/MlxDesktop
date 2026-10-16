@@ -11,6 +11,7 @@ import tempfile
 from pathlib import Path
 
 import httpx
+from verification_models import seed_fake_text
 
 ROOT = Path(__file__).parents[1]
 
@@ -23,6 +24,8 @@ async def verify(
     task: str | None = None,
 ) -> None:
     with tempfile.TemporaryDirectory(prefix="mlx-coding-acceptance-") as directory:
+        if not model_path:
+            seed_fake_text(Path(directory) / "app.db")
         listener = socket.socket()
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]

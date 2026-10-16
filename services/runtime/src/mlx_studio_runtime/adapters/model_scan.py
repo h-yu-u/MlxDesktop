@@ -6,6 +6,7 @@ import uuid
 from pathlib import Path
 from typing import cast
 
+from mlx_studio_runtime.adapters.speech_model_scan import scan_speech
 from mlx_studio_runtime.domain.models import (
     ModelCapabilities,
     ModelManifest,
@@ -29,9 +30,15 @@ def manifest_from_directory(
     if not config and not model_index:
         raise ValueError("MODEL_METADATA_INVALID")
     engine, task = infer_model_kind(config, model_index)
+    speech = scan_speech(resolved, config) if engine == "mlx-audio" else None
     editing = supports_qwen21_edit(resolved, model_index)
     input_modalities = ("text", "image") if engine == "mlx-vlm" or editing else ("text",)
     output_modalities = ("image",) if engine == "mflux" else ("text",)
+    if speech:
+        input_modalities = ("text", "audio") if speech.variant == "base" else ("text",)
+        output_modalities = ("audio",)
+    elif engine == "unknown":
+        input_modalities, output_modalities = (), ()
     text_config = config.get("text_config")
     context_length = config.get("max_position_embeddings")
     if context_length is None and isinstance(text_config, dict):
@@ -58,11 +65,13 @@ def manifest_from_directory(
         local_path=str(resolved),
         engine=engine,
         task=task,
+        speech=speech,
+        compatibility_status="partial" if speech and speech.unavailable_reason else "unknown",
         input_modalities=input_modalities,
         output_modalities=output_modalities,
         revision=revision,
         context_length=context_length if isinstance(context_length, int) else None,
-        disk_size_bytes=sum(file.stat().st_size for file in weight_files),
+        disk_size_bytes=sum(file.stat().st_size for file in resolved.rglob("*") if file.is_file()),
         capabilities=ModelCapabilities(
             streaming=engine in {"mlx-lm", "mlx-vlm"},
             lora=engine == "mflux",

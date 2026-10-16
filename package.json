@@ -21,7 +21,7 @@
     "build:sidecar": "bash scripts/build-runtime.sh",
     "build:app": "pnpm build:coding:bundle && pnpm build:web && pnpm build:sidecar && CI=true pnpm --filter @mlx-studio/desktop tauri build --ci",
     "build:desktop": "pnpm build:app",
-    "bootstrap": "pnpm install --frozen-lockfile && uv sync --project services/runtime --frozen --extra mlx-vlm --extra mflux",
+    "bootstrap": "pnpm install --frozen-lockfile && uv sync --project services/runtime --frozen --extra mlx-vlm --extra mflux --extra audio",
     "test:rust": "cargo test --manifest-path apps/desktop/src-tauri/Cargo.toml",
     "format": "prettier --write \"apps/desktop/src/**/*.{ts,vue,css}\" \"packages/api-client/src/**/*.ts\" \"scripts/*.mjs\" \"services/coding-agent/src/**/*.ts\" \"services/coding-agent/tests/*.mjs\" apps/desktop/vite.config.ts && uv run --project services/runtime --python 3.12 ruff format services/runtime/src tests scripts/check-python-boundaries.py",
     "check:format": "prettier --check \"apps/desktop/src/**/*.{ts,vue,css}\" \"packages/api-client/src/**/*.ts\" \"scripts/*.mjs\" \"services/coding-agent/src/**/*.ts\" \"services/coding-agent/tests/*.mjs\" apps/desktop/vite.config.ts && uv run --project services/runtime --python 3.12 ruff format --check services/runtime/src tests scripts/check-python-boundaries.py",

@@ -15,10 +15,10 @@ from mlx_studio_runtime.adapters.image_files import artifact_path, validate_png
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
     SQLiteRepositories,
 )
-from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.image_generation import ImageParameters
 from mlx_studio_runtime.domain.jobs import JobState
-from mlx_studio_runtime.entrypoints.http.app import create_app
+from runtime_fixtures import create_test_app as create_app
+from runtime_fixtures import create_test_runtime
 
 PARAMETERS = {
     "model_id": "builtin-fake-image",
@@ -194,7 +194,7 @@ class ImageTaskConsistencyTests(unittest.TestCase):
 
     async def _queued_cancellation(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             await service.scheduler.lock.acquire()
@@ -233,7 +233,7 @@ class ImageTaskConsistencyTests(unittest.TestCase):
                 self.release.set()
 
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             service.inference.worker = RaceWorker()
@@ -255,7 +255,7 @@ class ImageTaskConsistencyTests(unittest.TestCase):
 
     async def _registration_failure(self):
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             with patch.object(

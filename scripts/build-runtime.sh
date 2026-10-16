@@ -10,12 +10,13 @@ profile="${MLX_STUDIO_BUILD_PROFILE:-release}"
 engine_flags=()
 collect_flags=()
 if [[ "$profile" == "release" ]]; then
-  engine_flags=(--extra mlx-lm --extra mlx-vlm --extra mflux)
+  engine_flags=(--extra mlx-lm --extra mlx-vlm --extra mflux --extra audio)
   collect_flags=(--collect-all mlx --collect-all mlx_lm --collect-all mlx_vlm --collect-all mflux
     --collect-all transformers --collect-all tokenizers --collect-all huggingface_hub
-    --collect-all scipy)
+    --collect-all scipy --collect-all mlx_audio --collect-all miniaudio
+    --collect-all sounddevice --collect-all numpy)
 elif [[ "$profile" == "fake" ]]; then
-  collect_flags=(--exclude-module mlx --exclude-module mlx_lm --exclude-module mlx_vlm --exclude-module mflux)
+  collect_flags=(--exclude-module mlx --exclude-module mlx_lm --exclude-module mlx_vlm --exclude-module mflux --exclude-module mlx_audio)
 elif [[ "$profile" != "fake" ]]; then
   echo "Build profile must be release or fake." >&2
   exit 2

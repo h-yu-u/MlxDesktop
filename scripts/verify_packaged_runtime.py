@@ -6,12 +6,14 @@ import json
 import tempfile
 from pathlib import Path
 
+from verification_models import seed_fake_text
 from verify_local_chat import turn
 from verify_local_image import start_runtime, stop_runtime
 
 
 async def verify(sidecar: str) -> None:
     with tempfile.TemporaryDirectory(prefix="mlx-sidecar-") as directory:
+        seed_fake_text(Path(directory) / "app.db")
         process, client = await start_runtime(directory, str(Path(sidecar).resolve()))
         try:
             async with client:

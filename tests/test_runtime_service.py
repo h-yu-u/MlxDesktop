@@ -11,8 +11,8 @@ sys.path.insert(0, str(RUNTIME_SOURCE))
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
     SQLiteRepositories,
 )
-from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.jobs import Job, JobState
+from runtime_fixtures import create_test_runtime
 
 
 class RuntimeServiceTests(unittest.TestCase):
@@ -22,7 +22,7 @@ class RuntimeServiceTests(unittest.TestCase):
     async def _model_load_failure_always_finishes_job(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteRepositories(Path(directory) / "app.db")
-            service = RuntimeApplication(store, RUNTIME_SOURCE)
+            service = create_test_runtime(store, RUNTIME_SOURCE)
             conversation = await service.chat.create_conversation(
                 "Test", "builtin-fake-text"
             )
@@ -69,7 +69,7 @@ class RuntimeServiceTests(unittest.TestCase):
                 self.released.set()
 
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             conversation = await service.chat.create_conversation(
@@ -96,7 +96,7 @@ class RuntimeServiceTests(unittest.TestCase):
 
     async def _cancelling_terminal_job_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
-            service = RuntimeApplication(
+            service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
             service.lifecycle.items["done"] = Job("done", "chat", JobState.SUCCEEDED)

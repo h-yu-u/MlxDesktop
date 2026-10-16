@@ -7,11 +7,9 @@ from typing import Any, Protocol
 
 from mlx_studio_runtime.application.ports import EventPublisher, ModelRepository
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
-from mlx_studio_runtime.domain.image_generation import fake_image_manifest_dict
 from mlx_studio_runtime.domain.models import (
     ModelManifest,
     ModelSource,
-    fake_text_manifest,
     manifest_from_dict,
 )
 
@@ -39,16 +37,7 @@ class ModelCatalog:
         self.scan_directory = scanner
         self.check_available = check_available
         self.models: dict[str, ModelManifest] = {}
-        self._seed_fake_model()
         self._restore_models()
-
-    def _seed_fake_model(self) -> None:
-        manifest = fake_text_manifest()
-        self.models[manifest.id] = manifest
-        self.repository.upsert(manifest.to_dict(), "available")
-        image_manifest = manifest_from_dict(fake_image_manifest_dict())
-        self.models[image_manifest.id] = image_manifest
-        self.repository.upsert(image_manifest.to_dict(), "available")
 
     def _restore_models(self) -> None:
         for item in self.repository.list():

@@ -25,5 +25,9 @@ export const router = createRouter({
       component: () => import('../modules/image-studio/pages/ImageStudioPage.vue'),
     },
     { path: '/settings', component: () => import('../modules/settings/pages/SettingsPage.vue') },
+    {
+      path: '/audio-studio',
+      component: () => import('../modules/audio-studio/pages/AudioStudioPage.vue'),
+    },
   ],
 })

@@ -3,8 +3,16 @@
 from dataclasses import dataclass
 from typing import Literal, cast
 
-EngineName = Literal["mlx-lm", "mlx-vlm", "mflux", "fake"]
-TaskName = Literal["text-generation", "vision-language", "image-generation"]
+from mlx_studio_runtime.domain.speech import (
+    SpeechCapabilities,
+    SpeechOperation,
+    speech_capabilities,
+)
+
+EngineName = Literal["mlx-lm", "mlx-vlm", "mflux", "mlx-audio", "fake", "unknown"]
+TaskName = Literal[
+    "text-generation", "vision-language", "image-generation", "text-to-speech", "unknown"
+]
 ModelSource = Literal["huggingface", "local", "builtin"]
 CompatibilityStatus = Literal["unknown", "supported", "partial", "incompatible", "broken"]
 
@@ -39,6 +47,7 @@ class ModelManifest:
     capabilities: ModelCapabilities = ModelCapabilities()
     managed_installation: bool = False
     artifact_identity: str | None = None
+    speech: SpeechCapabilities | None = None
 
     def to_dict(self) -> dict[str, object]:
         return {
@@ -46,6 +55,7 @@ class ModelManifest:
             "installationId": self.id,
             "managedInstallation": self.managed_installation,
             "artifactIdentity": self.artifact_identity,
+            "speech": self.speech.to_dict() if self.speech else None,
             "displayName": self.display_name,
             "source": self.source,
             "localPath": self.local_path,
@@ -77,6 +87,8 @@ def infer_model_kind(
 ) -> tuple[EngineName, TaskName]:
     pipeline = str(model_index.get("_class_name", "")).lower().replace("_", "")
     model_type = str(config.get("model_type", "")).lower()
+    if model_type == "qwen3_tts":
+        return "mlx-audio", "text-to-speech"
     raw_architectures = config.get("architectures")
     architectures = (
         cast(list[object], raw_architectures) if isinstance(raw_architectures, list) else []
@@ -124,7 +136,31 @@ def infer_model_kind(
         marker in description for marker in vision_markers
     ):
         return "mlx-vlm", "vision-language"
-    return "mlx-lm", "text-generation"
+    if "forcausallm" in architecture_text or model_type in {
+        "llama",
+        "qwen2",
+        "qwen3",
+        "qwen3_moe",
+        "mistral",
+        "mixtral",
+        "gemma",
+        "gemma2",
+        "gemma3_text",
+        "phi",
+        "phi3",
+        "stablelm",
+        "deepseek_v2",
+        "deepseek_v3",
+        "gpt2",
+        "gpt_oss",
+        "smollm3",
+        "granite",
+        "olmo",
+        "internlm2",
+        "starcoder2",
+    }:
+        return "mlx-lm", "text-generation"
+    return "unknown", "unknown"
 
 
 def stable_metadata(metadata: dict[str, object]) -> dict[str, object]:
@@ -166,9 +202,15 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
     engine = value.get("engine")
     task = value.get("task")
     source = value.get("source")
-    if engine not in {"mlx-lm", "mlx-vlm", "mflux", "fake"}:
+    if engine not in {"mlx-lm", "mlx-vlm", "mflux", "mlx-audio", "fake", "unknown"}:
         raise ValueError("MODEL_METADATA_INVALID")
-    if task not in {"text-generation", "vision-language", "image-generation"}:
+    if task not in {
+        "text-generation",
+        "vision-language",
+        "image-generation",
+        "text-to-speech",
+        "unknown",
+    }:
         raise ValueError("MODEL_METADATA_INVALID")
     if source not in {"huggingface", "local", "builtin"}:
         raise ValueError("MODEL_METADATA_INVALID")
@@ -208,4 +250,40 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
         ),
         managed_installation=value.get("managedInstallation") is True,
         artifact_identity=str(value["artifactIdentity"]) if value.get("artifactIdentity") else None,
+        speech=_restore_speech(value.get("speech")),
+    )
+
+
+def _restore_speech(value: object) -> SpeechCapabilities | None:
+    if not isinstance(value, dict):
+        return None
+    item = cast(dict[str, object], value)
+    if item.get("family") == "fake":
+        return SpeechCapabilities(
+            "fake",
+            "custom_voice",
+            (SpeechOperation("preset", preset_speakers=("demo",)), SpeechOperation("clone")),
+            "validated",
+            "fake-v1",
+        )
+    operations = item.get("operations")
+    speakers: dict[str, int] = {}
+    if isinstance(operations, list):
+        for op in cast(list[object], operations):
+            if isinstance(op, dict) and isinstance(op.get("presetSpeakers"), list):
+                speakers = {str(s): i for i, s in enumerate(op["presetSpeakers"])}
+    result = speech_capabilities(
+        {"tts_model_type": item.get("variant"), "talker_config": {"spk_id": speakers}}
+    )
+    from dataclasses import replace
+
+    return replace(
+        result,
+        family=str(item.get("family", "qwen3_tts")),
+        verification="validated" if item.get("family") == "fake" else "candidate",
+        unavailable_reason=str(item["unavailableReason"])
+        if item.get("unavailableReason")
+        else result.unavailable_reason,
+        operations=() if item.get("unavailableReason") else result.operations,
+        adapter_version=str(item.get("adapterVersion", result.adapter_version)),
     )

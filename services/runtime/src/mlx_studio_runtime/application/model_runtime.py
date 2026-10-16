@@ -30,7 +30,7 @@ class ModelRuntime:
         manifest = self.models.get(model_id)
         if manifest is None:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "找不到此模型"))
-        if manifest.engine not in {"fake", "mlx-lm", "mlx-vlm", "mflux"}:
+        if manifest.engine not in {"fake", "mlx-lm", "mlx-vlm", "mflux", "mlx-audio"}:
             raise RuntimeFault(
                 RuntimeErrorInfo(
                     "ENGINE_NOT_AVAILABLE",
@@ -54,9 +54,10 @@ class ModelRuntime:
             self.repository.update_state(model_id, "error")
             self.state = RuntimeState.DEGRADED
             await self.events.publish("runtime.degraded", {"reason": "worker_load_failed"})
-            raise RuntimeFault(
-                RuntimeErrorInfo("MODEL_LOAD_FAILED", "模型加载失败", True)
-            ) from error
+            code = str(getattr(error, "code", "MODEL_LOAD_FAILED"))
+            if code == "WORKER_COMMAND_FAILED":
+                code = "MODEL_LOAD_FAILED"
+            raise RuntimeFault(RuntimeErrorInfo(code, "模型加载失败", True)) from error
         self.active_model_id = model_id
         self.repository.update_state(model_id, "loaded")
         self.state = RuntimeState.READY

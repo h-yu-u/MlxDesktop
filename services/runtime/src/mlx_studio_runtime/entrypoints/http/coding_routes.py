@@ -43,7 +43,7 @@ def register_coding_routes(
         method: str, params: dict[str, object], request: Request, model_id: str
     ) -> Any:
         model = service.catalog.models.get(model_id)
-        if model is None or model.task == "image-generation":
+        if model is None or "text" not in model.output_modalities:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "请选择本地文本模型"))
         return await service.coding.model_call(
             method,

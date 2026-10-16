@@ -9,7 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parents[1] / "services" / "runtime" / "src"))
 
 from fastapi.testclient import TestClient
-from mlx_studio_runtime.entrypoints.http.app import create_app
+from runtime_fixtures import create_test_app as create_app
 
 
 class RuntimeApiTests(unittest.TestCase):

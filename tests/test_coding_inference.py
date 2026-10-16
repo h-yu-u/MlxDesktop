@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from mlx_studio_runtime.adapters.text_engines.session import normalize_messages
 from mlx_studio_runtime.adapters.text_engines.structured import parse_completion
 from mlx_studio_runtime.domain.inference import validate_context
-from mlx_studio_runtime.entrypoints.http.app import create_app
+from runtime_fixtures import create_test_app as create_app
 
 TOOLS = [
     {

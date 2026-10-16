@@ -20,6 +20,9 @@ mlx-vlm = [
 mflux = [
     "mflux==0.22.0",
 ]
+audio = [
+    "mlx-audio==0.5.9",
+]
 
 [dependency-groups]
 build = [

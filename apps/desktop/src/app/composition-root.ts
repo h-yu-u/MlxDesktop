@@ -7,6 +7,9 @@ import { createCodingGateway } from '../modules/coding/infrastructure/coding-gat
 import { observeCoding } from '../modules/coding/presentation/coding-observer'
 import { configureChatWorkspace } from '../modules/chat/stores/chat.store'
 import { configureImageWorkspace } from '../modules/image-studio/stores/image-studio.store'
+import { configureAudioWorkspace } from '../modules/audio-studio/stores/audio-studio.store'
+import { createAudioController } from '../modules/audio-studio/presentation/audio-controller'
+import { createAudioGateway } from '../modules/audio-studio/infrastructure/audio-gateway'
 import { configureModelsWorkspace } from '../modules/models/stores/models.store'
 import { configureRuntimeOverview } from '../capabilities/runtime/store'
 import { createRuntimeController } from '../capabilities/runtime/controller'
@@ -59,6 +62,14 @@ export function createModelsWorkspace() {
   })
 }
 
+export function createAudioWorkspace() {
+  return createAudioController({
+    ...directoryDependencies(),
+    gateway: createAudioGateway(runtimeClient),
+    exportAudio: (blob, id) => exportBlob(blob, `mlx-studio-${id}.wav`),
+  })
+}
+
 export function createRuntimeOverview() {
   return createRuntimeController({
     gateway: createRuntimeGateway(runtimeClient),
@@ -84,6 +95,7 @@ export function installWorkspaces(): void {
   configureCodingWorkspace(createCodingWorkspace)
   configureChatWorkspace(createChatWorkspace)
   configureImageWorkspace(createImageWorkspace)
+  configureAudioWorkspace(createAudioWorkspace)
   configureModelsWorkspace(createModelsWorkspace)
   configureRuntimeOverview(createRuntimeOverview)
 }

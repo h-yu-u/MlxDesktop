@@ -19,9 +19,15 @@ class WorkerProtocolError(RuntimeError):
 
 
 class WorkerHost:
-    def __init__(self, runtime_source: Path, image_output_root: Path | None = None) -> None:
+    def __init__(
+        self,
+        runtime_source: Path,
+        image_output_root: Path | None = None,
+        audio_root: Path | None = None,
+    ) -> None:
         self.runtime_source = runtime_source
         self.image_output_root = image_output_root
+        self.audio_root = audio_root
         self.process: asyncio.subprocess.Process | None = None
         self.write_lock = asyncio.Lock()
         self.reader_task: asyncio.Task[None] | None = None
@@ -41,6 +47,8 @@ class WorkerHost:
         env.pop("MLX_STUDIO_EXTERNAL_API_TOKEN", None)
         if self.image_output_root is not None:
             env["MLX_STUDIO_IMAGE_OUTPUT_ROOT"] = str(self.image_output_root)
+        if self.audio_root is not None:
+            env["MLX_STUDIO_AUDIO_ROOT"] = str(self.audio_root)
         current = env.get("PYTHONPATH", "")
         env["PYTHONPATH"] = f"{self.runtime_source}{os.pathsep}{current}".rstrip(os.pathsep)
         command = (
@@ -113,6 +121,16 @@ class WorkerHost:
 
     async def cancel(self, job_id: str) -> None:
         await self._send("generation.cancel", {"job_id": job_id})
+
+    async def generate_audio(
+        self, job_id: str, parameters: dict[str, object], output_path: Path
+    ) -> AsyncIterator[dict[str, Any]]:
+        command_id = await self._send(
+            "audio.start",
+            {"job_id": job_id, "parameters": parameters, "output_path": str(output_path)},
+        )
+        async for event in self._events_until_terminal(job_id, command_id):
+            yield event
 
     async def stop(self) -> None:
         if self.process is None:
@@ -187,7 +205,10 @@ class WorkerHost:
         if event["type"] == "worker.command_failed":
             if event["payload"].get("command_id") != command_id:
                 raise WorkerProtocolError("worker failed an unexpected command")
-            raise WorkerProtocolError("worker command failed", "WORKER_COMMAND_FAILED")
+            raise WorkerProtocolError(
+                "worker command failed",
+                str(event["payload"].get("error_code", "WORKER_COMMAND_FAILED")),
+            )
         if event["type"] in {"worker.protocol_error", "worker.stopped"}:
             raise WorkerProtocolError("worker stopped or rejected the protocol")
 

@@ -4,6 +4,8 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from mlx_studio_runtime.entrypoints.http.audio_contracts import SpeechCapabilitiesView
+
 
 class ReadModel(BaseModel):
     model_config = ConfigDict(extra="allow")
@@ -24,6 +26,7 @@ class ModelView(ReadModel):
     installationId: str | None = None
     managedInstallation: bool = False
     artifactIdentity: str | None = None
+    speech: SpeechCapabilitiesView | None = None
 
 
 class AttachmentView(ReadModel):

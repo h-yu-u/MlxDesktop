@@ -4,7 +4,7 @@ import gc
 import sys
 import threading
 import time
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import redirect_stdout
 from typing import Any, cast
 
@@ -12,7 +12,8 @@ from mlx_studio_runtime.adapters.image_engines.worker_image import WorkerImageEn
 
 
 class EngineSession:
-    def __init__(self) -> None:
+    def __init__(self, emit: Callable[[str, dict[str, Any]], None] | None = None) -> None:
+        self.event_sink = emit
         self.cancel = threading.Event()
         self.shutdown = threading.Event()
         self.model_id: str | None = None
@@ -26,7 +27,9 @@ class EngineSession:
         self.generation_tokens = 0
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
-        raise NotImplementedError
+        if self.event_sink is None:
+            raise NotImplementedError
+        self.event_sink(event_type, payload)
 
     def _load(self, payload: dict[str, Any]) -> None:
         self._unload()
@@ -45,10 +48,11 @@ class EngineSession:
             from mlx_lm import load  # type: ignore[import-not-found]
 
             with redirect_stdout(sys.stderr):
-                self.model, self.tokenizer = load(
+                loaded = load(
                     str(manifest["localPath"]),
-                    trust_remote_code=False,
+                    tokenizer_config={"trust_remote_code": False},
                 )
+                self.model, self.tokenizer = loaded[0], loaded[1]
         elif self.engine == "mlx-vlm":
             from mlx_vlm import load  # type: ignore[import-not-found]
             from mlx_vlm.utils import load_config  # type: ignore[import-not-found]

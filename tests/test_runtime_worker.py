@@ -17,7 +17,7 @@ from mlx_studio_runtime.entrypoints.worker.main import Worker
 
 class WorkerHostTests(unittest.TestCase):
     def test_text_prompt_uses_sampler_and_persisted_history(self) -> None:
-        worker = Worker()
+        worker = Worker().session
         captured_messages: list[dict[str, str]] = []
         captured_sampler: list[object] = []
 
@@ -57,7 +57,7 @@ class WorkerHostTests(unittest.TestCase):
         self.assertEqual(chunks, ["answer"])
 
     def test_vlm_uses_streaming_api(self) -> None:
-        worker = Worker()
+        worker = Worker().session
         worker.model = object()
         worker.processor = object()
         worker.model_config = object()
@@ -76,7 +76,7 @@ class WorkerHostTests(unittest.TestCase):
         self.assertEqual(chunks, ["image ", "answer"])
 
     def test_vlm_keeps_history_and_disables_thinking_for_chat(self) -> None:
-        worker = Worker()
+        worker = Worker().session
         worker.engine = "mlx-vlm"
         worker.model = object()
         worker.processor = object()
@@ -138,17 +138,20 @@ class WorkerHostTests(unittest.TestCase):
                 "mlx_vlm.utils": utils,
             },
         ):
-            worker._load(
+            worker.handle(
                 {
-                    "manifest": {
-                        "id": "local-qwen",
-                        "engine": "mlx-vlm",
-                        "localPath": "/local/model",
-                        "task": "vision-language",
-                    }
+                    "type": "worker.load",
+                    "payload": {
+                        "manifest": {
+                            "id": "local-qwen",
+                            "engine": "mlx-vlm",
+                            "localPath": "/local/model",
+                            "task": "vision-language",
+                        }
+                    },
                 }
             )
-            worker._unload()
+            worker.unload()
         events = [
             json.loads(line) for line in worker.protocol_output.getvalue().splitlines()
         ]

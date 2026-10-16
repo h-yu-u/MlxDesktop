@@ -1,6 +1,8 @@
 import type { Transport } from './transport/ports'
 import { codingEndpoints } from './coding-endpoints'
 import { imageEndpoints } from './image-endpoints'
+import { audioEndpoints } from './audio-endpoints'
+import { decodeSpeech } from './audio-decoders'
 import { decodeCatalog } from './model-catalog'
 import { decodeRuntimeMetrics } from './runtime-metrics'
 import type { components } from './generated-schema'
@@ -25,6 +27,7 @@ export interface ModelSummary
   installationId: string
   managedInstallation: boolean
   artifactIdentity: string | null
+  speech?: ModelSchema['speech']
 }
 export interface Attachment {
   id: string
@@ -88,6 +91,7 @@ export function decodeModel(value: unknown): ModelSummary {
       item.contextLength === null || item.contextLength === undefined
         ? null
         : number(item.contextLength),
+    speech: decodeSpeech(item.speech),
   }
 }
 export function decodeMessage(value: unknown): Message {
@@ -128,6 +132,7 @@ export function decodeSubmission(value: unknown): Submission {
 export function createEndpoints(transport: Transport) {
   return {
     images: imageEndpoints(transport),
+    audio: audioEndpoints(transport),
     coding: codingEndpoints(transport),
     jobs: {
       get: async (id: string): Promise<JobSnapshot> => {

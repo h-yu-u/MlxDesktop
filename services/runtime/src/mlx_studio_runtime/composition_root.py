@@ -5,6 +5,7 @@ from pathlib import Path
 
 from mlx_studio_runtime.adapters.agent_host import AgentHost
 from mlx_studio_runtime.adapters.attachment_files import AttachmentFiles
+from mlx_studio_runtime.adapters.audio_files import AudioFiles
 from mlx_studio_runtime.adapters.coding_model_identity import coding_model_identity
 from mlx_studio_runtime.adapters.diagnostics import HostDiagnostics
 from mlx_studio_runtime.adapters.event_hub import EventHub
@@ -30,6 +31,8 @@ from mlx_studio_runtime.application.model_runtime import ModelRuntime
 from mlx_studio_runtime.application.queries import Queries
 from mlx_studio_runtime.application.runtime_control import RuntimeControl
 from mlx_studio_runtime.application.runtime_overview import RuntimeOverview, RuntimeSnapshot
+from mlx_studio_runtime.application.speech_generation_service import SpeechGenerationService
+from mlx_studio_runtime.application.voice_profile_service import VoiceProfileService
 
 
 class RuntimeApplication:
@@ -49,7 +52,9 @@ class RuntimeApplication:
             self.catalog.models,
             store.models,
             self.events,
-            lambda: WorkerHost(runtime_source, store.media_path / "images"),
+            lambda: WorkerHost(
+                runtime_source, store.media_path / "images", store.media_path / "audio"
+            ),
         )
         self.lifecycle = JobLifecycle(store.jobs, self.events, store.database.transaction)
         self.scheduler = JobScheduler(self.lifecycle, self.inference)
@@ -77,6 +82,16 @@ class RuntimeApplication:
             SubmissionJournal(store.database),
         )
         self.images = self._image_service(store, attachment_files)
+        audio_files = AudioFiles(store.media_path)
+        self.voices = VoiceProfileService(store.audio, audio_files)
+        self.speech = SpeechGenerationService(
+            self.catalog.models,
+            self.scheduler,
+            self.inference,
+            store.audio,
+            audio_files,
+            self.voices,
+        )
         self.overview = RuntimeOverview(
             self._overview_snapshot,
             HostDiagnostics(

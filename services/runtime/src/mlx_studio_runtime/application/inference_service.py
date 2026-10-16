@@ -21,7 +21,7 @@ class InferenceService:
         except (ValueError, KeyError, TypeError) as error:
             raise RuntimeFault(RuntimeErrorInfo("INFERENCE_CONTEXT_INVALID", str(error))) from error
         model = self.scheduler.runtime.models.get(model_id)
-        if model is None or model.task == "image-generation":
+        if model is None or "text" not in model.output_modalities:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "请选择文本模型"))
         self.scheduler.check_admission(model_id)
         job = Job(str(uuid.uuid4()), "coding-inference", JobState.QUEUED, model_id)

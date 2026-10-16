@@ -35,13 +35,24 @@ defineEmits<{
             : '本地导入'
       }}
     </p>
+    <p v-if="model.speech" class="local-model-source">
+      {{
+        model.speech.unavailableReason ??
+        (model.speech.verification === 'candidate'
+          ? '语音能力已静态识别 · 真机待验证'
+          : '语音开发测试引擎')
+      }}
+    </p>
+    <p v-else-if="model.engine === 'unknown'" class="local-model-source">尚未适配此模型架构</p>
     <template #footer>
       <div class="local-model-actions">
         <NButton
           size="small"
           type="primary"
           :loading="activeAction === `load:${model.id}`"
-          :disabled="!!activeAction"
+          :disabled="
+            !!activeAction || !!model.speech?.unavailableReason || model.engine === 'unknown'
+          "
           @click="$emit('load', model.id)"
         >
           加载模型

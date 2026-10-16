@@ -5,11 +5,13 @@ from pathlib import Path
 from mlx_studio_runtime.adapters.persistence.attachment_repository import (
     AttachmentRepository,
 )
+from mlx_studio_runtime.adapters.persistence.audio_repository import AudioRepository, migrate_audio
 from mlx_studio_runtime.adapters.persistence.conversation_repository import (
     ConversationRepository,
 )
 from mlx_studio_runtime.adapters.persistence.image_repository import ImageRepository
 from mlx_studio_runtime.adapters.persistence.job_repository import JobRepository
+from mlx_studio_runtime.adapters.persistence.model_migrations import migrate_model_catalog
 from mlx_studio_runtime.adapters.persistence.model_repository import ModelRepository
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
 
@@ -17,6 +19,9 @@ from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDataba
 class SQLiteRepositories:
     def __init__(self, path: Path) -> None:
         self.database = SQLiteDatabase(path)
+        migrate_audio(self.database)
+        migrate_model_catalog(self.database)
+        self.audio = AudioRepository(self.database)
         self.attachments = AttachmentRepository(self.database)
         self.models = ModelRepository(self.database)
         self.conversations = ConversationRepository(self.database, self.attachments)

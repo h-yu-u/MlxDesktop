@@ -7,7 +7,7 @@ sys.path.insert(0, str(Path(__file__).parents[1] / "services/runtime/src"))
 
 from fastapi.testclient import TestClient
 from mlx_studio_runtime.adapters.image_engines.fake_image import write_fake_png
-from mlx_studio_runtime.entrypoints.http.app import create_app
+from runtime_fixtures import create_test_app as create_app
 from test_image_studio import HEADERS, PARAMETERS, wait_for_job
 
 

@@ -1,6 +1,6 @@
 # MLX Studio 文档
 
-MLX Studio 是面向 Apple Silicon macOS 的本地 AI 工作台，包含模型管理、流式聊天、图片创作、Coding 和本地历史记录。
+MLX Studio 是面向 Apple Silicon macOS 的本地 AI 工作台，包含模型管理、流式聊天、图片创作、语音创作、Coding 和本地历史记录。
 
 ## 阅读入口
 
@@ -8,6 +8,7 @@ MLX Studio 是面向 Apple Silicon macOS 的本地 AI 工作台，包含模型�
 |---|---|
 | [使用与开发](./getting-started.md) | 环境准备、启动、模型下载、聊天、生图历史、常用命令 |
 | [Coding 工作区](./coding.md) | Pi 接入、项目开发、权限审批、变更与验证、复验命令 |
+| [语音创作](./audio-studio.md) | 预设合成、参考克隆、音色库、作品与 WAV 导出、依赖及验收范围 |
 | [架构](./architecture.md) | 进程职责、通信、模型能力、任务生命周期、存储与安全决策 |
 | [工程规范](./engineering.md) | 分层、编码约束、依赖、测试与完成标准 |
 | [验收状态与后续工作](./status.md) | 已实现范围、真实模型验证、复验命令、待完成事项 |

@@ -6,6 +6,7 @@ import { RuntimeEventStreamParser } from '../sse'
 import type { RuntimeConnection, RuntimeEvent } from '../types'
 import { createEndpoints } from '../endpoints'
 import { decodeError } from '../errors'
+import { decodeAudioAsset } from '../audio-decoders'
 
 export type { ModelSummary, Conversation, Message, Submission, ChatCommand } from '../endpoints'
 
@@ -74,6 +75,27 @@ export class RuntimeClient {
       const payload: unknown = await response.json().catch(() => undefined)
       throw decodeError(payload, response.status)
     }
+    return response.blob()
+  }
+
+  async uploadAudio(file: File) {
+    const response = await this.fetch(
+      `/internal/v1/audio-assets?filename=${encodeURIComponent(file.name)}`,
+      { method: 'POST', body: file },
+    )
+    const payload: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) throw decodeError(payload, response.status)
+    return decodeAudioAsset(payload)
+  }
+
+  async downloadAudio(id: string, role: 'asset' | 'artifact', signal?: AbortSignal): Promise<Blob> {
+    const collection = role === 'asset' ? 'audio-assets' : 'audio-artifacts'
+    const response = await this.fetch(
+      `/internal/v1/${collection}/${encodeURIComponent(id)}/content`,
+      { signal },
+    )
+    if (!response.ok)
+      throw decodeError(await response.json().catch(() => undefined), response.status)
     return response.blob()
   }
 

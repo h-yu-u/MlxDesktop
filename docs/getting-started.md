@@ -14,15 +14,15 @@ pnpm bootstrap
 pnpm dev
 ```
 
-`bootstrap` 安装前端依赖与 Runtime 的 `mlx-vlm`、`mflux` 可选依赖。桌面 Debug 启动使用项目 Runtime；发布版本使用打包后的 Sidecar。首次安装依赖及下载模型需要网络。
+`bootstrap` 安装前端依赖与 Runtime 的 `mlx-vlm`、`mflux`、`audio` 可选依赖。桌面 Debug 启动使用项目 Runtime；发布版本使用打包后的 Sidecar。首次安装依赖及下载模型需要网络。
 
-`pnpm dev:web` 只启动前端开发服务器。完整本地交互还需要 Runtime 连接；FakeEngine 可用于无真实模型的 API/UI 开发。
+`pnpm dev:web` 只启动前端开发服务器。完整本地交互还需要 Runtime 连接。正常启动不登记模拟模型；自动化测试在隔离数据库中显式登记 FakeEngine。
 
 ## 模型库
 
 1. 打开“模型库”，展开 Hugging Face 模型下拉列表。
 2. 输入名称或关键词搜索，选择仓库后点击“下载模型”。
-3. 下载完成后自动登记到本地模型库；返回聊天或图片创作页选择使用。
+3. 下载完成后自动登记到本地模型库；返回聊天、图片创作或语音创作页选择兼容模型使用。
 
 目录通过 Hugging Face 公开 API 按 `mlx` 元数据筛选、按下载量排序，只显示无需申请访问的仓库。目录查询不读取或发送本机 HF 凭据；模型下载使用 Runtime 的 `huggingface-hub` 适配器。出现在目录中或下载成功不代表已验证兼容，具体范围见[验收状态](./status.md)。
 
@@ -36,7 +36,7 @@ pnpm dev
 
 默认最大输出长度为 4096 token，可在右上角模型设置中调整，最高 8192。达到上限时，回答下方会提示并提供「继续回答」；继续会沿用已有对话上下文发起下一轮。达到长度上限与推理失败分开显示，停止原因随历史保存。
 
-已验证的 Qwen3.8-27B MLX 模型应导入包含 `config.json` 和权重的 `4-bit` 子目录。当前已验证纯文本场景；模型经 `mlx-vlm` 运行不代表图片理解已经验收。没有真实模型时可选择明确标注的 Fake Text Engine 验证交互。
+已验证的 Qwen3.8-27B MLX 模型应导入包含 `config.json` 和权重的 `4-bit` 子目录。当前已验证纯文本场景；模型经 `mlx-vlm` 运行不代表图片理解已经验收。没有真实模型时列表为空，需要先下载或导入模型。
 
 ## 图片创作与历史
 
@@ -49,7 +49,7 @@ pnpm dev
 
 Runtime 接口允许宽高 64–2048 且为 16 的倍数，步数 1–100，Seed 为 0–4294967295；这只是参数校验范围，不能据此推定所有模型和分辨率已验证。
 
-Qwen Image 2.1 原生 MFLUX 导出应包含 `transformer/`、`text_encoder/`、`vae/` 的分片索引和权重，以及 `processor/` 分词器。模型通过结构识别，目录名称不影响行为。生成时只使用本地权重，不隐式下载缺失组件。Fake Image Engine 会明确标注为模拟图像。
+Qwen Image 2.1 原生 MFLUX 导出应包含 `transformer/`、`text_encoder/`、`vae/` 的分片索引和权重，以及 `processor/` 分词器。模型通过结构识别，目录名称不影响行为。生成时只使用本地权重，不隐式下载缺失组件。Fake Image Engine 仅在隔离验证中显式使用。
 
 ### 图片编辑与参考图
 
