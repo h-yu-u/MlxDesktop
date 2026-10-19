@@ -1,3 +1,5 @@
+import type { RunExtensions } from '../extensions/application/ports.js'
+import type { Snapshot, Tool } from '../extensions/domain/types.js'
 import type { Entities, Event, Project, Run, Session } from '../domain/types.js'
 export interface RepositoryPort {
   readonly directory: string
@@ -45,7 +47,7 @@ export interface PiSession {
   prompt(text: string): Promise<void>
   steer(text: string): Promise<unknown>
   abort(): Promise<void>
-  dispose(): void
+  close(): Promise<void>
   lastStopReason(): string | undefined
   lastErrorCode(): string | undefined
   subscribe(callback: (event: { type: string; text: string; data: unknown }) => void): void
@@ -67,7 +69,13 @@ export interface ToolContext {
   mode: Run['mode']
   workspace: WorkspacePort
   command(id: string, command: string, signal?: AbortSignal): Promise<unknown>
-  tick(id: string, name: string): void
+  invoke<T>(id: string, name: string, execute: () => Promise<T>): Promise<T>
+  authorizeTool(
+    id: string,
+    tool: Tool,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<void>
   authorizeWrite(
     id: string,
     path: string,
@@ -76,7 +84,18 @@ export interface ToolContext {
   ): Promise<void>
   changed(path: string): void
 }
+export interface RunRuntime {
+  bootstrapToken: string
+  capabilityUrl: string
+}
+export interface ActiveCapability {
+  token: string
+  capabilityUrl: string
+}
 export interface RunPorts {
+  activate?(runtime: RunRuntime, signal: AbortSignal): Promise<ActiveCapability>
+  closeCapability?(runtime: RunRuntime, active?: ActiveCapability): Promise<void>
+  extensions?: RunExtensions
   commands: CommandPort
   fingerprint(root: string): Promise<string>
   gitStatus(root: string): Promise<string>
@@ -87,6 +106,10 @@ export interface RunPorts {
     session: Session
     provider: Provider
     context: ToolContext
+    capability?: ActiveCapability
+    skillInstructions?: string
+    snapshot?: Snapshot
+    connectionSecrets?: Record<string, Record<string, string>>
   }): Promise<{ session: PiSession; path(): string | undefined }>
 }
 export interface ProjectPort {

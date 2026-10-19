@@ -26,9 +26,10 @@ export function tools(context: ToolContext): ToolDefinition[] {
       executionMode: 'sequential',
       execute: async (id, params, signal) => {
         if (signal?.aborted) throw new Error('CANCELLED')
-        context.tick(id, name)
-        const result = await execute(id, object(params), signal)
-        return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} }
+        return context.invoke(id, name, async () => {
+          const result = await execute(id, object(params), signal)
+          return { content: [{ type: 'text', text: JSON.stringify(result) }], details: {} }
+        })
       },
     }
   }

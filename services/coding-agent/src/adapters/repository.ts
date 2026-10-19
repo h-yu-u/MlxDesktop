@@ -9,10 +9,13 @@ export class Repository {
   private db: DatabaseSync
   private writing = false
   private listeners = new Set<() => void>()
-  constructor(readonly directory: string) {
+  constructor(
+    readonly directory: string,
+    filename = 'coding.db',
+  ) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.directory = realpathSync(directory)
-    this.db = new DatabaseSync(join(directory, 'coding.db'))
+    this.db = new DatabaseSync(join(directory, filename))
     this.db
       .exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS entities (kind TEXT, id TEXT, value TEXT NOT NULL, PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, sessionId TEXT, runId TEXT, type TEXT, text TEXT, data TEXT);`)

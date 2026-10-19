@@ -1,3 +1,12 @@
+import { createAgentController } from '../capabilities/extensions/presentation/agent-controller'
+import { agentChatEndpoints } from '@mlx-studio/api-client'
+import { createAssistantController } from '../capabilities/extensions/presentation/assistant-controller'
+import { textAssistantEndpoints } from '@mlx-studio/api-client'
+import { configureExtensions } from '../capabilities/extensions'
+import { createExtensionsGateway } from '../capabilities/extensions/infrastructure/gateway'
+import { createExtensionsController } from '../capabilities/extensions/presentation/controller'
+import { createSelectionController } from '../capabilities/extensions/presentation/selection-controller'
+import { pickSkillDirectory } from '../platform/files'
 import { configureCodingSettings } from '../capabilities/coding-settings/store'
 import { createCodingSettingsController } from '../capabilities/coding-settings/controller'
 import { createCodingSettingsGateway } from '../capabilities/coding-settings/gateway'
@@ -102,6 +111,40 @@ export function createCodingWorkspace() {
 }
 
 export function installWorkspaces(): void {
+  const extensionGateway = createExtensionsGateway(runtimeClient)
+  configureExtensions({
+    agent: () =>
+      createAgentController({
+        models: toRef(useModelDirectory(), 'items'),
+        refreshModels: directoryDependencies().refreshModels,
+        verifyModel: async (id) => {
+          const endpoints = createEndpoints(await runtimeClient())
+          const caps = await endpoints.coding.capabilities()
+          if (!caps.some((cap) => cap.id === id && cap.status === 'verified'))
+            await endpoints.coding.verifyModel(id)
+        },
+        gateway: {
+          sessions: async () => agentChatEndpoints(await runtimeClient()).sessions(),
+          create: async (...args) => agentChatEndpoints(await runtimeClient()).create(...args),
+          snapshot: async (...args) => agentChatEndpoints(await runtimeClient()).snapshot(...args),
+          submit: async (...args) => agentChatEndpoints(await runtimeClient()).submit(...args),
+          cancel: async (...args) => agentChatEndpoints(await runtimeClient()).cancel(...args),
+          resolve: async (...args) => agentChatEndpoints(await runtimeClient()).resolve(...args),
+        },
+      }),
+    assistant: () =>
+      createAssistantController({
+        models: toRef(useModelDirectory(), 'items'),
+        refreshModels: directoryDependencies().refreshModels,
+        gateway: {
+          create: async (body) => textAssistantEndpoints(await runtimeClient()).create(body),
+          get: async (id) => textAssistantEndpoints(await runtimeClient()).get(id),
+          cancel: async (id) => textAssistantEndpoints(await runtimeClient()).cancel(id),
+        },
+      }),
+    settings: () => createExtensionsController(extensionGateway, pickSkillDirectory),
+    picker: () => createSelectionController(extensionGateway),
+  })
   configureWebSearch(() => createWebSearchController(createWebSearchGateway(runtimeClient)))
   configureCodingSettings(() =>
     createCodingSettingsController(createCodingSettingsGateway(runtimeClient)),

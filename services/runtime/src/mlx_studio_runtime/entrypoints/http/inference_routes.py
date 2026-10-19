@@ -17,8 +17,12 @@ from mlx_studio_runtime.entrypoints.http.inference_contracts import InferenceReq
 def register_inference_routes(
     app: FastAPI, service: RuntimeApplication, authenticate: Callable[..., Awaitable[None]]
 ) -> None:
-    async def inference_auth(authorization: str | None = Header(default=None)) -> None:
-        if not service.coding.authorized(authorization):
+    async def inference_auth(
+        request: Request, authorization: str | None = Header(default=None)
+    ) -> None:
+        scoped = service.capability_grants.authorized(authorization)
+        request.state.capability_scoped = scoped
+        if not scoped and not service.coding.authorized(authorization):
             await authenticate(authorization)
 
     @app.get("/internal/v1/inference/models", dependencies=[Depends(inference_auth)])
@@ -38,7 +42,12 @@ def register_inference_routes(
         for message in payload["messages"]:
             if isinstance(message.get("content"), list):
                 message["content"] = "\n".join(block["text"] for block in message["content"])
-        task = asyncio.create_task(service.provider_inference.complete(payload))
+        authorization = request.headers.get("authorization")
+        task = asyncio.create_task(
+            service.capability_grants.complete(authorization, payload)
+            if authorization and request.state.capability_scoped
+            else service.provider_inference.complete(payload)
+        )
         try:
             while not task.done():
                 await asyncio.wait({task}, timeout=0.2)

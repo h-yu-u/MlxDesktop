@@ -63,7 +63,12 @@ class AgentHost:
                     stdin=asyncio.subprocess.PIPE,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
-                    env={"PATH": "/usr/bin:/bin", "LANG": "en_US.UTF-8"},
+                    env={
+                        "PATH": "/usr/bin:/bin",
+                        "LANG": "en_US.UTF-8",
+                        "HOME": str(Path.home()),
+                        "PI_CODING_AGENT_DIR": str(self.directory / "pi"),
+                    },
                     limit=16 * 1024 * 1024,
                 )
                 self.stderr = asyncio.create_task(self._drain_stderr())
@@ -71,7 +76,7 @@ class AgentHost:
                 line = await asyncio.wait_for(self.process.stdout.readline(), timeout=30)
                 frame = json.loads(line)
                 if (
-                    frame.get("protocolVersion") != 1
+                    frame.get("protocolVersion") != SCHEMA["protocolVersion"]
                     or frame.get("type") != "host.ready"
                     or not isinstance(frame.get("hostEpoch"), str)
                 ):
@@ -96,7 +101,7 @@ class AgentHost:
         self.pending[request_id] = future
         self.methods[request_id] = method
         frame = {
-            "protocolVersion": 1,
+            "protocolVersion": SCHEMA["protocolVersion"],
             "hostEpoch": self.epoch,
             "requestId": request_id,
             "method": method,
@@ -131,7 +136,10 @@ class AgentHost:
             assert self.process is not None and self.process.stdout is not None
             while line := await self.process.stdout.readline():
                 frame = json.loads(line)
-                if frame.get("protocolVersion") != 1 or frame.get("hostEpoch") != self.epoch:
+                if (
+                    frame.get("protocolVersion") != SCHEMA["protocolVersion"]
+                    or frame.get("hostEpoch") != self.epoch
+                ):
                     raise ValueError("CODING_PROTOCOL_INVALID")
                 if frame.get("type") == "command.process":
                     pid = frame.get("pid")

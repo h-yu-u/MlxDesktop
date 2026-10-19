@@ -36,11 +36,10 @@ for (const verifyOnly of [false, true]) {
         path: () => undefined,
         session: {
           prompt: async () => {
-            context.tick('pwd', 'run_command')
-            await context.command('pwd', 'pwd')
+            await context.invoke('pwd', 'run_command', () => context.command('pwd', 'pwd'))
           },
           subscribe() {},
-          dispose() {},
+          close: async () => {},
           abort: async () => {},
           steer: async () => {},
           lastStopReason: () => 'stop',

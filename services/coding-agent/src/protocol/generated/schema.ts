@@ -1,6 +1,6 @@
 // Generated; edit packages/coding-protocol/schema.json.
 export const rpcSchema = {
-  "protocolVersion": 1,
+  "protocolVersion": 2,
   "methods": {
     "settings.get": {
       "params": {
@@ -495,6 +495,36 @@ export const rpcSchema = {
           },
           "queue": {
             "type": "boolean"
+          },
+          "selection": {
+            "$ref": "#/$defs/ExtensionSelection"
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "digest",
+                "values"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -845,6 +875,823 @@ export const rpcSchema = {
         ],
         "additionalProperties": false
       }
+    },
+    "extensions.catalog.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionCatalog"
+      }
+    },
+    "extensions.skills.import": {
+      "params": {
+        "$ref": "#/$defs/SkillImportRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.skills.publish": {
+      "params": {
+        "$ref": "#/$defs/SkillImportRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.skills.inspect": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/SkillInspection"
+      }
+    },
+    "extensions.skills.update": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "mutationId",
+          "id",
+          "expectedRevision",
+          "enabled"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.mcp.save": {
+      "params": {
+        "$ref": "#/$defs/McpSaveRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.mcp.inspect": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "revision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/McpServer"
+      }
+    },
+    "extensions.mcp.test": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "configRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "string",
+              "maxLength": 8192
+            }
+          }
+        },
+        "required": [
+          "id",
+          "configRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionOperation"
+      }
+    },
+    "extensions.mcp.tools": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "configRevision": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "id",
+          "configRevision"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/McpInventory"
+      }
+    },
+    "extensions.operations.get": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionOperation"
+      }
+    },
+    "extensions.operations.cancel": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionOperation"
+      }
+    },
+    "extensions.mutations.get": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/ExtensionMutation"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      }
+    },
+    "extensions.bindings.get": {
+      "params": {
+        "$ref": "#/$defs/ExtensionScope"
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionBinding"
+      }
+    },
+    "extensions.bindings.update": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "expectedRevision": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "scope": {
+            "$ref": "#/$defs/ExtensionScope"
+          },
+          "selection": {
+            "$ref": "#/$defs/ExtensionSelection"
+          }
+        },
+        "required": [
+          "mutationId",
+          "expectedRevision",
+          "scope",
+          "selection"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.resolve": {
+      "params": {
+        "$ref": "#/$defs/ExtensionResolveRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionResolution"
+      }
+    },
+    "extensions.revoke": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "mutationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "targetId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "mutationId",
+          "targetId"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/ExtensionMutation"
+      }
+    },
+    "extensions.events.wait": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/ExtensionEvent"
+            },
+            "maxItems": 200
+          },
+          "watermark": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "events",
+          "watermark"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "extensions.check": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "snapshot": {
+            "$ref": "#/$defs/ExtensionSnapshot"
+          }
+        },
+        "required": [
+          "snapshot"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "valid"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "runs.prepare": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32000
+          },
+          "mode": {
+            "enum": [
+              "analyze",
+              "develop",
+              "review"
+            ]
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32768
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "modelId",
+              "baseUrl",
+              "token",
+              "contextWindow"
+            ],
+            "additionalProperties": false
+          },
+          "queue": {
+            "type": "boolean"
+          },
+          "selection": {
+            "$ref": "#/$defs/ExtensionSelection"
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "digest",
+                "values"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "sessionId",
+          "submissionId",
+          "text",
+          "mode",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "runs.commit": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "bootstrapToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "capabilityUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "digest",
+                "values"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "bootstrapToken",
+          "capabilityUrl"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "agent.sessions.create": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/AgentChatSession"
+      }
+    },
+    "agent.sessions.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/AgentChatSession"
+        }
+      }
+    },
+    "agent.sessions.snapshot": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/AgentChatSnapshot"
+      }
+    },
+    "agent.runs.prepare": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32000
+          },
+          "mode": {
+            "enum": [
+              "develop"
+            ]
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32768
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "modelId",
+              "baseUrl",
+              "token",
+              "contextWindow"
+            ],
+            "additionalProperties": false
+          },
+          "selection": {
+            "$ref": "#/$defs/ExtensionSelection"
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "digest",
+                "values"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "sessionId",
+          "submissionId",
+          "text",
+          "mode",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "agent.runs.commit": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "bootstrapToken": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "capabilityUrl": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 4096
+          },
+          "connectionSecrets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "revision": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "digest": {
+                  "type": "string"
+                },
+                "values": {
+                  "type": "object",
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "revision",
+                "digest",
+                "values"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "bootstrapToken",
+          "capabilityUrl"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "agent.runs.cancel": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "agent.approvals.resolve": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "allowed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "allowed"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolved"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "extensions.skills.preview": {
+      "params": {
+        "$ref": "#/$defs/SkillImportRequest"
+      },
+      "result": {
+        "$ref": "#/$defs/SkillInspection"
+      }
     }
   },
   "$defs": {
@@ -1071,6 +1918,12 @@ export const rpcSchema = {
         "maxRepairRounds": {
           "type": "integer",
           "title": "Maxrepairrounds"
+        },
+        "capabilitySnapshot": {
+          "$ref": "#/$defs/ExtensionSnapshot"
+        },
+        "selection": {
+          "$ref": "#/$defs/ExtensionSelection"
         }
       },
       "type": "object",
@@ -1111,12 +1964,11 @@ export const rpcSchema = {
           "title": "Toolcallid"
         },
         "action": {
-          "type": "string",
           "enum": [
             "command",
-            "file_write"
-          ],
-          "title": "Action"
+            "file_write",
+            "mcp"
+          ]
         },
         "parameters": {
           "additionalProperties": true,
@@ -1525,6 +2377,1074 @@ export const rpcSchema = {
         "data"
       ],
       "title": "CodingEventView"
+    },
+    "ExtensionSelection": {
+      "type": "object",
+      "properties": {
+        "skillIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "maxItems": 16
+        },
+        "toolIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 16
+        },
+        "mediaBindings": {
+          "$ref": "#/$defs/ExtensionMediaBindings"
+        }
+      },
+      "required": [
+        "skillIds",
+        "toolIds"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionScope": {
+      "type": "object",
+      "properties": {
+        "workspace": {
+          "enum": [
+            "chat",
+            "coding",
+            "image",
+            "audio"
+          ]
+        },
+        "kind": {
+          "enum": [
+            "workspace",
+            "project",
+            "session"
+          ]
+        },
+        "scopeId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "workspace",
+        "kind",
+        "scopeId"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionRef": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "digest"
+      ],
+      "additionalProperties": false
+    },
+    "SkillFile": {
+      "type": "object",
+      "properties": {
+        "relativePath": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "size": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "relativePath",
+        "digest",
+        "size"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionSkill": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1024
+        },
+        "source": {
+          "enum": [
+            "builtin",
+            "local-import"
+          ]
+        },
+        "sourceRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "chat",
+              "coding",
+              "image",
+              "audio"
+            ]
+          },
+          "maxItems": 4
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 16
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/SkillFile"
+          },
+          "maxItems": 200
+        },
+        "contentRevision": {
+          "type": "integer",
+          "minimum": 1
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "digest",
+        "name",
+        "description",
+        "source",
+        "sourceRef",
+        "enabled",
+        "workspaces",
+        "requiredCapabilities",
+        "files"
+      ],
+      "additionalProperties": false
+    },
+    "SkillInspection": {
+      "type": "object",
+      "properties": {
+        "skill": {
+          "$ref": "#/$defs/ExtensionSkill"
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 65536
+        },
+        "diagnostics": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "skill",
+        "body",
+        "diagnostics"
+      ],
+      "additionalProperties": false
+    },
+    "McpStdioTransport": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "stdio"
+          ]
+        },
+        "executable": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "maxLength": 4096
+          },
+          "maxItems": 64
+        },
+        "cwd": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "publicEnv": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "secretRefs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        }
+      },
+      "required": [
+        "type",
+        "executable",
+        "args",
+        "cwd",
+        "publicEnv",
+        "secretRefs"
+      ],
+      "additionalProperties": false
+    },
+    "McpHttpTransport": {
+      "type": "object",
+      "properties": {
+        "type": {
+          "enum": [
+            "streamable-http"
+          ]
+        },
+        "url": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "publicHeaders": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "secretRefs": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "maxLength": 8192
+          }
+        },
+        "authMode": {
+          "enum": [
+            "none",
+            "bearer",
+            "api-key"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "url",
+        "publicHeaders",
+        "secretRefs",
+        "authMode"
+      ],
+      "additionalProperties": false
+    },
+    "McpTransport": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/McpStdioTransport"
+        },
+        {
+          "$ref": "#/$defs/McpHttpTransport"
+        }
+      ]
+    },
+    "McpServer": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "transport": {
+          "$ref": "#/$defs/McpTransport"
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64
+        },
+        "readOnlyTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64
+        },
+        "credentialConfigured": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "digest",
+        "name",
+        "enabled",
+        "transport",
+        "allowedTools",
+        "readOnlyTools",
+        "credentialConfigured"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionTool": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "serverId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "originalName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "modelName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "schemaDigest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "inputSchema": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "risk": {
+          "enum": [
+            "read",
+            "ask"
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "serverId",
+        "originalName",
+        "modelName",
+        "schemaDigest",
+        "description",
+        "inputSchema",
+        "risk"
+      ],
+      "additionalProperties": false
+    },
+    "McpInventory": {
+      "type": "object",
+      "properties": {
+        "serverId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "configRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "inventoryRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "digest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionTool"
+          },
+          "maxItems": 128
+        },
+        "resources": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "uri": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 4096
+              },
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 1024
+              }
+            },
+            "required": [
+              "uri",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 200
+        }
+      },
+      "required": [
+        "serverId",
+        "configRevision",
+        "inventoryRevision",
+        "digest",
+        "tools",
+        "resources"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionBinding": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "scope": {
+          "$ref": "#/$defs/ExtensionScope"
+        },
+        "selection": {
+          "$ref": "#/$defs/ExtensionSelection"
+        }
+      },
+      "required": [
+        "id",
+        "revision",
+        "scope",
+        "selection"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionSnapshot": {
+      "type": "object",
+      "properties": {
+        "schemaVersion": {
+          "enum": [
+            1
+          ]
+        },
+        "workspace": {
+          "enum": [
+            "chat",
+            "coding",
+            "image",
+            "audio"
+          ]
+        },
+        "catalogRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policyEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionSkill"
+          },
+          "maxItems": 16
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpServer"
+          },
+          "maxItems": 16
+        },
+        "tools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionTool"
+          },
+          "maxItems": 16
+        },
+        "snapshotDigest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "mediaBindings": {
+          "$ref": "#/$defs/ExtensionMediaBindings"
+        },
+        "mode": {
+          "enum": [
+            "analyze",
+            "develop",
+            "review"
+          ]
+        }
+      },
+      "required": [
+        "schemaVersion",
+        "workspace",
+        "catalogRevision",
+        "policyEpoch",
+        "skills",
+        "servers",
+        "tools",
+        "snapshotDigest"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionResolution": {
+      "type": "object",
+      "properties": {
+        "snapshot": {
+          "$ref": "#/$defs/ExtensionSnapshot"
+        },
+        "totalToolCount": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "estimatedContextTokens": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "snapshot",
+        "totalToolCount",
+        "estimatedContextTokens"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionOperation": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "serverId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "state": {
+          "enum": [
+            "running",
+            "cancelled",
+            "failed",
+            "succeeded",
+            "interrupted"
+          ]
+        },
+        "errorCode": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "inventory": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/McpInventory"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "serverId",
+        "state",
+        "errorCode",
+        "inventory"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionEvent": {
+      "type": "object",
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "type": {
+          "enum": [
+            "extension.config_updated",
+            "skill.version_published",
+            "mcp.inventory_changed",
+            "capability.revoked"
+          ]
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "catalogRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policyEpoch": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "seq",
+        "type",
+        "targetId",
+        "catalogRevision",
+        "policyEpoch"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionCatalog": {
+      "type": "object",
+      "properties": {
+        "catalogRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "policyEpoch": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "skills": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionSkill"
+          },
+          "maxItems": 200
+        },
+        "servers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpServer"
+          },
+          "maxItems": 200
+        },
+        "inventories": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/McpInventory"
+          },
+          "maxItems": 200
+        },
+        "builtinTools": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ExtensionTool"
+          }
+        }
+      },
+      "required": [
+        "catalogRevision",
+        "policyEpoch",
+        "skills",
+        "servers",
+        "inventories",
+        "builtinTools"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionMutation": {
+      "type": "object",
+      "properties": {
+        "mutationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "targetId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "required": [
+        "mutationId",
+        "targetId",
+        "revision"
+      ],
+      "additionalProperties": false
+    },
+    "SkillImportRequest": {
+      "type": "object",
+      "properties": {
+        "mutationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "workspaces": {
+          "type": "array",
+          "items": {
+            "enum": [
+              "chat",
+              "coding",
+              "image",
+              "audio"
+            ]
+          },
+          "maxItems": 4
+        },
+        "requiredCapabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 16
+        },
+        "expectedDigest": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "mutationId",
+        "path",
+        "workspaces",
+        "requiredCapabilities"
+      ],
+      "additionalProperties": false
+    },
+    "McpSaveRequest": {
+      "type": "object",
+      "properties": {
+        "mutationId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "expectedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "enabled": {
+          "type": "boolean"
+        },
+        "transport": {
+          "$ref": "#/$defs/McpTransport"
+        },
+        "allowedTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64
+        },
+        "readOnlyTools": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "maxItems": 64
+        },
+        "credentialIntent": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "mutationId",
+        "expectedRevision",
+        "name",
+        "enabled",
+        "transport",
+        "allowedTools",
+        "readOnlyTools"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionResolveRequest": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "$ref": "#/$defs/ExtensionScope"
+        },
+        "selection": {
+          "$ref": "#/$defs/ExtensionSelection"
+        },
+        "mode": {
+          "enum": [
+            "analyze",
+            "develop",
+            "review"
+          ]
+        },
+        "contextBudget": {
+          "type": "integer",
+          "minimum": 4096,
+          "maximum": 32768
+        },
+        "channel": {
+          "enum": [
+            "text",
+            "agent"
+          ]
+        }
+      },
+      "required": [
+        "scope"
+      ],
+      "additionalProperties": false
+    },
+    "ExtensionMediaBindings": {
+      "type": "object",
+      "properties": {
+        "imageModelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "speechModelId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "speechMode": {
+          "enum": [
+            "preset",
+            "clone"
+          ]
+        },
+        "speaker": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "voiceId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "imageMode": {
+          "enum": [
+            "generate",
+            "edit",
+            "inpaint"
+          ]
+        },
+        "imageReferenceIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "maxItems": 10
+        },
+        "imageMaskId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200
+        }
+      },
+      "additionalProperties": false
+    },
+    "AgentChatSession": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "piPath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "title",
+        "piPath"
+      ],
+      "additionalProperties": false
+    },
+    "AgentChatSnapshot": {
+      "type": "object",
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/AgentChatSession"
+        },
+        "runs": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CodingRunView"
+          }
+        },
+        "approvals": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CodingApprovalView"
+          }
+        },
+        "events": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/CodingEventView"
+          }
+        }
+      },
+      "required": [
+        "session",
+        "runs",
+        "approvals",
+        "events"
+      ],
+      "additionalProperties": false
     }
   },
   "errors": [

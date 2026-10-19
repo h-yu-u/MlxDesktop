@@ -28,3 +28,8 @@ export async function pickProjectDirectory(): Promise<string | null> {
   const path = await open({ directory: true, multiple: false, title: '选择开发项目' })
   return typeof path === 'string' ? path : null
 }
+
+export async function pickSkillDirectory(): Promise<string | null> {
+  const path = await open({ directory: true, multiple: false, title: '选择包含 SKILL.md 的目录' })
+  return typeof path === 'string' ? path : null
+}

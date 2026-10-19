@@ -2,8 +2,8 @@
 export type CodingSettings = { "id"?: string; "defaultModelId"?: string; "contextBudget"?: number; "maxRepairRounds"?: number }
 export type CodingProjectView = { "id": string; "path": string; "name": string; "git": boolean; "branch": string; "dirty": string; "instructions": string; "commands": (string)[] }
 export type CodingSessionView = { "id": string; "projectId": string; "title": string; "pinned": boolean; "archived": boolean; "piPath": string | null }
-export type CodingRunView = { "id": string; "sessionId": string; "submissionId": string; "text": string; "modelId": string; "mode": "analyze" | "develop" | "review"; "status": "queued" | "starting" | "running" | "awaiting_approval" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted"; "phase": string; "verification": "not_run" | "running" | "passed" | "failed" | "partial"; "error": string | null; "createdAt": string; "baseline": string; "fingerprint": string | null; "maxRepairRounds": number }
-export type CodingApprovalView = { "id": string; "runId": string; "sessionId": string; "toolCallId": string; "action": "command" | "file_write"; "parameters": Record<string, unknown>; "command": string; "cwd": string; "policyVersion": number; "expiresAt": number; "status": "pending" | "allowed" | "denied" }
+export type CodingRunView = { "id": string; "sessionId": string; "submissionId": string; "text": string; "modelId": string; "mode": "analyze" | "develop" | "review"; "status": "queued" | "starting" | "running" | "awaiting_approval" | "cancelling" | "completed" | "failed" | "cancelled" | "interrupted"; "phase": string; "verification": "not_run" | "running" | "passed" | "failed" | "partial"; "error": string | null; "createdAt": string; "baseline": string; "fingerprint": string | null; "maxRepairRounds": number; "capabilitySnapshot"?: ExtensionSnapshot; "selection"?: ExtensionSelection }
+export type CodingApprovalView = { "id": string; "runId": string; "sessionId": string; "toolCallId": string; "action": "command" | "file_write" | "mcp"; "parameters": Record<string, unknown>; "command": string; "cwd": string; "policyVersion": number; "expiresAt": number; "status": "pending" | "allowed" | "denied" }
 export type CodingVerificationView = { "purpose"?: "command" | "verification"; "id": string; "runId": string; "sessionId": string; "command": string; "exitCode": number | null; "output": string; "truncated": boolean; "fingerprint": string; "stale": boolean }
 export type CodingChangeView = { "contentLoaded"?: boolean; "id": string; "runId": string; "sessionId": string; "path": string; "before": string | null; "after": string; "restored": boolean; "state": "pending" | "written" }
 export type CodingChanges = { "managed": (CodingChangeView)[]; "workspace": string; "diff": string; "scope": string }
@@ -12,6 +12,31 @@ export type CodingFileView = { "content": string; "sha256": string }
 export type CodingCapability = { "id": string; "status": "verified" | "unverified"; "verifiedAt": string | null; "engineVersion": string; "parserVersion": string; "modelFingerprint": string; "detail": string }
 export type CodingSnapshot = { "session": CodingSessionView; "project": CodingProjectView; "runs": (CodingRunView)[]; "approvals": (CodingApprovalView)[]; "verifications": (CodingVerificationView)[]; "events": (CodingEventView)[]; "watermark": number; "activeRun": CodingRunView | null }
 export type CodingEventView = { "seq": number; "sessionId": string; "runId": string | null; "type": string; "text": string; "data": unknown }
+export type ExtensionSelection = { "skillIds": (string)[]; "toolIds": (string)[]; "mediaBindings"?: ExtensionMediaBindings }
+export type ExtensionScope = { "workspace": "chat" | "coding" | "image" | "audio"; "kind": "workspace" | "project" | "session"; "scopeId": string }
+export type ExtensionRef = { "id": string; "revision": number; "digest": string }
+export type SkillFile = { "relativePath": string; "digest": string; "size": number }
+export type ExtensionSkill = { "id": string; "revision": number; "digest": string; "name": string; "description": string; "source": "builtin" | "local-import"; "sourceRef": string; "enabled": boolean; "workspaces": ("chat" | "coding" | "image" | "audio")[]; "requiredCapabilities": (string)[]; "files": (SkillFile)[]; "contentRevision"?: number }
+export type SkillInspection = { "skill": ExtensionSkill; "body": string; "diagnostics": (string)[] }
+export type McpStdioTransport = { "type": "stdio"; "executable": string; "args": (string)[]; "cwd": string; "publicEnv": Record<string, string>; "secretRefs": Record<string, string> }
+export type McpHttpTransport = { "type": "streamable-http"; "url": string; "publicHeaders": Record<string, string>; "secretRefs": Record<string, string>; "authMode": "none" | "bearer" | "api-key" }
+export type McpTransport = McpStdioTransport | McpHttpTransport
+export type McpServer = { "id": string; "revision": number; "digest": string; "name": string; "enabled": boolean; "transport": McpTransport; "allowedTools": (string)[]; "readOnlyTools": (string)[]; "credentialConfigured": boolean }
+export type ExtensionTool = { "id": string; "serverId": string; "originalName": string; "modelName": string; "schemaDigest": string; "description": string; "inputSchema": Record<string, unknown>; "risk": "read" | "ask" }
+export type McpInventory = { "serverId": string; "configRevision": number; "inventoryRevision": number; "digest": string; "tools": (ExtensionTool)[]; "resources": ({ "uri": string; "name": string })[] }
+export type ExtensionBinding = { "id": string; "revision": number; "scope": ExtensionScope; "selection": ExtensionSelection }
+export type ExtensionSnapshot = { "schemaVersion": 1; "workspace": "chat" | "coding" | "image" | "audio"; "catalogRevision": number; "policyEpoch": number; "skills": (ExtensionSkill)[]; "servers": (McpServer)[]; "tools": (ExtensionTool)[]; "snapshotDigest": string; "mediaBindings"?: ExtensionMediaBindings; "mode"?: "analyze" | "develop" | "review" }
+export type ExtensionResolution = { "snapshot": ExtensionSnapshot; "totalToolCount": number; "estimatedContextTokens": number }
+export type ExtensionOperation = { "id": string; "serverId": string; "state": "running" | "cancelled" | "failed" | "succeeded" | "interrupted"; "errorCode": string | null; "inventory": McpInventory | null }
+export type ExtensionEvent = { "seq": number; "type": "extension.config_updated" | "skill.version_published" | "mcp.inventory_changed" | "capability.revoked"; "targetId": string; "catalogRevision": number; "policyEpoch": number }
+export type ExtensionCatalog = { "catalogRevision": number; "policyEpoch": number; "skills": (ExtensionSkill)[]; "servers": (McpServer)[]; "inventories": (McpInventory)[]; "builtinTools": (ExtensionTool)[] }
+export type ExtensionMutation = { "mutationId": string; "targetId": string; "revision": number }
+export type SkillImportRequest = { "mutationId": string; "path": string; "id"?: string; "expectedRevision"?: number; "workspaces": ("chat" | "coding" | "image" | "audio")[]; "requiredCapabilities": (string)[]; "expectedDigest"?: string }
+export type McpSaveRequest = { "mutationId": string; "id"?: string; "expectedRevision": number; "name": string; "enabled": boolean; "transport": McpTransport; "allowedTools": (string)[]; "readOnlyTools": (string)[]; "credentialIntent"?: string }
+export type ExtensionResolveRequest = { "scope": ExtensionScope; "selection"?: ExtensionSelection; "mode"?: "analyze" | "develop" | "review"; "contextBudget"?: number; "channel"?: "text" | "agent" }
+export type ExtensionMediaBindings = { "imageModelId"?: string; "speechModelId"?: string; "speechMode"?: "preset" | "clone"; "speaker"?: string; "voiceId"?: string; "imageMode"?: "generate" | "edit" | "inpaint"; "imageReferenceIds"?: (string)[]; "imageMaskId"?: string }
+export type AgentChatSession = { "id": string; "title": string; "piPath": string | null }
+export type AgentChatSnapshot = { "session": AgentChatSession; "runs": (CodingRunView)[]; "approvals": (CodingApprovalView)[]; "events": (CodingEventView)[] }
 export interface RpcParamsMap {
   "settings.get": Record<string, unknown>
   "settings.update": CodingSettings
@@ -31,7 +56,7 @@ export interface RpcParamsMap {
   "sessions.changes": { "id": string; "diff"?: boolean; "before"?: string | null; "limit"?: number }
   "changes.get": { "id": string }
   "changes.restore": { "id": string }
-  "runs.submit": { "sessionId": string; "submissionId": string; "text": string; "mode": "analyze" | "develop" | "review"; "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string }; "queue"?: boolean }
+  "runs.submit": { "sessionId": string; "submissionId": string; "text": string; "mode": "analyze" | "develop" | "review"; "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string }; "queue"?: boolean; "selection"?: ExtensionSelection; "connectionSecrets"?: Record<string, { "revision": number; "digest": string; "values": Record<string, string> }> }
   "sessions.verify": { "sessionId": string; "submissionId": string; "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string } }
   "runs.cancel-active": Record<string, unknown>
   "runs.cancel": { "id": string }
@@ -42,6 +67,34 @@ export interface RpcParamsMap {
   "capabilities.list": Record<string, unknown>
   "capabilities.verify": { "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string } }
   "shutdown": Record<string, unknown>
+  "extensions.catalog.list": Record<string, unknown>
+  "extensions.skills.import": SkillImportRequest
+  "extensions.skills.publish": SkillImportRequest
+  "extensions.skills.inspect": { "id": string; "revision"?: number }
+  "extensions.skills.update": { "mutationId": string; "id": string; "expectedRevision": number; "enabled": boolean }
+  "extensions.mcp.save": McpSaveRequest
+  "extensions.mcp.inspect": { "id": string; "revision"?: number }
+  "extensions.mcp.test": { "id": string; "configRevision": number; "connectionSecrets"?: Record<string, string> }
+  "extensions.mcp.tools": { "id": string; "configRevision": number }
+  "extensions.operations.get": { "id": string }
+  "extensions.operations.cancel": { "id": string }
+  "extensions.mutations.get": { "id": string }
+  "extensions.bindings.get": ExtensionScope
+  "extensions.bindings.update": { "mutationId": string; "expectedRevision": number; "scope": ExtensionScope; "selection": ExtensionSelection }
+  "extensions.resolve": ExtensionResolveRequest
+  "extensions.revoke": { "mutationId": string; "targetId": string }
+  "extensions.events.wait": { "after"?: number }
+  "extensions.check": { "snapshot": ExtensionSnapshot }
+  "runs.prepare": { "sessionId": string; "submissionId": string; "text": string; "mode": "analyze" | "develop" | "review"; "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string }; "queue"?: boolean; "selection"?: ExtensionSelection; "connectionSecrets"?: Record<string, { "revision": number; "digest": string; "values": Record<string, string> }> }
+  "runs.commit": { "id": string; "bootstrapToken": string; "capabilityUrl": string; "connectionSecrets"?: Record<string, { "revision": number; "digest": string; "values": Record<string, string> }> }
+  "agent.sessions.create": { "title": string }
+  "agent.sessions.list": Record<string, unknown>
+  "agent.sessions.snapshot": { "id": string }
+  "agent.runs.prepare": { "sessionId": string; "submissionId": string; "text": string; "mode": "develop"; "provider": { "modelId": string; "baseUrl": string; "token": string; "contextWindow": number; "fingerprint"?: string; "engineVersion"?: string }; "selection"?: ExtensionSelection; "connectionSecrets"?: Record<string, { "revision": number; "digest": string; "values": Record<string, string> }> }
+  "agent.runs.commit": { "id": string; "bootstrapToken": string; "capabilityUrl": string; "connectionSecrets"?: Record<string, { "revision": number; "digest": string; "values": Record<string, string> }> }
+  "agent.runs.cancel": { "id": string }
+  "agent.approvals.resolve": { "id": string; "allowed": boolean }
+  "extensions.skills.preview": SkillImportRequest
 }
 export interface RpcResultMap {
   "settings.get": CodingSettings
@@ -73,5 +126,33 @@ export interface RpcResultMap {
   "capabilities.list": (CodingCapability)[]
   "capabilities.verify": CodingCapability
   "shutdown": { "closed": boolean }
+  "extensions.catalog.list": ExtensionCatalog
+  "extensions.skills.import": ExtensionMutation
+  "extensions.skills.publish": ExtensionMutation
+  "extensions.skills.inspect": SkillInspection
+  "extensions.skills.update": ExtensionMutation
+  "extensions.mcp.save": ExtensionMutation
+  "extensions.mcp.inspect": McpServer
+  "extensions.mcp.test": ExtensionOperation
+  "extensions.mcp.tools": McpInventory
+  "extensions.operations.get": ExtensionOperation
+  "extensions.operations.cancel": ExtensionOperation
+  "extensions.mutations.get": ExtensionMutation | null
+  "extensions.bindings.get": ExtensionBinding
+  "extensions.bindings.update": ExtensionMutation
+  "extensions.resolve": ExtensionResolution
+  "extensions.revoke": ExtensionMutation
+  "extensions.events.wait": { "events": (ExtensionEvent)[]; "watermark": number }
+  "extensions.check": { "valid": boolean }
+  "runs.prepare": CodingRunView
+  "runs.commit": CodingRunView
+  "agent.sessions.create": AgentChatSession
+  "agent.sessions.list": (AgentChatSession)[]
+  "agent.sessions.snapshot": AgentChatSnapshot
+  "agent.runs.prepare": CodingRunView
+  "agent.runs.commit": CodingRunView
+  "agent.runs.cancel": CodingRunView
+  "agent.approvals.resolve": { "resolved": boolean }
+  "extensions.skills.preview": SkillInspection
 }
 export type RpcMethod = keyof RpcParamsMap

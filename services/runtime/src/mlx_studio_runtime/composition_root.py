@@ -22,20 +22,28 @@ from mlx_studio_runtime.adapters.persistence.attachment_preparation_repository i
 from mlx_studio_runtime.adapters.persistence.attachment_reference_repository import (
     AttachmentReferences,
 )
+from mlx_studio_runtime.adapters.persistence.capability_ledger import CapabilityLedger
 from mlx_studio_runtime.adapters.persistence.chat_context_repository import ChatContextRepository
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.adapters.persistence.submission_journal import SubmissionJournal
+from mlx_studio_runtime.adapters.persistence.text_assistant_repository import (
+    TextAssistantRepository,
+)
 from mlx_studio_runtime.adapters.persistence.web_config_repository import WebConfigRepository
 from mlx_studio_runtime.adapters.secret_store import KeychainSecrets
 from mlx_studio_runtime.adapters.web.tavily import Tavily
 from mlx_studio_runtime.adapters.web.url_policy import PublicResultPolicy
 from mlx_studio_runtime.adapters.worker_host import WorkerHost
 from mlx_studio_runtime.application.attachments import Attachments
+from mlx_studio_runtime.application.builtin_tool_bridge import BuiltinToolBridge
+from mlx_studio_runtime.application.capability_grants import CapabilityGrants
 from mlx_studio_runtime.application.chat_preparation import ChatPreparation
 from mlx_studio_runtime.application.chat_service import ChatService
 from mlx_studio_runtime.application.coding_gateway import CodingGateway
 from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
+from mlx_studio_runtime.application.coding_run_submission import CodingRunSubmission
 from mlx_studio_runtime.application.downloads import Downloads
+from mlx_studio_runtime.application.extension_gateway import ExtensionGateway
 from mlx_studio_runtime.application.image_generation_service import ImageGenerationService
 from mlx_studio_runtime.application.inference_service import InferenceService
 from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
@@ -47,6 +55,7 @@ from mlx_studio_runtime.application.queries import Queries
 from mlx_studio_runtime.application.runtime_control import RuntimeControl
 from mlx_studio_runtime.application.runtime_overview import RuntimeOverview, RuntimeSnapshot
 from mlx_studio_runtime.application.speech_generation_service import SpeechGenerationService
+from mlx_studio_runtime.application.text_assistant import TextAssistant
 from mlx_studio_runtime.application.voice_profile_service import VoiceProfileService
 from mlx_studio_runtime.application.web_retrieval import WebRetrieval
 from mlx_studio_runtime.application.web_settings import WebSettings
@@ -78,11 +87,21 @@ class RuntimeApplication:
         self.agent_host = AgentHost(store.database_path.parent / "coding")
         self.coding_identity = coding_model_identity
         self.coding = CodingGateway(self.agent_host.request)
+        self.extensions = ExtensionGateway(self.coding, KeychainSecrets("mcp-connection"))
         self.coding_requests = CodingModelRequests(
             self.coding, self.catalog.models.get, coding_model_identity
         )
         self.provider_inference = InferenceService(
             self.catalog.models, self.scheduler, self.inference
+        )
+        self.extensions.cancel_job = self.scheduler.cancel
+        self.text_assistant = TextAssistant(
+            self.catalog.models,
+            self.scheduler,
+            self.inference,
+            self.extensions,
+            TextAssistantRepository(store.database),
+            store.jobs,
         )
         self.controls = RuntimeControl(self.scheduler, self.inference)
         contexts = ChatContextRepository(store.database)
@@ -110,7 +129,7 @@ class RuntimeApplication:
         retrieval = WebRetrieval(provider, provider, secrets, PublicResultPolicy())
         self.web_settings = WebSettings(configs, secrets, retrieval)
         preparation = ChatPreparation(
-            self.attachments, contexts, configs, retrieval, self.lifecycle
+            self.attachments, contexts, configs, retrieval, self.lifecycle, self.extensions
         )
         self.downloads = Downloads(download_model, self.catalog)
         self.chat = ChatService(
@@ -132,6 +151,19 @@ class RuntimeApplication:
             audio_files,
             self.voices,
         )
+        self.capability_grants = CapabilityGrants(
+            CapabilityLedger(store.database),
+            self.scheduler,
+            self.provider_inference,
+            BuiltinToolBridge(self.images, self.speech, store.jobs),
+            self.extensions,
+            self.catalog.models,
+            lambda: self.agent_host.epoch,
+        )
+        self.coding_submissions = CodingRunSubmission(
+            self.coding_requests, self.extensions, self.capability_grants
+        )
+        self.extensions.revoke_scopes = self.capability_grants.revoke
         self.overview = RuntimeOverview(
             self._overview_snapshot,
             HostDiagnostics(
@@ -164,6 +196,7 @@ class RuntimeApplication:
 
     async def close(self) -> None:
         await self.agent_host.close()
+        await self.capability_grants.close()
         await self.attachments.close()
         await self.scheduler.close()
         self.store.close()

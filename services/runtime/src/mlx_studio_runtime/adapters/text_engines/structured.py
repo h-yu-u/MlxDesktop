@@ -88,6 +88,22 @@ def parse_xml_call(text: str, tools: list[dict[str, Any]]) -> dict[str, Any]:
 def scripted_reply(payload: dict[str, Any]) -> str:
     """Deterministic failing-check/repair provider exercised through the real Pi SDK."""
     messages = payload["messages"]
+    if any("Local capability probe:" in str(item.get("content")) for item in messages):
+        calls = [
+            call["function"]["name"] for item in messages for call in item.get("tool_calls", [])
+        ]
+        names = {tool["function"]["name"] for tool in payload["tools"]}
+        for name, args in [
+            ("image_generate", {"prompt": "a test lake", "width": 64, "height": 64, "steps": 1}),
+            ("speech_generate", {"text": "测试口播", "language": "zh"}),
+        ]:
+            if name in names and name not in calls:
+                return (
+                    "<tool_call>"
+                    + json.dumps({"name": name, "arguments": args}, ensure_ascii=False)
+                    + "</tool_call>"
+                )
+        return "本地能力协议验证完成，作品已由工具返回。"
     probe = any("Coding capability probe:" in str(item.get("content")) for item in messages)
     if not probe:
         return "Fake Coding provider：仅用于开发协议验证。请验证并选择真实本地模型。"

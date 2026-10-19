@@ -1,7 +1,12 @@
+import { RunCommands } from './run-commands.js'
+import { RunReservations } from './run-reservations.js'
+import type { RunRuntime, ActiveCapability } from './ports.js'
+import { canonical, type Selection } from '../extensions/domain/types.js'
+import type { RpcParamsMap } from '../protocol/generated/types.js'
 import { verificationStatus } from '../domain/verification.js'
 import { RunPolicy } from './run-policy.js'
 import type { PiSession, Provider, RepositoryPort, RunPorts } from './ports.js'
-import { checkModel } from './model-result.js'
+import { promptAndVerify } from './run-verification.js'
 import { randomUUID } from 'node:crypto'
 import {
   terminal,
@@ -22,43 +27,69 @@ interface Submission {
   probe?: boolean
   queue?: boolean
   verifyOnly?: boolean
+  selection?: Selection
+  runtime?: RunRuntime
+  connectionSecrets?: RpcParamsMap['runs.submit']['connectionSecrets']
 }
 export class Runs {
-  private queue: { id: string; input: Submission }[] = []
+  private reservations: RunReservations<Submission>
   private current:
     | { id: string; abort: AbortController; pi?: PiSession; task: Promise<void> }
     | undefined
   private approvals: Approvals
+  private commands: RunCommands
   constructor(
     private repo: RepositoryPort,
     private ports: RunPorts,
   ) {
     this.approvals = new Approvals(repo)
+    this.commands = new RunCommands({
+      repo,
+      ports,
+      approvals: this.approvals,
+      update: (id, patch) => {
+        this.update(id, patch)
+      },
+    })
+    this.reservations = new RunReservations((id) => {
+      void this.cancel(id)
+    })
   }
-  async submit(input: Submission): Promise<Run> {
+  async submit(input: Submission, deferred = false): Promise<Run> {
     const previous = this.repo.findSubmission(input.sessionId, input.submissionId)
     if (previous) {
       if (
         previous.text !== input.text ||
         previous.modelId !== input.provider.modelId ||
-        previous.mode !== input.mode
+        previous.mode !== input.mode ||
+        canonical(previous.selection) !== canonical(input.selection)
       )
         throw new Error('IDEMPOTENCY_CONFLICT')
       return previous
     }
-    if ((this.current || this.repo.active()) && !input.queue) throw new Error('CODING_BUSY')
-    if (input.queue && this.queue.length >= 1) throw new Error('CODING_QUEUE_FULL')
+    this.reservations.check(input.queue === true)
     const session = this.repo.get('session', input.sessionId)
     if (session.archived) throw new Error('SESSION_ARCHIVED')
     const project = this.repo.get('project', session.projectId)
+    const snapshot =
+      !input.probe && !input.verifyOnly
+        ? this.ports.extensions?.resolve(
+            { workspace: 'coding', kind: 'project', scopeId: project.id },
+            input.selection,
+            input.mode,
+            input.provider.contextWindow,
+          ).snapshot
+        : undefined
     const run: Run = {
+      ...(snapshot ? { capabilitySnapshot: snapshot } : {}),
+      ...(input.selection ? { selection: input.selection } : {}),
       id: randomUUID(),
       sessionId: session.id,
       submissionId: input.submissionId,
       text: input.text,
       modelId: input.provider.modelId,
       mode: input.mode,
-      status: this.current ? 'queued' : 'starting',
+      status: this.reservations.busy ? 'queued' : 'starting',
       phase: 'exploring',
       verification: 'not_run',
       verificationCommands: input.probe || input.verifyOnly ? [...project.commands] : [],
@@ -69,17 +100,29 @@ export class Runs {
       maxRepairRounds: (this.repo.find('settings', 'coding') ?? defaultSettings).maxRepairRounds,
     }
     // Reservation occurs before the first asynchronous execution boundary.
-    if (this.current && !input.queue) throw new Error('CODING_BUSY')
     this.repo.save('run', run, 'run.started', input.text)
-    if (this.current) this.queue.push({ id: run.id, input })
-    else this.start(run.id, input)
+    this.reservations.add(run.id, input, !deferred)
+    this.advance()
     return run
+  }
+  commit(input: RpcParamsMap['runs.commit']): Run {
+    const run = this.repo.get('run', input.id)
+    if (terminal(run.status)) return run
+    this.reservations.commit(input.id, (submission) => ({
+      ...submission,
+      runtime: { bootstrapToken: input.bootstrapToken, capabilityUrl: input.capabilityUrl },
+      connectionSecrets: input.connectionSecrets,
+    }))
+    this.advance()
+    return run
+  }
+  private advance(): void {
+    const next = this.reservations.next()
+    if (next) this.start(next.id, next.input)
   }
   private start(id: string, input: Submission): void {
     const abort = new AbortController()
-    const task = Promise.resolve().then(() =>
-      this.execute(id, input.provider, abort, input.probe === true, input.verifyOnly === true),
-    )
+    const task = Promise.resolve().then(() => this.execute(id, input, abort))
     this.current = { id, abort, task }
   }
   private update(id: string, patch: Partial<Run>): Run {
@@ -87,24 +130,44 @@ export class Runs {
     const status = patch.status ? nextStatus(previous.status, patch.status) : previous.status
     return this.repo.save('run', { ...previous, ...patch, status }, 'run.updated')
   }
-  private async execute(
-    id: string,
-    provider: Provider,
-    abort: AbortController,
-    probe: boolean,
-    verifyOnly: boolean,
-  ): Promise<void> {
+  private async execute(id: string, input: Submission, abort: AbortController): Promise<void> {
+    const { probe = false, verifyOnly = false } = input
+    let provider = input.provider,
+      capability: ActiveCapability | undefined
     const run = this.repo.get('run', id),
       session = this.repo.get('session', run.sessionId),
       project = this.repo.get('project', session.projectId)
     let opened: Awaited<ReturnType<RunPorts['open']>> | undefined
     const timer = setTimeout(() => abort.abort(), 20 * 60 * 1000)
     try {
+      if (input.runtime && this.ports.activate) {
+        capability = await this.ports.activate(input.runtime, abort.signal)
+        provider = { ...provider, token: capability.token }
+      }
       this.update(id, {
         status: 'starting',
         baseline: project.git ? await this.ports.gitStatus(project.path) : '',
       })
-      opened = await this.prepare({ run, project, session, provider, abort, probe })
+      const connectionSecrets: Record<string, Record<string, string>> = {}
+      for (const server of run.capabilitySnapshot?.servers ?? []) {
+        const secret = input.connectionSecrets?.[server.id]
+        if (
+          Object.keys(server.transport.secretRefs).length &&
+          (!secret || secret.revision !== server.revision || secret.digest !== server.digest)
+        )
+          throw new Error('MCP_CONFIG_CHANGED')
+        if (secret) connectionSecrets[server.id] = secret.values
+      }
+      opened = await this.prepare({
+        run,
+        project,
+        session,
+        provider,
+        abort,
+        probe,
+        connectionSecrets,
+        capability,
+      })
       const pi = opened.session
       if (this.current?.id === id) this.current.pi = pi
       const stop = (): void => {
@@ -114,7 +177,17 @@ export class Runs {
       if (abort.signal.aborted) throw new Error('CANCELLED')
       pi.subscribe((event) => this.repo.append(session.id, id, event.type, event.text, event.data))
       this.update(id, { status: 'running' })
-      await this.promptAndVerify({ pi, run, project, abort, probe, verifyOnly })
+      await promptAndVerify({
+        pi,
+        run,
+        project,
+        abort,
+        probe,
+        verifyOnly,
+        command: (callId, command, signal, probe) =>
+          this.command(id, callId, command, signal, probe, true),
+        checks: () => this.repo.checksForRun(id).slice(-(run.verificationCommands?.length ?? 0)),
+      })
       await this.finalize(run, project.path)
       abort.signal.removeEventListener('abort', stop)
     } catch (error) {
@@ -130,16 +203,24 @@ export class Runs {
     } finally {
       clearTimeout(timer)
       this.approvals.denyRun(id)
-      if (opened) {
-        this.repo.save('session', {
-          ...this.repo.get('session', session.id),
-          piPath: opened.path() ?? null,
-        })
-        opened.session.dispose()
+      try {
+        if (opened) {
+          this.repo.save('session', {
+            ...this.repo.get('session', session.id),
+            piPath: opened.path() ?? null,
+          })
+          await opened.session.close()
+        }
+      } finally {
+        try {
+          if (input.runtime) await this.ports.closeCapability?.(input.runtime, capability)
+        } catch {
+          this.repo.append(session.id, id, 'run.cleanup_failed', 'CAPABILITY_CLOSE_FAILED')
+        }
+        if (this.current?.id === id) this.current = undefined
+        this.reservations.finish(id)
+        this.advance()
       }
-      if (this.current?.id === id) this.current = undefined
-      const queued = this.queue.shift()
-      if (queued) this.start(queued.id, queued.input)
     }
   }
   private async prepare(input: {
@@ -149,6 +230,8 @@ export class Runs {
     provider: Provider
     abort: AbortController
     probe: boolean
+    capability?: ActiveCapability
+    connectionSecrets: Record<string, Record<string, string>>
   }): Promise<Awaited<ReturnType<RunPorts['open']>>> {
     const { run, project, session, provider, abort, probe } = input,
       id = run.id
@@ -165,54 +248,28 @@ export class Runs {
       command: (callId, command, signal) =>
         this.command(id, callId, command, signal ?? abort.signal, probe),
     }).context()
+    let skillInstructions = ''
+    for (const skill of run.capabilitySnapshot?.skills ?? []) {
+      const body = (await this.ports.extensions?.read(skill, 'SKILL.md')) ?? ''
+      skillInstructions += `\nSkill ${skill.id}, revision ${skill.revision}:\n${body}\n`
+      this.repo.append(session.id, id, 'skill.loaded', skill.name, {
+        skillId: skill.id,
+        revision: skill.revision,
+        digest: skill.digest,
+        bytes: body.length,
+      })
+    }
     return this.ports.open({
+      capability: input.capability,
+      snapshot: run.capabilitySnapshot,
+      skillInstructions,
+      connectionSecrets: input.connectionSecrets,
       directory: this.repo.directory,
       project,
       session,
       provider,
       context,
     })
-  }
-  private async promptAndVerify(input: {
-    pi: PiSession
-    run: Run
-    project: Project
-    abort: AbortController
-    probe: boolean
-    verifyOnly: boolean
-  }): Promise<void> {
-    const { pi, run, abort, probe, verifyOnly } = input
-    const commands = run.verificationCommands ?? []
-    const id = run.id
-    if (!verifyOnly) {
-      await pi.prompt(run.text)
-      checkModel(pi)
-    }
-    for (
-      let repair = 0;
-      (probe || verifyOnly) && !abort.signal.aborted && commands.length && run.mode === 'develop';
-      repair++
-    ) {
-      let passed = true
-      for (const command of commands) {
-        const result = await this.command(
-          id,
-          `verify-${randomUUID()}`,
-          command,
-          abort.signal,
-          probe,
-          true,
-        )
-        if (result.exitCode !== 0) passed = false
-      }
-      if (passed || repair >= run.maxRepairRounds || verifyOnly) break
-      await pi.prompt(
-        'Project verification failed. Repair without changing tests or verification configuration. Evidence:\n' +
-          JSON.stringify(this.repo.checksForRun(id).slice(-commands.length)),
-      )
-    }
-    if (abort.signal.aborted) throw new Error('CANCELLED')
-    if (!verifyOnly) checkModel(pi)
   }
   private async finalize(run: Run, root: string): Promise<void> {
     const id = run.id
@@ -226,62 +283,8 @@ export class Runs {
       fingerprint: currentFingerprint,
     })
   }
-  private async command(
-    id: string,
-    callId: string,
-    command: string,
-    signal: AbortSignal,
-    probe: boolean,
-    verification = probe,
-  ) {
-    if (probe && command !== "/usr/bin/grep -qx 'after' probe.txt")
-      throw new Error('PROBE_COMMAND_NOT_ALLOWED')
-    if (/\bgit\s+(?:[^;&|]*\s)?(?:commit|push|reset|clean|rebase)\b/.test(command))
-      throw new Error('GIT_MUTATION_DISABLED')
-    const run = this.repo.get('run', id),
-      session = this.repo.get('session', run.sessionId),
-      project = this.repo.get('project', session.projectId)
-    if (run.mode === 'analyze') throw new Error('READ_ONLY_MODE')
-    if (signal.aborted) throw new Error('CANCELLED')
-    this.update(id, {
-      status: 'awaiting_approval',
-      phase: verification ? 'verifying' : 'executing',
-    })
-    const allowed = await this.approvals.request(
-      {
-        runId: id,
-        sessionId: session.id,
-        toolCallId: callId,
-        action: 'command',
-        parameters: { command },
-        command,
-        cwd: project.path,
-      },
-      signal,
-      probe && command === "/usr/bin/grep -qx 'after' probe.txt",
-    )
-    if (signal.aborted) throw new Error('CANCELLED')
-    this.update(id, { status: 'running' })
-    if (!allowed) throw new Error('APPROVAL_DENIED')
-    const before = await this.ports.fingerprint(project.path)
-    const result = await this.ports.commands.run(command, project.path, signal)
-    const after = await this.ports.fingerprint(project.path)
-    const check = {
-      id: randomUUID(),
-      purpose: verification ? ('verification' as const) : ('command' as const),
-      sessionId: session.id,
-      runId: id,
-      command,
-      ...result,
-      fingerprint: before,
-      stale: before !== after,
-    }
-    this.repo.save('verification', check, 'verification.finished', result.output)
-    this.update(id, {
-      verification: verificationStatus(run, this.repo.checksForRun(id), after),
-      fingerprint: before === after ? after : null,
-    })
-    return result
+  private command(...args: Parameters<RunCommands['execute']>) {
+    return this.commands.execute(...args)
   }
   resolve(id: string, allowed: boolean): void {
     this.approvals.resolve(id, allowed)
@@ -289,10 +292,10 @@ export class Runs {
   async cancel(id: string): Promise<Run> {
     const run = this.repo.get('run', id)
     if (terminal(run.status)) return run
-    const queued = this.queue.findIndex((item) => item.id === id)
-    if (queued >= 0) {
-      this.queue.splice(queued, 1)
-      return this.update(id, { status: 'cancelled' })
+    if (this.reservations.remove(id)) {
+      const cancelled = this.update(id, { status: 'cancelled' })
+      this.advance()
+      return cancelled
     }
     if (run.status !== 'cancelling') this.update(id, { status: 'cancelling' })
     if (this.current?.id === id) {
@@ -314,8 +317,21 @@ export class Runs {
   async wait(id: string): Promise<void> {
     if (this.current?.id === id) await this.current.task
   }
+  async revoke(targetId: string): Promise<void> {
+    const affected = this.repo
+      .list('run')
+      .filter(
+        (run) =>
+          !terminal(run.status) &&
+          [
+            ...(run.capabilitySnapshot?.skills ?? []),
+            ...(run.capabilitySnapshot?.servers ?? []),
+          ].some((item) => item.id === targetId),
+      )
+    for (const run of affected) await this.cancel(run.id)
+  }
   async close(): Promise<void> {
-    for (const queued of [...this.queue]) await this.cancel(queued.id)
+    for (const id of this.reservations.stop()) await this.cancel(id)
     if (this.current) await this.cancel(this.current.id)
     this.ports.commands.close()
   }

@@ -1,4 +1,10 @@
 <script setup lang="ts">
+import { phaseLabel } from '../domain/phase-label'
+import {
+  AgentChat,
+  CapabilityPicker,
+  type ExtensionSelection,
+} from '../../../capabilities/extensions'
 import { NButton, NDrawer, NDrawerContent, NSelect, useDialog, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
@@ -16,6 +22,7 @@ import ChatMessageList from '../components/ChatMessageList.vue'
 import { useRuntimeStore } from '../../../capabilities/runtime'
 import { useChatStore } from '../stores/chat.store'
 
+const selection = ref<ExtensionSelection | undefined>()
 const store = useChatStore()
 const runtime = useRuntimeStore()
 const message = useMessage()
@@ -134,19 +141,7 @@ async function retryAnswer(
     message.error(cause instanceof Error ? cause.message : '重试失败')
   }
 }
-const phaseText = computed(
-  () =>
-    ({
-      accepted: '已提交',
-      preparing_context: '正在准备资料',
-      searching: '正在搜索网页',
-      reading_sources: '正在读取来源',
-      waiting_model: '等待模型可用',
-      loading_model: '正在加载模型',
-      generating: '正在生成回答',
-    })[store.phase] ?? '正在处理',
-)
-
+const phaseText = computed(() => phaseLabel(store.phase))
 const showInspector = ref(false)
 const clearing = ref(false)
 const options = computed(() =>
@@ -172,12 +167,11 @@ onBeforeUnmount(() => store.dispose())
 async function send(): Promise<void> {
   if (!eligibility.value.allowed) return
   try {
-    await store.send(draft.value)
+    await store.send(draft.value, [], selection.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : '发送失败')
   }
 }
-
 async function cancel(): Promise<void> {
   try {
     await store.cancel()
@@ -276,6 +270,13 @@ function exportChat(): void {
         @submit="send"
         @cancel="cancel"
       >
+        <template #capabilities
+          ><AgentChat :text="draft" :disabled="busy || pending" />
+          <CapabilityPicker
+            :scope="{ workspace: 'chat', kind: 'workspace', scopeId: 'default' }"
+            :disabled="busy || pending"
+            @change="selection = $event"
+        /></template>
         <template #model>
           <div class="composer-model">
             <span class="model-status-dot" :class="{ 'model-status-offline': !models.length }" />

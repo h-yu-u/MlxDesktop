@@ -1,7 +1,11 @@
+import { verifyExtensionsBundle } from './verify-extensions-bundle.mjs'
 import { readdir, readFile, realpath, unlink, rm, writeFile } from 'node:fs/promises'
 import { resolve, join, relative, isAbsolute } from 'node:path'
 import { createHash } from 'node:crypto'
 const root = resolve(process.argv[2])
+const { protocolVersion } = JSON.parse(
+  await readFile(new URL('../packages/coding-protocol/schema.json', import.meta.url), 'utf8'),
+)
 // Legacy pnpm deploy creates a self-link back to the source workspace. It is not a runtime dependency.
 await unlink(join(root, 'node_modules/.pnpm/node_modules/@mlx-studio/coding-agent')).catch(
   (error) => {
@@ -32,7 +36,7 @@ await writeFile(
   join(root, 'provenance.json'),
   JSON.stringify(
     {
-      protocolVersion: 1,
+      protocolVersion,
       piVersion: pi.version,
       nodeVersion: process.versions.node,
       nodeSha256: createHash('sha256')
@@ -43,4 +47,5 @@ await writeFile(
     2,
   ),
 )
+await verifyExtensionsBundle(root)
 process.stdout.write('Coding bundle links and pinned runtime validated.\n')

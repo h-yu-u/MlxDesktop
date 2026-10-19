@@ -24,6 +24,10 @@ export const router = createRouter({
       path: '/image-studio',
       component: () => import('../modules/image-studio/pages/ImageStudioPage.vue'),
     },
+    {
+      path: '/settings/extensions/:tab(skills|mcp|builtin)',
+      component: () => import('../capabilities/extensions/presentation/ExtensionsSettings.vue'),
+    },
     { path: '/settings', component: () => import('../modules/settings/pages/SettingsPage.vue') },
     {
       path: '/audio-studio',

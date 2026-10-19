@@ -85,6 +85,7 @@ function submit(): void {
         ></NSpace
       >
     </NSpace>
+    <slot name="capabilities" />
     <small>{{
       mode === 'develop' ? '受管读写；执行命令需逐次审批' : '只读工具；不开放通用命令'
     }}</small>

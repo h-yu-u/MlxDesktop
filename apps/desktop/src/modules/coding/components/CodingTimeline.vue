@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { ArtifactLinks } from '../../../capabilities/extensions'
 import { computed } from 'vue'
 import { NEmpty, NTag } from 'naive-ui'
 import type { CodingEvent, CodingRun } from '../application/ports'
@@ -28,6 +29,7 @@ const entries = computed(() => timelineEntries(props.events))
             {{ event.type === 'verification.finished' ? '命令输出' : activityLabel(event.text) }}
           </summary>
           <pre>{{ activityText(event) }}</pre>
+          <ArtifactLinks :data="event.data" />
         </details>
       </details>
       <article

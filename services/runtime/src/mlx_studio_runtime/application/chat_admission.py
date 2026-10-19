@@ -79,6 +79,12 @@ class ChatAdmission:
         accepted = accepted or self.preparation.accept(
             conversation, ids, intent["visual_selection"], model, target["id"] if target else None
         )
+        if self.preparation.extensions and "skillContext" not in accepted:
+            skill_context = await self.preparation.extensions.text_skills(
+                {"workspace": "chat", "kind": "workspace", "scopeId": "default"},
+                intent.get("extension_selection"),
+            )
+            accepted = {**accepted, "skillContext": skill_context}
         accepted = bind_turn_references(accepted, turn_id)
         self.preparation.validate_visuals(accepted["visuals"], model)
         job = Job(str(uuid.uuid4()), "chat", JobState.QUEUED, model.id)
@@ -98,6 +104,9 @@ class ChatAdmission:
             "sourceContextJobId": intent["source_context_job_id"],
         }
         snapshot = self._load_reuse_snapshot(intent, request, model)
+        if self.preparation.extensions and accepted.get("skillContext"):
+            await self.preparation.extensions.validate_text(accepted["skillContext"]["snapshot"])
+            self.preparation.extensions.bind_text(job.id, accepted["skillContext"]["snapshot"])
         plan = ChatAcceptance(job, request, target is None, config, snapshot)
         await self.scheduler.lifecycle.register(
             job, request, persist=lambda: self._persist(plan, request_id, digest)

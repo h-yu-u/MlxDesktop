@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+import { TextAssistant } from '../../../capabilities/extensions'
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { NAlert, NButton, NTabPane, NTabs } from 'naive-ui'
 import { useAudioStudioStore } from '../stores/audio-studio.store'
@@ -11,7 +13,12 @@ import type { AudioArtifact } from '../application/ports'
 const store = useAudioStudioStore()
 const tab = ref('create')
 let reconnect = false
-onMounted(store.loadWorkspace)
+const route = useRoute()
+onMounted(async () => {
+  await store.loadWorkspace()
+  const id = route.query.artifactId
+  if (typeof id === 'string') await store.select(id)
+})
 onUnmounted(store.dispose)
 watch(runtimeConnectionStatus, (status) => {
   if (status !== 'ready') {
@@ -47,6 +54,12 @@ function reuse(item: AudioArtifact): void {
         <NAlert v-if="!store.speechModels.length" type="info" class="audio-notice"
           >没有支持此模式的完整语音模型，请在模型库下载或导入 Qwen3-TTS Base / CustomVoice。</NAlert
         >
+        <TextAssistant
+          workspace="audio"
+          :text="store.form.text"
+          :disabled="store.busy || store.submitting"
+          @apply="store.form = { ...store.form, text: $event }"
+        />
         <div class="audio-creation">
           <SpeechEditor
             v-model:form="store.form"

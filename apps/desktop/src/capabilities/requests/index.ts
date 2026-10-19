@@ -23,3 +23,16 @@ export class RequestScope {
     this.abort.abort()
   }
 }
+
+/** Preserve a submission number until both acceptance and the resulting view are confirmed. */
+export class SubmissionIdentity {
+  private previous?: { key: string; id: string }
+  for(intent: unknown): string {
+    const key = JSON.stringify(intent)
+    if (this.previous?.key !== key) this.previous = { key, id: crypto.randomUUID() }
+    return this.previous.id
+  }
+  clear(): void {
+    this.previous = undefined
+  }
+}

@@ -311,3 +311,17 @@ Chrome 手工回归通过初始书目、添加、实时搜索、借出后库存�
 本次门禁包括 API 类型生成、`pnpm check`、`pnpm test` 和 `pnpm build:web`；前端 172 项、Runtime 156 项、Coding 39 项、验收工具 8 项测试通过。浏览器检查了本地发送/完成与切换菜单保留草稿。Apple Silicon 上 Fake、release sidecar 均构建通过，独立产物验证了 TXT/DOCX/混合 PDF 提取、认证预览、来源保存和重启恢复。
 
 这些打包检查使用 FakeEngine 生成回答。本次变更的真实 Tavily、签名身份下 Keychain、VLM 规范化图片与历史绑定、正式签名/公证和干净机器仍未验收；历史图片复用能力默认关闭。既有版本的真实模型验收不能直接覆盖新的附件准备与输入模板链路。Web 构建仍有现有的大分块提示，不作为测试失败处理。
+
+## Skills、MCP 与本地能力接入（2026-10-20）
+
+本轮根据 2026-10-19 技术方案完成阶段 0、A–D 的代码接入：统一三页签设置、受管 Skill 审阅/导入/版本/读取、绑定与撤销、stdio/Streamable HTTP MCP、白名单与本地只读策略、逐次审批和结果拦截、普通聊天文字 Skill、图片提示词/语音口播助手，以及独立 Agent Chat 和本地媒体工具。详细入口、数据所有权、限制及复验方法见 [Skills、MCP 与本地工具](./extensions.md)。自动 Skill、Git 来源、MCP Resources 读取/媒体、OAuth、多模态 Agent 输入等仍为后续能力。
+
+Host 内部 RPC 升至 v2，同源生成 Node/Python 协议与扩展 HTTP DTO；Runtime 对外 v1 保持。Node 独立扩展库与不可变文件增量保存配置，Python 迁移 8/9 保存助手草稿和能力调用关联。凭据使用新的 MCP Keychain 命名空间，兼容旧 Web Search；版本化秘密引用不会覆盖旧运行使用的值。自动资源/秘密 GC 未启用。
+
+`pnpm rpc:generate`、`pnpm api:generate`、`pnpm check`、`pnpm test`、`pnpm build:web`、`pnpm build:coding:bundle` 已通过。全量测试为前端 179、Runtime 167、Coding 45、验收工具 8 项；最终 MCP 断连/进程登记改进后重跑 Coding 为 46 项且重新通过 check 与分发构建，总计 400 项现行测试通过。Web 构建保留已有大分块提示。Rust 未修改，本轮没有重跑 Rust 检查或完整 `.app` 构建。
+
+实际 Pi SDK 与 stdio/HTTP 假服务验证了受管注册、参数/schema/版本准入、认证失败不进入 OAuth、输出脱敏和取消清理。完整 HTTP → Node/Pi → FakeEngine 在 Coding 和独立 Agent Chat 跑通文字 → 图片 → 文字 → 语音 → 文字，逐次审批、PNG/WAV 可解码且作品归属正确，无父推理锁等待死锁。可控故障测试覆盖排队后激活、撤销、接纳/取消窗口、create 成功 bind 失败后复用同一 Job/seed、重启仅补关联、旧令牌失效，以及认证后撤销不能降级为普通推理。秘密测试使用内存替身，不触碰用户 Keychain。
+
+隔离浏览器检查了设置目录、内置 Skill 资源、MCP 表单、聊天选择器和 Agent 抽屉，修正窄窗口抽屉裁切；临时服务与数据已清理。Node 分发检查实际启动包内 Host，成功读取内置资源目录并正常关闭。
+
+本轮新链路的真实 MLX 文本/VLM、MFLUX 与语音模型、真实远程 MCP 服务和凭据、签名身份下 Keychain、完整 Sidecar/应用包、正式签名/公证、干净机器和长期压力均未验收。历史真实模型结果不自动覆盖此链路。新增锁定依赖仅 `@earendil-works/pi-mcp@1.2.0` 与 `ajv@8.17.1`，未增加第二个 Agent 框架或前端依赖；没有提交或推送代码。

@@ -1,3 +1,4 @@
+import { extensionEndpoints } from './extension-endpoints'
 import type { Transport } from './transport/ports'
 import { codingEndpoints } from './coding-endpoints'
 import { imageEndpoints } from './image-endpoints'
@@ -165,6 +166,7 @@ export function createEndpoints(transport: Transport) {
     images: imageEndpoints(transport),
     audio: audioEndpoints(transport),
     coding: codingEndpoints(transport),
+    extensions: extensionEndpoints(transport),
     attachments: attachmentEndpoints(transport),
     webSearch: webSearchEndpoints(transport),
     jobs: {

@@ -25,3 +25,17 @@ export { readJob as decodeImageJob } from './image-endpoints'
 export * from './coding-decoders'
 export { codingEndpoints } from './coding-endpoints'
 export { decodeCodingProjection, type CodingProjection } from './coding-projection'
+
+export * from './extension-decoders'
+export { extensionEndpoints } from './extension-endpoints'
+export {
+  textAssistantEndpoints,
+  type TextAssistantRequest,
+  type TextAssistantView,
+} from './text-assistant'
+export {
+  agentChatEndpoints,
+  type AgentSession,
+  type AgentChatSnapshot,
+  type AgentChatRequest,
+} from './agent-chat'

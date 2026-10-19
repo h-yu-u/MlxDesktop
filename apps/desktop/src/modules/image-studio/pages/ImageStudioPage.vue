@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { TextAssistant } from '../../../capabilities/extensions'
 import { NAlert, NButton, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
@@ -50,7 +51,10 @@ watch(
   { immediate: true },
 )
 onMounted(() => {
-  void store.loadWorkspace()
+  void store.loadWorkspace().then(() => {
+    const id = route.query.artifactId
+    if (typeof id === 'string') store.selectArtifact(id)
+  })
 })
 onBeforeUnmount(() => store.dispose())
 
@@ -94,6 +98,12 @@ async function editSelected(): Promise<void> {
         </NButton>
       </template>
     </PageHeader>
+    <TextAssistant
+      workspace="image"
+      :text="form.prompt"
+      :disabled="locked"
+      @apply="form = { ...form, prompt: $event }"
+    />
     <NAlert
       v-if="store.error || store.modelError"
       type="error"

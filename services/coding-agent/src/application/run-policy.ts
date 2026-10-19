@@ -1,3 +1,5 @@
+import { ToolGateway } from './tool-gateway.js'
+import type { Tool } from '../extensions/domain/types.js'
 import type { Project, Run } from '../domain/types.js'
 import type { RepositoryPort, RunPorts, ToolContext } from './ports.js'
 import type { Approvals } from './approvals.js'
@@ -12,9 +14,23 @@ interface PolicyInput {
   command: ToolContext['command']
 }
 export class RunPolicy {
-  private calls = 0
-  private seen = new Set<string>()
-  constructor(private input: PolicyInput) {}
+  private gateway: ToolGateway
+  constructor(private input: PolicyInput) {
+    this.gateway = new ToolGateway({
+      check: () => this.check(),
+      started: (id, name) => this.started(id, name),
+      finished: (id, name, errorCode) =>
+        input.repo.append(input.run.sessionId, input.run.id, 'tool.settled', name, {
+          toolCallId: id,
+          errorCode,
+        }),
+    })
+  }
+  private check(): void {
+    if (this.input.abort.signal.aborted) throw new Error('CANCELLED')
+    if (this.input.run.capabilitySnapshot)
+      this.input.ports.extensions?.check(this.input.run.capabilitySnapshot)
+  }
   context(): ToolContext {
     const { project, run, ports, command, update } = this.input
     return {
@@ -22,21 +38,16 @@ export class RunPolicy {
       mode: run.mode,
       workspace: ports.workspace(project.path, run),
       command,
-      tick: (id, name) => this.tick(id, name),
+      invoke: (id, name, execute) => this.gateway.invoke(id, name, execute),
+      authorizeTool: (id, tool, args, signal) => this.authorizeTool(id, tool, args, signal),
       authorizeWrite: (id, path, content, expected) =>
         this.authorizeWrite(id, path, content, expected),
       changed: () => update({ verification: 'not_run', fingerprint: null }),
     }
   }
-  private tick(id: string, name: string): void {
+  private started(id: string, name: string): void {
     const { run, repo, abort, update } = this.input
     if (abort.signal.aborted) throw new Error('CANCELLED')
-    if (this.seen.has(id)) throw new Error('DUPLICATE_TOOL_ID')
-    this.seen.add(id)
-    if (++this.calls > 48) {
-      abort.abort()
-      throw new Error('TOOL_BUDGET_EXCEEDED')
-    }
     update({
       phase: ['write', 'edit'].includes(name)
         ? 'editing'
@@ -45,6 +56,33 @@ export class RunPolicy {
           : 'exploring',
     })
     repo.append(run.sessionId, run.id, 'tool.started', name, { toolCallId: id })
+  }
+  private async authorizeTool(
+    id: string,
+    tool: Tool,
+    args: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<void> {
+    this.check()
+    const { run, project, approvals, abort, update } = this.input
+    if (tool.risk === 'read') return
+    if (run.mode !== 'develop') throw new Error('READ_ONLY_MODE')
+    update({ status: 'awaiting_approval' })
+    const allowed = await approvals.request(
+      {
+        runId: run.id,
+        sessionId: run.sessionId,
+        toolCallId: id,
+        action: 'mcp',
+        parameters: { toolId: tool.id, schemaDigest: tool.schemaDigest, args },
+        command: `MCP ${tool.serverId} / ${tool.originalName}`,
+        cwd: project.path,
+      },
+      signal ?? abort.signal,
+    )
+    this.check()
+    update({ status: 'running' })
+    if (!allowed) throw new Error('APPROVAL_DENIED')
   }
   private async authorizeWrite(
     id: string,

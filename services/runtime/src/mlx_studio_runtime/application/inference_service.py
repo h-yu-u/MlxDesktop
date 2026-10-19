@@ -1,7 +1,9 @@
 """Each provider call obtains one normal inference lease, never a CodingRun lease."""
 
 import asyncio
+import json
 import uuid
+from collections.abc import Callable
 from typing import Any
 
 from mlx_studio_runtime.application.ports import JobAdmission, StructuredInference
@@ -21,6 +23,11 @@ class InferenceService:
         self.models, self.scheduler, self.inference = models, scheduler, inference
 
     async def complete(self, request: dict[str, Any]) -> dict[str, Any]:
+        return await self.wait(await self.admit(request))
+
+    async def admit(
+        self, request: dict[str, Any], persist: Callable[[Job], None] | None = None
+    ) -> tuple[str, asyncio.Future[dict[str, Any]], asyncio.Task[None]]:
         model_id = str(request["model"])
         try:
             validate_context(request["messages"], request["tools"])
@@ -29,10 +36,25 @@ class InferenceService:
         model = self.models.get(model_id)
         if model is None or "text" not in model.output_modalities:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "请选择文本模型"))
+        context_bytes = len(
+            json.dumps(
+                {"messages": request["messages"], "tools": request["tools"]}, ensure_ascii=False
+            ).encode()
+        )
+        if context_bytes + int(request.get("max_tokens", 4096)) + 512 > (
+            model.context_length or 32768
+        ):
+            raise RuntimeFault(
+                RuntimeErrorInfo(
+                    "EXTENSION_CONTEXT_BUDGET_EXCEEDED", "上下文超过模型预算，请减少资源或历史"
+                )
+            )
         self.scheduler.check_admission(model_id)
         job = Job(str(uuid.uuid4()), "coding-inference", JobState.QUEUED, model_id)
         future: asyncio.Future[dict[str, Any]] = asyncio.get_running_loop().create_future()
-        await self.scheduler.lifecycle.register(job, {"kind": "coding-inference"})
+        await self.scheduler.lifecycle.register(
+            job, {"kind": "coding-inference"}, persist=(lambda: persist(job)) if persist else None
+        )
 
         async def execute() -> None:
             await self.scheduler.lifecycle.transition(job.id, JobEvent.START)
@@ -59,10 +81,16 @@ class InferenceService:
                 future.set_exception(RuntimeFault(RuntimeErrorInfo(code, "结构化推理未完成")))
 
         task.add_done_callback(settled)
+        return job.id, future, task
+
+    async def wait(
+        self, prepared: tuple[str, asyncio.Future[dict[str, Any]], asyncio.Task[None]]
+    ) -> dict[str, Any]:
+        job_id, future, task = prepared
         try:
             result = await future
             await asyncio.shield(task)
             return result
         except asyncio.CancelledError:
-            await self.scheduler.cancel(job.id)
+            await self.scheduler.cancel(job_id)
             raise

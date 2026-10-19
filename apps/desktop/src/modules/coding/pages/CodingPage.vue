@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { CapabilityPicker, type ExtensionSelection } from '../../../capabilities/extensions'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { NAlert, NButton, NEmpty, NInput, NModal, NSplit, useDialog } from 'naive-ui'
@@ -14,10 +15,17 @@ const coding = useCodingStore(),
   route = useRoute(),
   router = useRouter(),
   dialog = useDialog()
+const selection = ref<ExtensionSelection | undefined>()
 const rename = ref<CodingSession | null>(null),
   title = ref(''),
   renameOpen = ref(false),
   splitSize = ref(0.46)
+watch(
+  () => coding.projectId,
+  () => {
+    selection.value = undefined
+  },
+)
 const selectedProject = computed(() => coding.projects.find((item) => item.id === coding.projectId))
 const approvals = computed(
   () => coding.snapshot?.approvals.filter((item) => item.status === 'pending') ?? [],
@@ -56,10 +64,10 @@ function removeSession(item: CodingSession): void {
   })
 }
 async function submit(text: string, clear: () => void): Promise<void> {
-  if (await coding.send(text)) clear()
+  if (await coding.send(text, false, selection.value)) clear()
 }
 async function queue(text: string, clear: () => void): Promise<void> {
-  if (await coding.send(text, true)) clear()
+  if (await coding.send(text, true, selection.value)) clear()
 }
 async function steer(text: string, clear: () => void): Promise<void> {
   if (await coding.steer(text)) clear()
@@ -181,7 +189,17 @@ onUnmounted(() => coding.dispose())
               @queue="queue"
               @steer="steer"
               @stop="coding.cancel"
-            />
+              ><template #capabilities
+                ><CapabilityPicker
+                  :scope="{
+                    workspace: 'coding',
+                    kind: 'project',
+                    scopeId: coding.projectId || 'unselected',
+                  }"
+                  :mode="coding.mode"
+                  :disabled="coding.pending || !coding.projectId"
+                  @change="selection = $event" /></template
+            ></CodingComposer>
           </template>
           <template #2>
             <CodingInspector

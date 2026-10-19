@@ -1,3 +1,4 @@
+import { decodeExtensionSnapshot, decodeSelection } from './extension-decoders'
 import type { components } from './generated-schema'
 import { record, text, number, list, nullableText, malformed } from './decoders'
 type Schema = components['schemas']
@@ -73,6 +74,10 @@ export function decodeRun(value: unknown): CodingRun {
     baseline: text(p.baseline),
     fingerprint: nullableText(p.fingerprint),
     maxRepairRounds: number(p.maxRepairRounds),
+    ...(p.capabilitySnapshot
+      ? { capabilitySnapshot: decodeExtensionSnapshot(p.capabilitySnapshot) }
+      : {}),
+    ...(p.selection ? { selection: decodeSelection(p.selection) } : {}),
   }
 }
 export function decodeApproval(value: unknown): CodingApproval {
@@ -83,7 +88,7 @@ export function decodeApproval(value: unknown): CodingApproval {
     runId: text(p.runId),
     sessionId: text(p.sessionId),
     toolCallId: text(p.toolCallId),
-    action: choice(p.action, ['command', 'file_write']),
+    action: choice(p.action, ['command', 'file_write', 'mcp']),
     parameters: record(p.parameters),
     command: text(p.command),
     cwd: text(p.cwd),
@@ -176,5 +181,9 @@ export function decodeCodingSettings(value: unknown): CodingSettings {
     defaultModelId: text(p.defaultModelId),
     contextBudget: number(p.contextBudget),
     maxRepairRounds: number(p.maxRepairRounds),
+    ...(p.capabilitySnapshot
+      ? { capabilitySnapshot: decodeExtensionSnapshot(p.capabilitySnapshot) }
+      : {}),
+    ...(p.selection ? { selection: decodeSelection(p.selection) } : {}),
   }
 }

@@ -14,6 +14,7 @@ export interface ChatSubmissionInput {
   maxTokens: number
   temperature: number
   attachments?: ChatAttachment[]
+  selection?: ChatCommand['selection']
   webSearch?: ChatCommand['web_search']
   visualSelection?: VisualSelection
   draftIdentity?: string
@@ -81,6 +82,7 @@ export class SubmitChat {
         retry.attachments.filter((item): item is ChatAttachment => item !== undefined)
       retry.body ??= {
         content: input.content,
+        ...(input.selection ? { selection: input.selection } : {}),
         model_id: input.modelId,
         max_tokens: input.maxTokens,
         temperature: input.temperature,
@@ -100,6 +102,7 @@ export class SubmitChat {
         userMessageId: result.userMessageId,
         after,
         content: input.content,
+        ...(input.selection ? { selection: input.selection } : {}),
         attachments,
       }
     } finally {

@@ -1,3 +1,4 @@
+import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { RuntimeError } from '@mlx-studio/api-client'
 import type { CodingGateway } from './ports'
 import type { CodingMode } from '../domain/status'
@@ -11,6 +12,7 @@ interface Submission {
   text: string
   mode: CodingMode
   queue: boolean
+  selection?: ExtensionSelection
 }
 interface Dependencies {
   gateway: Pick<CodingGateway, 'submit'>

@@ -125,6 +125,7 @@ function dragover(event: DragEvent): void {
     </p>
     <div class="composer-actions">
       <div class="composer-tools">
+        <slot name="capabilities" />
         <NTooltip
           ><template #trigger
             ><NButton

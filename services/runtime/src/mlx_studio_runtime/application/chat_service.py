@@ -64,6 +64,7 @@ class ChatService:
         persist_user_message: bool = True,
         turn_id: str | None = None,
         replace_assistant_message_id: str | None = None,
+        selection: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         if not persist_user_message and target_user is None:
             conversation = self.conversations.get(conversation_id) or {"messages": []}
@@ -91,15 +92,23 @@ class ChatService:
             "target_user": target_user,
             "source_context_job_id": source_context_job_id,
         }
+        if selection is not None:
+            intent["extension_selection"] = selection
         job, request = await self.admission.admit(conversation_id, intent, client_request_id)
         if job is None:
             return request
-        self.scheduler.schedule_prepared(
+        task = self.scheduler.schedule_prepared(
             job,
             lambda: self._prepare(job, request),
             lambda snapshot: self._execute(job, request, snapshot),
             lambda result, snapshot: self._finalize(job, request, result, snapshot),
         )
+        if self.preparation.extensions:
+            task.add_done_callback(
+                lambda _: (
+                    self.preparation.extensions and self.preparation.extensions.release_text(job.id)
+                )
+            )
         return self.admission.response(job.id)
 
     async def _prepare(self, job: Job, request: dict[str, Any]) -> dict[str, Any]:
@@ -112,6 +121,8 @@ class ChatService:
     async def _execute(
         self, job: Job, request: dict[str, Any], snapshot: dict[str, Any]
     ) -> tuple[str, dict[str, Any]] | None:
+        if snapshot.get("skillSnapshot") and self.preparation.extensions:
+            await self.preparation.extensions.validate_text(snapshot["skillSnapshot"])
         return await self._collect_reply(
             job.id,
             self.runtime.generate(

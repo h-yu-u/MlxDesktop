@@ -1,3 +1,5 @@
+import type { CodingControllerDependencies } from './coding-controller-ports'
+import { SubmissionIdentity } from '../../../capabilities/requests'
 import { createProjectSessionController } from './project-session-controller'
 import { projectCodingEvent } from './event-projection'
 import { decodeCodingProjection } from '@mlx-studio/api-client'
@@ -5,30 +7,17 @@ import { createCodingInspector } from './coding-inspector-controller'
 import { codingErrorText } from './coding-errors'
 import { modelNeedsVerification, submitCodingRun } from '../application/submit-coding-run'
 import { ensureModelCapability } from '../application/ensure-model-capability'
-import { computed, ref, type Ref } from 'vue'
-import type { ModelSummary, CodingSessionPatch } from '@mlx-studio/api-client'
+import { computed, ref } from 'vue'
+import type { CodingSessionPatch, ExtensionSelection as Selection } from '@mlx-studio/api-client'
 import type {
-  CodingGateway,
   CodingProject,
   CodingSession,
   CodingSnapshot,
   CodingCapability,
   CodingEvent,
 } from '../application/ports'
-import { activeStatus, type CodingMode } from '../domain/status'
-interface Dependencies {
-  gateway: CodingGateway
-  models: Readonly<Ref<readonly ModelSummary[]>>
-  refreshModels(): Promise<void>
-  pickDirectory(): Promise<string | null>
-  observe(
-    after: number,
-    refresh: () => Promise<number>,
-    fail: (error: unknown) => void,
-    apply?: (event: CodingEvent) => boolean,
-  ): () => void
-}
-export function createCodingController(deps: Dependencies) {
+import { activeStatus, isVerified, type CodingMode } from '../domain/status'
+export function createCodingController(deps: CodingControllerDependencies) {
   const projects = ref<CodingProject[]>([]),
     snapshot = ref<CodingSnapshot | null>(null)
   const capabilities = ref<CodingCapability[]>([]),
@@ -42,11 +31,6 @@ export function createCodingController(deps: Dependencies) {
     deps.models.value
       .filter((model) => model.outputModalities.includes('text'))
       .map((model) => ({ label: model.displayName, value: model.id })),
-  )
-  const modelReady = computed(() =>
-    capabilities.value.some(
-      (item) => item.id === selectedModelId.value && item.status === 'verified',
-    ),
   )
   const active = computed(() => snapshot.value?.activeRun ?? null)
   const busy = computed(() => !!active.value && activeStatus(active.value.status))
@@ -71,6 +55,7 @@ export function createCodingController(deps: Dependencies) {
     busy,
     onRestored: refresh,
   })
+  const submissionIdentity = new SubmissionIdentity()
   const pendingRequests = new Set<symbol>()
   let disposed = false
   let epoch = 0,
@@ -222,7 +207,7 @@ export function createCodingController(deps: Dependencies) {
       }
     })
   }
-  async function send(text: string, queue = false): Promise<boolean> {
+  async function send(text: string, queue = false, selection?: Selection): Promise<boolean> {
     if (
       (busy.value && !queue) ||
       pending.value ||
@@ -236,17 +221,19 @@ export function createCodingController(deps: Dependencies) {
       selectedMode = mode.value
     return !!(await guard(async () => {
       await submitCodingRun(
-        { sessionId: target, modelId, text, mode: selectedMode, queue },
+        { sessionId: target, modelId, text, mode: selectedMode, queue, selection },
         {
           gateway: deps.gateway,
           ensure: prepareModel,
           invalidate: (id) => {
             capabilities.value = capabilities.value.filter((item) => item.id !== id)
           },
-          createId: () => crypto.randomUUID(),
+          createId: () =>
+            submissionIdentity.for({ target, modelId, text, selectedMode, queue, selection }),
         },
       )
       await refresh()
+      submissionIdentity.clear()
       return true
     }))
   }
@@ -326,7 +313,7 @@ export function createCodingController(deps: Dependencies) {
     preparingModel,
     ...inspector,
     models,
-    modelReady,
+    modelReady: computed(() => isVerified(capabilities.value, selectedModelId.value)),
     active,
     busy,
     loadWorkspace,

@@ -1,3 +1,7 @@
+import type { AgentChat } from './agent-chat.js'
+import type { Extensions } from '../extensions/application/service.js'
+import type { Selection } from '../extensions/domain/types.js'
+import type { RpcParamsMap as Params } from '../protocol/generated/types.js'
 import { rpcMethod, validateRpc } from '../protocol/validation.js'
 import type { RpcMethod, RpcParamsMap, RpcResultMap } from '../protocol/generated/types.js'
 import { localProvider } from './local-provider.js'
@@ -15,6 +19,9 @@ export class CodingService {
     sessions: ProjectSessions,
     changes: ChangeService,
     private verifier: CapabilityVerifier,
+    private extensions?: Extensions,
+    private agent?: AgentChat,
+    private closeAgentRepository?: () => void,
   ) {
     this.handlers = { ...this.handlers, ...sessions.handlers, ...changes.handlers }
   }
@@ -28,35 +35,12 @@ export class CodingService {
         return this.repo.save('settings', validateSettings(p))
       }
     },
-    'runs.submit': async (p) => {
-      {
-        const provider = localProvider(p)
-        provider.contextWindow = Math.min(
-          provider.contextWindow,
-          (this.repo.find('settings', 'coding') ?? defaultSettings).contextBudget,
-        )
-        if (
-          !(() => {
-            const capability = this.repo.find('capability', provider.modelId)
-            return (
-              capability?.status === 'verified' &&
-              capability.modelFingerprint === provider.fingerprint
-            )
-          })()
-        )
-          throw new Error('MODEL_TOOLS_UNVERIFIED')
-        return this.runs.submit({
-          sessionId: string(p.sessionId),
-          submissionId: string(p.submissionId),
-          text: string(p.text, 32000),
-          mode: mode(p.mode),
-          provider,
-          queue: p.queue === true,
-        })
-      }
-    },
+    'runs.submit': async (p) => this.submit(p, false),
+    'runs.prepare': async (p) => this.submit(p, true),
+    'runs.commit': async (p) => this.runs.commit(p as Params['runs.commit']),
     'sessions.verify': async (p) => {
       {
+        if (this.agent?.busy) throw new Error('CODING_BUSY')
         const provider = localProvider(p),
           id = string(p.sessionId)
         const project = this.repo.get('project', this.repo.get('session', id).projectId)
@@ -107,17 +91,64 @@ export class CodingService {
       return { closed: true }
     },
   }
+  private async submit(p: Record<string, unknown>, deferred: boolean) {
+    {
+      const previous = this.repo.findSubmission(string(p.sessionId), string(p.submissionId))
+      if (!previous && this.agent?.busy) throw new Error('CODING_BUSY')
+      const provider = localProvider(p)
+      provider.contextWindow = Math.min(
+        provider.contextWindow,
+        (this.repo.find('settings', 'coding') ?? defaultSettings).contextBudget,
+      )
+      if (
+        !previous &&
+        !(() => {
+          const capability = this.repo.find('capability', provider.modelId)
+          return (
+            capability?.status === 'verified' &&
+            capability.modelFingerprint === provider.fingerprint
+          )
+        })()
+      )
+        throw new Error('MODEL_TOOLS_UNVERIFIED')
+      return this.runs.submit(
+        {
+          sessionId: string(p.sessionId),
+          submissionId: string(p.submissionId),
+          text: string(p.text, 32000),
+          mode: mode(p.mode),
+          provider,
+          queue: p.queue === true,
+          selection: p.selection as Selection | undefined,
+          connectionSecrets: p.connectionSecrets as Params['runs.submit']['connectionSecrets'],
+        },
+        deferred,
+      )
+    }
+  }
   async dispatch<M extends RpcMethod>(method: M, raw: RpcParamsMap[M]): Promise<RpcResultMap[M]> {
+    await this.extensions?.ready
     const key = rpcMethod(method)
     validateRpc(key, 'params', raw)
-    const handler = this.handlers[key]
+    const handler =
+      key.startsWith('agent.') && this.agent
+        ? (params: Record<string, unknown>) => this.agent!.dispatch(key, params)
+        : key.startsWith('extensions.') && this.extensions
+          ? (params: Record<string, unknown>) => this.extensions!.dispatch(key, params)
+          : this.handlers[key]
     if (!handler) throw new Error('UNKNOWN_METHOD')
     const result: unknown = await handler(object(raw))
     validateRpc(key, 'result', result)
     return result as RpcResultMap[M]
   }
 
-  async close(): Promise<void> {
-    await this.runs.close()
+  private closing?: Promise<void>
+  close(): Promise<void> {
+    return (this.closing ??= (async () => {
+      await this.runs.close()
+      await this.agent?.close()
+      this.closeAgentRepository?.()
+      await this.extensions?.close()
+    })())
   }
 }

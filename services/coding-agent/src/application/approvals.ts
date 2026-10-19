@@ -4,7 +4,7 @@ import { terminal } from '../domain/types.js'
 import type { RepositoryPort } from './ports.js'
 export class Approvals {
   private pending = new Map<string, (allowed: boolean) => void>()
-  constructor(private repo: RepositoryPort) {}
+  constructor(private repo: Pick<RepositoryPort, 'get' | 'save' | 'pendingApprovals'>) {}
   async request(
     input: Omit<Approval, 'id' | 'expiresAt' | 'status' | 'policyVersion'>,
     signal: AbortSignal,

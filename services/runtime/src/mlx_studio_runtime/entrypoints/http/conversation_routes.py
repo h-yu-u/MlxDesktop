@@ -80,6 +80,7 @@ def register_conversation_routes(
             body.temperature,
             body.attachment_ids,
             client_request_id=body.client_request_id,
+            selection=body.selection.model_dump(exclude_none=True) if body.selection else None,
             web_search=body.web_search.model_dump(),
             visual_selection=body.visual_selection.model_dump() if body.visual_selection else None,
         )

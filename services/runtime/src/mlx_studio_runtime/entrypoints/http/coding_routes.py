@@ -7,8 +7,11 @@ from typing import Protocol
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import StreamingResponse
 
+from mlx_studio_runtime.application.capability_grants import CapabilityGrants
 from mlx_studio_runtime.application.coding_gateway import CodingGateway
 from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
+from mlx_studio_runtime.application.coding_run_submission import CodingRunSubmission
+from mlx_studio_runtime.application.extension_gateway import ExtensionGateway, public_projection
 from mlx_studio_runtime.entrypoints.http.coding_contracts import (
     CodingApprovalRequest,
     CodingCapability,
@@ -33,6 +36,9 @@ from mlx_studio_runtime.entrypoints.http.coding_contracts import (
 class CodingRouteServices(Protocol):
     coding: CodingGateway
     coding_requests: CodingModelRequests
+    extensions: ExtensionGateway
+    coding_submissions: CodingRunSubmission
+    capability_grants: CapabilityGrants
 
 
 def register_coding_routes(
@@ -41,7 +47,9 @@ def register_coding_routes(
     from fastapi import APIRouter
 
     router = APIRouter(prefix="/internal/v1/coding", dependencies=[Depends(authenticate)])
-    call = service.coding.call
+
+    async def call(method, params):
+        return public_projection(await service.coding.call(method, params))
 
     @router.get("/settings", response_model=CodingSettings)
     async def settings():
@@ -123,11 +131,12 @@ def register_coding_routes(
 
     @router.post("/sessions/{session_id}/runs", response_model=CodingRunView)
     async def submit(session_id: str, body: CodingRunRequest, request: Request):
-        return await service.coding_requests.call(
-            "runs.submit",
-            {"sessionId": session_id, **body.model_dump(exclude={"modelId"})},
-            str(request.base_url),
-            body.modelId,
+        params = {
+            "sessionId": session_id,
+            **body.model_dump(exclude={"modelId"}, exclude_none=True),
+        }
+        return public_projection(
+            await service.coding_submissions.submit(params, str(request.base_url), body.modelId)
         )
 
     @router.post("/sessions/{session_id}/verify", response_model=CodingRunView)
@@ -149,6 +158,7 @@ def register_coding_routes(
 
     @router.post("/runs/{run_id}/cancel", response_model=CodingRunView)
     async def cancel(run_id: str):
+        await service.capability_grants.cancel_id(run_id)
         return await call("runs.cancel", {"id": run_id})
 
     @router.post("/approvals/{approval_id}/resolve")

@@ -28,3 +28,7 @@ export function statusLabel(status: string): string {
   }
   return labels[status] ?? status
 }
+
+export function isVerified(items: readonly { id: string; status: string }[], id: string): boolean {
+  return items.some((item) => item.id === id && item.status === 'verified')
+}

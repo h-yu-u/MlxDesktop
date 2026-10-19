@@ -1,3 +1,4 @@
+import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { computed, ref, type Ref } from 'vue'
 import type {
   Conversation,
@@ -175,7 +176,11 @@ export function createChatController(deps: ChatDependencies) {
     const item = conversations.value.find((entry) => entry.id === id)
     if (item) await updateConversation(id, { pinned: !item.pinned })
   }
-  async function send(content: string, files: File[] = []): Promise<boolean> {
+  async function send(
+    content: string,
+    files: File[] = [],
+    selection?: ExtensionSelection,
+  ): Promise<boolean> {
     const draft = drafts?.draft.value.text === content ? drafts.draft.value : undefined
     if (
       (!content.trim() && !files.length && !draft?.attachments.length) ||
@@ -200,6 +205,7 @@ export function createChatController(deps: ChatDependencies) {
         webSearch: { enabled: draft?.webSearchEnabled ?? false },
         webSearchProvider: draft?.webSearchEnabled ? deps.gateway.webSearch : undefined,
         visualSelection: draft?.visualSelection,
+        selection,
         modelId: selectedModelId.value,
         maxTokens: maxTokens.value,
         temperature: temperature.value,

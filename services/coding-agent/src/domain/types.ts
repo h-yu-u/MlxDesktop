@@ -1,3 +1,4 @@
+import type { Snapshot, Selection } from '../extensions/domain/types.js'
 import type { Settings } from './settings.js'
 export type Mode = 'analyze' | 'develop' | 'review'
 export type Status =
@@ -29,6 +30,8 @@ export interface Session {
   piPath: string | null
 }
 export interface Run {
+  capabilitySnapshot?: Snapshot
+  selection?: Selection
   id: string
   sessionId: string
   submissionId: string
@@ -50,7 +53,7 @@ export interface Approval {
   runId: string
   sessionId: string
   toolCallId: string
-  action: 'command' | 'file_write'
+  action: 'command' | 'file_write' | 'mcp'
   parameters: Record<string, unknown>
   command: string
   cwd: string
@@ -97,7 +100,13 @@ export interface Capability {
   modelFingerprint: string
   detail: string
 }
+export interface AgentSession {
+  id: string
+  title: string
+  piPath: string | null
+}
 export interface Entities {
+  agentSession: AgentSession
   settings: Settings
   project: Project
   session: Session

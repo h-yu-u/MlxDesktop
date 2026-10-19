@@ -86,6 +86,12 @@ Pi 本地 Provider 使用受限短期凭据访问 `/internal/v1/inference`，每
 
 主导航已从聊天侧栏拆分，根布局通过 route meta 组合聊天与 Coding。Coding Store 仅暴露 composition root 装配的 controller；独立 CodingObserver 管理事件观察与恢复，离开页面不取消任务。Node 在事务提交后唤醒事件等待请求，Python 回放持久化事件并转 SSE；前端增量投影连续事件，首次打开、重连或缺口才恢复快照。查询使用会话/任务索引和游标分页。内部 RPC 以 `packages/coding-protocol/schema.json` 为单一协议描述，生成两端方法、请求/结果类型及校验数据，与 HTTP OpenAPI 分开版本化。具体权限、持久化、变更归因、验证版本及交付范围见 [Coding](./coding.md)。
 
+## Skills、MCP 与本地能力桥
+
+统一设置及共享能力选择器通过 Runtime 认证接口访问同一 Node 扩展模块。Node 独立写入 `extensions.db`、受管 Skill 版本、MCP 工具目录、绑定、撤销与 mutation 回执；Python 持有 Keychain、模型与媒体服务。Host 内部 RPC v2 与 Runtime 对外 v1 分开版本化。Pi 默认环境/项目扩展发现保持关闭，只装配应用审阅后的静态 Skill 和 MCP 白名单。
+
+工具在 execute Gateway 与 transport 两层检查运行快照、参数、schema、权限与连接代际。Python 的 pending/active grant 按运行授权文字、图片和语音子 Job，每步复用原单活调度器；父 AgentRun 不占推理租约。调用账本记录幂等提交、冻结 seed 及 Job 关联，取消/撤销覆盖接纳窗口，重启不重放旧工具。普通聊天与文字助手使用原 TextInference，独立 Agent Chat 使用单独 Node 元数据和 Pi transcript，不构造 Coding 项目。详情和实际验证边界见 [Skills、MCP 与本地工具](./extensions.md)。
+
 ## 语音创作工作区
 
 Audio Studio 提供预设合成、参考克隆、版本化音色库、作品历史、WAV 试听与导出。`SpeechGenerationService` 依赖模型目录、任务提交、音频文件与仓库窄端口；`VoiceProfileService` 保存音色及授权记录，任务冻结输入快照。WorkerHost 只处理 IPC；WorkerRuntime 从静态注册表选择单活 Text/VLM、Image 或 Speech Driver。中性的 WorkerContext 持有取消、退出和设备兼容策略，语音和图像不构造或调用文本 Session。业务服务依赖各自的模态推理端口，不能停止 Worker；JobLifecycle 提供不可变 Job 查询和只读任务映射，清理决策归属调度器。

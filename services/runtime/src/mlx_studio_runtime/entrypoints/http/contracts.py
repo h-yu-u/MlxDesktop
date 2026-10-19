@@ -11,6 +11,7 @@ from mlx_studio_runtime.entrypoints.http.chat_contracts import (
     WebSearchOptions,
     WebSource,
 )
+from mlx_studio_runtime.entrypoints.http.extension_models import ExtensionSelection
 
 
 class ReadModel(BaseModel):
@@ -151,6 +152,7 @@ class ConversationPatch(BaseModel):
 
 
 class ChatMessageRequest(BaseModel):
+    selection: ExtensionSelection | None = None
     model_config = ConfigDict(extra="forbid")
     content: str = Field(default="", max_length=200_000)
     model_id: str = Field(min_length=1, max_length=200)

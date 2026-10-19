@@ -4,6 +4,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from mlx_studio_runtime.entrypoints.http.extension_models import (
+    ExtensionSelection,
+    ExtensionSnapshot,
+)
+
 
 class StrictRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -33,6 +38,7 @@ class CodingRunRequest(StrictRequest):
     modelId: str
     mode: Literal["analyze", "develop", "review"] = "develop"
     queue: bool = False
+    selection: ExtensionSelection | None = None
 
 
 class CodingSteerRequest(StrictRequest):
@@ -64,6 +70,8 @@ class CodingSessionView(BaseModel):
 
 
 class CodingRunView(BaseModel):
+    capabilitySnapshot: ExtensionSnapshot | None = None
+    selection: ExtensionSelection | None = None
     id: str
     sessionId: str
     submissionId: str
@@ -95,7 +103,7 @@ class CodingApprovalView(BaseModel):
     runId: str
     sessionId: str
     toolCallId: str
-    action: Literal["command", "file_write"]
+    action: Literal["command", "file_write", "mcp"]
     parameters: dict[str, object]
     command: str
     cwd: str

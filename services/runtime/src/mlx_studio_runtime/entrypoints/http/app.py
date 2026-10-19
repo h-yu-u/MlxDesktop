@@ -16,14 +16,17 @@ from fastapi.responses import JSONResponse
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeFault, error_payload
+from mlx_studio_runtime.entrypoints.http.agent_chat_routes import register_agent_chat_routes
 from mlx_studio_runtime.entrypoints.http.attachment_routes import register_attachment_routes
 from mlx_studio_runtime.entrypoints.http.audio_routes import register_audio_routes
+from mlx_studio_runtime.entrypoints.http.capability_routes import register_capability_routes
 from mlx_studio_runtime.entrypoints.http.coding_routes import register_coding_routes
 from mlx_studio_runtime.entrypoints.http.contracts import (
     ErrorEnvelope,
 )
 from mlx_studio_runtime.entrypoints.http.conversation_routes import register_conversation_routes
 from mlx_studio_runtime.entrypoints.http.event_routes import register_event_routes
+from mlx_studio_runtime.entrypoints.http.extension_routes import register_extension_routes
 from mlx_studio_runtime.entrypoints.http.image_studio import register_image_studio_routes
 from mlx_studio_runtime.entrypoints.http.inference_routes import register_inference_routes
 from mlx_studio_runtime.entrypoints.http.model_routes import register_model_routes
@@ -151,7 +154,10 @@ def create_app(
     register_audio_routes(app, service, authenticate)
     register_event_routes(app, service, authenticate)
     register_coding_routes(app, service, authenticate)
+    register_extension_routes(app, service, authenticate)
     register_inference_routes(app, service, authenticate)
+    register_capability_routes(app, service, authenticate)
+    register_agent_chat_routes(app, service, authenticate)
 
     if external_enabled:
         _register_openai_api(app, service, os.getenv("MLX_STUDIO_EXTERNAL_API_TOKEN", ""))
@@ -199,6 +205,7 @@ def _status_for_code(code: str) -> int:
         "DRAFT_CLOSED",
         "CONVERSATION_BUSY",
         "WEB_CONFIG_CONFLICT",
+        "EXTENSION_REVISION_CONFLICT",
         "JOB_QUEUE_FULL",
         "CODING_BUSY",
         "SESSION_IN_USE",

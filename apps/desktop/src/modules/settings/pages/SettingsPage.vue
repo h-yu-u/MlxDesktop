@@ -70,6 +70,10 @@ onMounted(() => {
         </template>
       </NCard>
     </NSpin>
+    <NCard title="扩展能力" style="margin-top: 16px">
+      <p>统一管理 Skills、MCP 服务与内置工具。</p>
+      <RouterLink to="/settings/extensions/skills">打开扩展设置</RouterLink>
+    </NCard>
     <CodingSettingsPanel />
     <WebSearchSettings />
     <NCard title="隐私与数据" style="margin-top: 16px">

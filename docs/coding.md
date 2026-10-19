@@ -31,7 +31,7 @@ Vue Coding → 认证 Runtime HTTP / Coding SSE
                               → JobScheduler 单次推理租约 → MLX Worker
 ```
 
-Python 网关转发产品操作，不保存另一份 Coding 状态。Node 单独写入应用数据目录下的 `coding/coding.db`；Pi JSONL 是最终模型上下文的权威来源。应用不会继承全局 Pi 配置、项目可执行扩展、MCP、自动安装或隐式 setup。
+Python 网关转发产品操作，不保存另一份 Coding 状态。Node 单独写入应用数据目录下的 `coding/coding.db`；Pi JSONL 是最终模型上下文的权威来源。应用不会继承全局 Pi 配置、项目可执行扩展、默认 MCP、自动安装或隐式 setup。用户在统一设置明确导入的 Skill、配置并授权的 MCP 可通过输入栏选择，使用受管快照和原工具审批，详见 [Skills、MCP 与本地工具](./extensions.md)。
 
 状态更新及产品事件在同一 SQLite 事务内提交，事件序号跨重启保持递增。快照展示最近 100 个事件、50 个任务和 20 条命令执行记录，较早记录仍保存在 Coding 数据库/Pi 会话中。文件内容按需读取，事件只保留有限预览，避免大文件进入重连快照。Coding 观察器使用独立的 SSE 序号及快照 watermark，不把开发任务当作推理 Job。进程重启将未完成任务标记为 interrupted，并拒绝未决审批；不自动重放不确定是否执行过的命令。
 
@@ -91,7 +91,7 @@ uv run --frozen --project services/runtime --extra mlx-vlm --python 3.12 \
 
 默认脚本只在隔离目录修改固定测试文件，输出可复查的工具事件、变更及验证证据。增加 `--task '完成一个简单的web图书馆系统'` 可继续在隔离空项目运行真实开发需求，逐项交互审查审批，并保存 `*-task.json` 与 `*-task.project/` 产物。脚本化 Provider 特意先制造检查失败再修复；真实模型不要求生成相同文本或故意失败。
 
-本版完成设计阶段 A/B 的开发闭环。Worktree、交互 PTY、IDE 交接、细粒度 Git、外部 Skills/MCP、多 Agent 和周期任务仍属设计后续阶段。正式签名、公证、无开发工具的干净机器与长期资源压力不能由源码测试或本机打包代替；实际验收结果见[状态](./status.md)。
+本版完成 Coding 设计阶段 A/B 的开发闭环，并新增受管 Skills/MCP 与媒体工具。Worktree、交互 PTY、IDE 交接、细粒度 Git、多 Agent 和周期任务仍属后续阶段。正式签名、公证、无开发工具的干净机器与长期资源压力不能由源码测试或本机打包代替；扩展新链路的验证边界单独记录在[扩展文档](./extensions.md)，实际验收结果见[状态](./status.md)。
 
 
 要复验最终应用包，可为上述命令同时指定 `--sidecar`（`.app/Contents/MacOS/mlx-studio-runtime`）与 `--bundled-host`（`.app/Contents/Resources/coding-agent`），路径含空格时加引号。完整本机结果和局限见[验收状态](./status.md#coding-接入验收2026-10-16)。
