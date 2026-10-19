@@ -4,6 +4,11 @@ export { RuntimeSession } from './session'
 export { RuntimeError } from './errors'
 export type { RuntimeMetrics } from './runtime-metrics'
 export { createEndpoints } from './endpoints'
+export type { AttachmentMetadata, Processing, TextPreview, DraftSelection } from './attachments'
+export { decodeAttachment, decodeTextPreview } from './attachments'
+export type { MessageSource } from './chat-sources'
+export { decodeSource } from './chat-sources'
+export type { WebSettings, WebSettingsUpdate, ChatAttempt } from './web-search'
 export type {
   ModelSummary,
   Conversation,

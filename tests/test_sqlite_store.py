@@ -56,7 +56,9 @@ class SQLiteRepositoriesTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             store = SQLiteRepositories(Path(directory) / "app.db")
             store.conversations.save({"id": "conversation-1", "title": "Test"})
-            with self.assertRaises(sqlite3.IntegrityError):
+            from mlx_studio_runtime.domain.errors import RuntimeFault
+
+            with self.assertRaises(RuntimeFault):
                 store.conversations.save_message(
                     {
                         "id": "message-1",

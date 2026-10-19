@@ -1,36 +1,57 @@
 <script setup lang="ts">
-import { NButton, NInput, NTag, NTooltip } from 'naive-ui'
-import { computed, ref, watch } from 'vue'
+import { NButton, NInput, NTooltip } from 'naive-ui'
+import { computed, ref } from 'vue'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
+import AttachmentCard from './AttachmentCard.vue'
+import type { DraftAttachment } from '../domain/chat-draft'
 
-const props = defineProps<{
-  busy: boolean
-  generating?: boolean
-  imageLimit: number
-  draft: string
-  images: File[]
-}>()
+const props = withDefaults(
+  defineProps<{
+    busy: boolean
+    generating?: boolean
+    imageLimit: number
+    draft: string
+    attachments?: readonly DraftAttachment[]
+    images?: File[]
+    webEnabled?: boolean
+    disabledReason?: string
+    historyImageCount?: number
+    historyVerified?: boolean
+    thumbnails?: Record<string, string>
+  }>(),
+  {
+    attachments: () => [],
+    webEnabled: false,
+    historyImageCount: 0,
+    historyVerified: true,
+    thumbnails: () => ({}),
+    images: () => [],
+    disabledReason: '',
+  },
+)
 const emit = defineEmits<{
   'update:draft': [value: string]
-  'update:images': [value: File[]]
+  add: [files: File[]]
+  remove: [clientId: string]
+  retry: [clientId: string]
+  preview: [clientId: string]
+  toggleWeb: []
+  clearVisuals: []
   submit: []
   cancel: []
 }>()
-
-const imageInput = ref<HTMLInputElement | null>(null)
+const fileInput = ref<HTMLInputElement | null>(null)
 const draftValue = computed({
   get: () => props.draft,
   set: (value: string) => emit('update:draft', value),
 })
-
-watch(
-  () => props.imageLimit,
-  (limit) => {
-    const next = limit > 0 ? props.images.slice(0, limit) : []
-    if (next.length !== props.images.length) emit('update:images', next)
-  },
+const canSend = computed(
+  () =>
+    !props.busy && !props.disabledReason && Boolean(props.draft.trim() || props.attachments.length),
 )
-
+function submit(): void {
+  if (canSend.value) emit('submit')
+}
 function handleKeydown(event: KeyboardEvent): void {
   if (
     event.key !== 'Enter' ||
@@ -44,40 +65,48 @@ function handleKeydown(event: KeyboardEvent): void {
   event.preventDefault()
   submit()
 }
-
-function submit(): void {
-  if (props.busy || (!props.draft.trim() && !props.images.length)) return
-  emit('submit')
-}
-
-function addImages(event: Event): void {
+function selected(event: Event): void {
   const input = event.target as HTMLInputElement
-  const chosen = Array.from(input.files ?? [])
-  emit('update:images', [...props.images, ...chosen].slice(0, props.imageLimit))
+  if (input.files?.length) emit('add', Array.from(input.files))
   input.value = ''
 }
-
-function removeImage(index: number): void {
-  emit(
-    'update:images',
-    props.images.filter((_, current) => current !== index),
-  )
+function paste(event: ClipboardEvent): void {
+  if (props.busy || !event.clipboardData?.files.length) return
+  emit('add', Array.from(event.clipboardData.files))
+  if (!event.clipboardData.getData('text/plain')) event.preventDefault()
+}
+function drop(event: DragEvent): void {
+  if (!event.dataTransfer?.files.length) return
+  event.preventDefault()
+  if (props.busy) return
+  emit('add', Array.from(event.dataTransfer.files))
+  const text = event.dataTransfer.getData('text/plain')
+  if (text) emit('update:draft', props.draft + text)
+}
+function dragover(event: DragEvent): void {
+  if (event.dataTransfer?.types.includes('Files')) event.preventDefault()
 }
 </script>
-
 <template>
-  <div class="composer">
-    <div v-if="images.length" class="attachment-list">
-      <NTag
-        v-for="(image, index) in images"
-        :key="`${image.name}-${image.size}-${index}`"
-        closable
-        size="small"
-        @close="removeImage(index)"
-      >
-        {{ image.name }}
-      </NTag>
+  <div class="composer" @paste="paste" @drop="drop" @dragover="dragover">
+    <div v-if="attachments.length" class="attachment-list">
+      <AttachmentCard
+        v-for="item in attachments"
+        :key="item.clientId"
+        :item="item"
+        :image-limit="imageLimit"
+        :busy="busy"
+        :thumbnail="thumbnails[item.clientId]"
+        @remove="emit('remove', item.clientId)"
+        @retry="emit('retry', item.clientId)"
+        @preview="emit('preview', item.clientId)"
+      />
     </div>
+    <p v-if="historyImageCount" class="composer-hint">
+      {{ historyVerified ? '正在参考上一轮的' : '尚未验证历史复用的' }}
+      {{ historyImageCount }} 张图片
+      <NButton text :disabled="busy" @click="emit('clearVisuals')">移除参考组</NButton>
+    </p>
     <NInput
       v-model:value="draftValue"
       type="textarea"
@@ -87,53 +116,53 @@ function removeImage(index: number): void {
       :bordered="false"
       @keydown="handleKeydown"
     />
+    <p
+      v-if="disabledReason && (draft.trim() || attachments.length || historyImageCount)"
+      class="composer-hint"
+      role="status"
+    >
+      {{ disabledReason }}
+    </p>
     <div class="composer-actions">
       <div class="composer-tools">
-        <NTooltip>
-          <template #trigger>
-            <span
-              ><NButton
-                quaternary
-                circle
-                class="attachment-add"
-                aria-label="添加图片附件"
-                :disabled="busy || imageLimit === 0 || images.length >= imageLimit"
-                @click="imageInput?.click()"
-                ><StudioIcon name="plus" :size="23" /></NButton
-            ></span>
-          </template>
-          {{ imageLimit ? '添加图片附件' : '请先选择支持图片输入的模型' }}
-        </NTooltip>
-        <NTooltip>
-          <template #trigger>
-            <span
-              ><NButton
-                quaternary
-                class="image-attachment"
-                :disabled="busy || imageLimit === 0 || images.length >= imageLimit"
-                @click="imageInput?.click()"
-                ><StudioIcon name="image" :size="16" />图片<span v-if="images.length">
-                  ({{ images.length }}/{{ imageLimit }})</span
-                ></NButton
-              ></span
-            >
-          </template>
-          {{ imageLimit ? `最多添加 ${imageLimit} 张图片` : '当前模型不支持图片输入' }}
-        </NTooltip>
+        <NTooltip
+          ><template #trigger
+            ><NButton
+              quaternary
+              circle
+              aria-label="添加附件"
+              :disabled="busy"
+              @click="fileInput?.click()"
+              ><StudioIcon name="paperclip" :size="21" /></NButton></template
+          >添加图片、文本、Word 或 PDF</NTooltip
+        >
+        <NTooltip
+          ><template #trigger
+            ><NButton
+              quaternary
+              circle
+              class="network-toggle"
+              :class="{ 'is-enabled': webEnabled }"
+              :type="webEnabled ? 'primary' : 'default'"
+              :aria-label="webEnabled ? '联网已开启' : '联网搜索'"
+              :aria-pressed="webEnabled"
+              :disabled="busy"
+              @click="emit('toggleWeb')"
+              ><StudioIcon name="globe" :size="20" /></NButton></template
+          >{{ webEnabled ? '联网已开启' : '联网搜索' }}</NTooltip
+        >
       </div>
       <input
-        ref="imageInput"
+        ref="fileInput"
         type="file"
-        accept="image/png,image/jpeg,image/webp,image/gif"
+        accept=".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.docx,.pdf"
         multiple
         hidden
-        @change="addImages"
+        @change="selected"
       />
       <div class="composer-send">
         <slot name="model" />
-        <NButton v-if="generating ?? busy" type="warning" @click="emit('cancel')">
-          停止生成
-        </NButton>
+        <NButton v-if="generating ?? busy" type="warning" @click="emit('cancel')">停止生成</NButton>
         <NButton
           v-else
           type="primary"
@@ -142,14 +171,19 @@ function removeImage(index: number): void {
           title="发送 · Enter"
           class="send-button"
           :loading="busy"
-          :disabled="busy || (!draft.trim() && !images.length)"
-          @click="submit()"
+          :disabled="!canSend"
+          @click="submit"
+          ><StudioIcon name="up" :size="20" /><span class="send-label">发送</span></NButton
         >
-          <StudioIcon name="up" :size="20" /><span class="send-label">发送</span>
-        </NButton>
       </div>
     </div>
   </div>
 </template>
-
+<style scoped>
+.composer-hint {
+  margin: 6px 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+</style>
 <style scoped src="./ChatComposer.styles.css"></style>

@@ -4,6 +4,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
+from typing import TypeVar
 
 from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
 from mlx_studio_runtime.application.model_runtime import ModelRuntime
@@ -11,6 +12,8 @@ from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState, terminal_state
 
 LOGGER = logging.getLogger("mlx_studio.scheduler")
+T = TypeVar("T")
+R = TypeVar("R")
 
 
 class JobScheduler:
@@ -114,6 +117,75 @@ class JobScheduler:
             await asyncio.gather(task, return_exceptions=True)
         await self.lifecycle.finish_failed_or_cancelled(job_id, "CANCELLED")
         return {"jobId": job_id, "state": self.lifecycle.items[job_id].state.value}
+
+    def schedule_prepared(
+        self,
+        job: Job,
+        prepare: Callable[[], Awaitable[T]],
+        execute: Callable[[T], Awaitable[R]],
+        finalize: Callable[[R, T], Awaitable[None]],
+    ) -> asyncio.Task[None]:
+        task = asyncio.create_task(self._run_prepared(job, prepare, execute, finalize))
+        self.tasks[job.id] = task
+        task.add_done_callback(lambda done: self._forget(job.id, done))
+        return task
+
+    async def _run_prepared(
+        self,
+        job: Job,
+        prepare: Callable[[], Awaitable[T]],
+        execute: Callable[[T], Awaitable[R]],
+        finalize: Callable[[R, T], Awaitable[None]],
+    ) -> None:
+        try:
+            self._check_cancelled(job.id)
+            await self.lifecycle.transition(job.id, JobEvent.PREPARE)
+            await self.lifecycle.set_phase(job.id, "preparing_context")
+            prepared = await prepare()
+            self._check_cancelled(job.id)
+            await self.lifecycle.set_phase(job.id, "waiting_model")
+            async with self.lock:
+                self._check_cancelled(job.id)
+                if self.poisoned:
+                    raise RuntimeFault(
+                        RuntimeErrorInfo("RUNTIME_RESOURCES_NOT_AVAILABLE", "Worker 需要重启", True)
+                    )
+                self.active_job_id = job.id
+                try:
+                    async with asyncio.timeout(self.timeout_seconds):
+                        await self.lifecycle.set_phase(job.id, "loading_model")
+                        self._check_cancelled(job.id)
+                        await self.runtime.load(job.model_id or "")
+                        self._check_cancelled(job.id)
+                        await self.lifecycle.transition(job.id, JobEvent.START)
+                        await self.lifecycle.set_phase(job.id, "generating")
+                        reply = await execute(prepared)
+                except BaseException:
+                    try:
+                        await self.runtime.stop()
+                    except Exception:
+                        self.poisoned = True
+                        raise
+                    raise
+                finally:
+                    self.active_job_id = None
+            await finalize(reply, prepared)
+        except asyncio.CancelledError:
+            await self.lifecycle.finish_failed_or_cancelled(job.id, "RUNTIME_SHUTDOWN")
+            raise
+        except TimeoutError:
+            await self.lifecycle.finish_failed_or_cancelled(job.id, "INFERENCE_TIMEOUT")
+        except RuntimeFault as error:
+            await self.lifecycle.finish_failed_or_cancelled(job.id, error.info.code)
+        except (
+            Exception
+        ):  # Task boundary; preparation/finalization never stop another lease's Worker.
+            LOGGER.exception("Prepared job failed", extra={"job_id": job.id})
+            await self.lifecycle.finish_failed_or_cancelled(job.id, "INFERENCE_FAILED")
+
+    def _check_cancelled(self, job_id: str) -> None:
+        if self.lifecycle.cancellation_requested(job_id):
+            raise asyncio.CancelledError
 
     @asynccontextmanager
     async def reserve_removal(self, model_id: str) -> AsyncIterator[None]:

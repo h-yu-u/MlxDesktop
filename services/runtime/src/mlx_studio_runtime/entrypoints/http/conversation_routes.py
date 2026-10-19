@@ -6,7 +6,8 @@ from typing import Any
 from fastapi import Depends, FastAPI
 
 from mlx_studio_runtime.composition_root import RuntimeApplication
-from mlx_studio_runtime.domain.errors import RuntimeErrorInfo
+from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.entrypoints.http.chat_contracts import ChatAttemptRequest
 from mlx_studio_runtime.entrypoints.http.contracts import (
     ChatMessageRequest,
     ChatSubmission,
@@ -55,7 +56,9 @@ def register_conversation_routes(
         response_model=ConversationView,
     )
     async def patch_conversation(conversation_id: str, body: ConversationPatch) -> dict[str, Any]:
-        return service.queries.update_conversation(conversation_id, body.title, body.pinned)
+        return service.queries.update_conversation(
+            conversation_id, body.title, body.pinned, body.web_search_enabled
+        )
 
     @app.delete(
         "/internal/v1/conversations/{conversation_id}", dependencies=[Depends(authenticate)]
@@ -68,7 +71,7 @@ def register_conversation_routes(
         dependencies=[Depends(authenticate)],
         response_model=ChatSubmission,
     )
-    async def send_message(conversation_id: str, body: ChatMessageRequest) -> dict[str, str]:
+    async def send_message(conversation_id: str, body: ChatMessageRequest) -> dict[str, Any]:
         return await service.chat.send_message(
             conversation_id,
             body.content,
@@ -77,6 +80,29 @@ def register_conversation_routes(
             body.temperature,
             body.attachment_ids,
             client_request_id=body.client_request_id,
+            web_search=body.web_search.model_dump(),
+            visual_selection=body.visual_selection.model_dump() if body.visual_selection else None,
+        )
+
+    @app.post(
+        "/internal/v1/conversations/{conversation_id}/messages/{user_message_id}/attempts",
+        dependencies=[Depends(authenticate)],
+        response_model=ChatSubmission,
+    )
+    async def attempt(
+        conversation_id: str, user_message_id: str, body: ChatAttemptRequest
+    ) -> dict[str, Any]:
+        return await service.chat.send_message(
+            conversation_id,
+            "",
+            body.model_id,
+            body.max_tokens,
+            body.temperature,
+            client_request_id=body.client_request_id,
+            web_search=body.web_search.model_dump(),
+            operation=body.mode,
+            target_user=user_message_id,
+            source_context_job_id=body.source_context_job_id,
         )
 
     @app.post(
@@ -85,13 +111,16 @@ def register_conversation_routes(
     )
     async def regenerate(
         conversation_id: str, model_id: str, max_tokens: int | None = None
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         return await service.chat.regenerate(conversation_id, model_id, max_tokens)
 
     @app.post(
         "/internal/v1/conversations/{conversation_id}/cancel", dependencies=[Depends(authenticate)]
     )
     async def cancel_conversation(conversation_id: str, job_id: str) -> dict[str, str]:
+        job = service.queries.job(job_id)
+        if job["kind"] != "chat" or job["request"].get("conversationId") != conversation_id:
+            raise RuntimeFault(_not_found("JOB_NOT_FOUND", "任务不属于此会话"))
         return await service.scheduler.cancel(job_id)
 
     @app.get(

@@ -26,6 +26,7 @@ class EngineSession:
         self.engine = "fake"
         self.finish_reason = "stop"
         self.generation_tokens = 0
+        self.context_limit = 8192
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
         if self.event_sink is None:
@@ -40,6 +41,8 @@ class EngineSession:
         manifest = cast(dict[str, object], manifest_value)
         self.model_id = str(manifest.get("id", ""))
         self.engine = str(manifest.get("engine", "fake"))
+        context_limit = manifest.get("contextLength")
+        self.context_limit = context_limit if isinstance(context_limit, int) else 8192
         if self.engine == "mlx-lm":
             from mlx_lm import load  # type: ignore[import-not-found]
 
@@ -72,7 +75,6 @@ class EngineSession:
         prompt = str(payload.get("prompt", ""))
         max_tokens = max(1, min(int(payload.get("max_tokens", 128)), 8192))
         temperature = max(0.0, min(float(payload.get("temperature", 0.7)), 2.0))
-        self.cancel.clear()
         self.finish_reason = "stop"
         self.generation_tokens = 0
         self.emit("generation.started", {"job_id": job_id})
@@ -100,7 +102,13 @@ class EngineSession:
                 return
             self.emit(
                 "generation.failed",
-                {"job_id": job_id, "error_code": "INFERENCE_FAILED", "message": str(error)},
+                {
+                    "job_id": job_id,
+                    "error_code": "CONTEXT_BUDGET_EXCEEDED"
+                    if str(error) == "CONTEXT_BUDGET_EXCEEDED"
+                    else "INFERENCE_FAILED",
+                    "message": "模型推理失败",
+                },
             )
 
     def _chunks(
@@ -137,6 +145,7 @@ class EngineSession:
             tokenize=False,
             add_generation_prompt=True,
         )
+        self._check_budget(self.tokenizer, rendered, max_tokens)
         sampler = make_sampler(temp=temperature)
         for response in stream_generate(
             self.model,
@@ -164,16 +173,29 @@ class EngineSession:
         from mlx_vlm.prompt_utils import apply_chat_template  # type: ignore[import-not-found]
 
         paths = [str(path) for path in image_paths]
+        normalized = normalize_messages(messages, prompt)
+        if paths and len(normalized) > 1:
+            background = "\n".join(f"{item['role']}: {item['content']}" for item in normalized[:-1])
+            normalized = [
+                {
+                    "role": "user",
+                    "content": "<文字背景>\n"
+                    + background
+                    + "\n</文字背景>\n"
+                    + normalized[-1]["content"],
+                }
+            ]
         formatted = apply_chat_template(
             self.processor,
             self.model_config,
-            normalize_messages(messages, prompt),
+            normalized,
             num_images=len(paths),
             add_generation_prompt=True,
             enable_thinking=False,
         )
         if not isinstance(formatted, str):
             raise ValueError("Chat template did not produce a text prompt")
+        self._check_budget(self.processor.tokenizer, formatted, max_tokens + len(paths) * 2048)
         for response in stream_generate(
             model=self.model,
             processor=self.processor,
@@ -197,6 +219,10 @@ class EngineSession:
         tokens = getattr(response, "generation_tokens", None)
         if isinstance(tokens, int):
             self.generation_tokens = tokens
+
+    def _check_budget(self, tokenizer: Any, prompt: str, reserve: int) -> None:
+        if len(tokenizer.encode(prompt)) + reserve + 128 > self.context_limit:
+            raise ValueError("CONTEXT_BUDGET_EXCEEDED")
 
     @staticmethod
     def _fake_chunks(prompt: str) -> Iterator[str]:

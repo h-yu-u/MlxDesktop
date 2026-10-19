@@ -4,6 +4,7 @@ export class MediaCache {
   private scope = new AbortController()
   private urls = new Map<string, string>()
   private pending = new Map<string, Promise<string | undefined>>()
+  private generations = new Map<string, number>()
   constructor(
     private readonly load: (id: string, signal: AbortSignal) => Promise<Blob>,
     private readonly changed: () => void,
@@ -22,9 +23,10 @@ export class MediaCache {
     const pending = this.pending.get(id)
     if (pending) return pending
     const epoch = this.epoch
+    const generation = this.generations.get(id) ?? 0
     const task = this.load(id, this.scope.signal)
       .then((blob) => {
-        if (epoch !== this.epoch) return undefined
+        if (epoch !== this.epoch || generation !== (this.generations.get(id) ?? 0)) return undefined
         const url = URL.createObjectURL(blob)
         this.urls.set(id, url)
         while (this.urls.size > this.limit) {
@@ -42,6 +44,14 @@ export class MediaCache {
     this.pending.set(id, task)
     return task
   }
+  evict(id: string): void {
+    this.generations.set(id, (this.generations.get(id) ?? 0) + 1)
+    const url = this.urls.get(id)
+    if (url) URL.revokeObjectURL(url)
+    this.urls.delete(id)
+    this.pending.delete(id)
+    this.changed()
+  }
   dispose(): void {
     this.scope.abort()
     this.scope = new AbortController()
@@ -49,6 +59,7 @@ export class MediaCache {
     for (const url of this.urls.values()) URL.revokeObjectURL(url)
     this.urls.clear()
     this.pending.clear()
+    this.generations.clear()
     this.changed()
   }
 }

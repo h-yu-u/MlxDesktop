@@ -1,4 +1,9 @@
-import { createEndpoints, type ConversationPatch, type RuntimeClient } from '@mlx-studio/api-client'
+import {
+  createEndpoints,
+  type ConversationPatch,
+  type RuntimeClient,
+  type ChatAttempt,
+} from '@mlx-studio/api-client'
 import type { ChatSubmissionGateway } from '../application/submit-chat'
 
 export function createChatGateway(provider: () => Promise<RuntimeClient>) {
@@ -17,6 +22,13 @@ export function createChatGateway(provider: () => Promise<RuntimeClient>) {
     submit: async (...args: Parameters<ChatSubmissionGateway['submit']>) =>
       (await endpoints()).conversations.submit(...args),
     job: async (id: string) => (await endpoints()).jobs.get(id),
+    webSearch: async () => {
+      const settings = await (await endpoints()).webSearch.get()
+      if (!settings.credentialConfigured) throw new Error('请先在设置中配置联网搜索')
+      return { enabled: true, config_id: settings.id, config_revision: settings.revision }
+    },
+    attempt: async (id: string, user: string, input: ChatAttempt) =>
+      (await endpoints()).conversations.attempt(id, user, input),
   }
 }
 export type ChatGateway = ReturnType<typeof createChatGateway>

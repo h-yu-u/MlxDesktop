@@ -3,7 +3,9 @@
 import argparse
 from pathlib import Path
 
-from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
+from mlx_studio_runtime.adapters.persistence.sqlite_repositories import (
+    SQLiteRepositories,
+)
 from mlx_studio_runtime.domain.image_generation import fake_image_manifest_dict
 from mlx_studio_runtime.domain.models import fake_text_manifest
 from mlx_studio_runtime.domain.speech import SpeechCapabilities, SpeechOperation
@@ -32,7 +34,11 @@ def seed(path: Path) -> None:
                 "fake-v1",
             ).to_dict(),
         )
-        for model in (fake_text_manifest().to_dict(), fake_image_manifest_dict(), audio):
+        for model in (
+            fake_text_manifest().to_dict(),
+            fake_image_manifest_dict(),
+            audio,
+        ):
             # Keep explicit fixtures across the v6 built-in-demo cleanup migration.
             model["source"] = "local"
             store.models.upsert(model)

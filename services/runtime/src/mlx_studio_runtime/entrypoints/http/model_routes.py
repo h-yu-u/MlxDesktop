@@ -4,8 +4,7 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
-from fastapi import Depends, FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse
+from fastapi import Depends, FastAPI, HTTPException
 
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
@@ -56,15 +55,6 @@ def register_model_routes(
     @app.post("/internal/v1/models/pull", dependencies=[Depends(authenticate)])
     async def pull_model(body: ModelPullRequest) -> dict[str, str]:
         return await service.downloads.pull(body.repo_id, body.revision)
-
-    @app.post("/internal/v1/attachments", dependencies=[Depends(authenticate)])
-    async def upload_attachment(request: Request, filename: str = "image") -> dict[str, Any]:
-        return await service.attachments.upload(request.stream(), filename)
-
-    @app.get("/internal/v1/attachments/{attachment_id}", dependencies=[Depends(authenticate)])
-    async def read_attachment(attachment_id: str):
-        path, item = service.attachments.read(attachment_id)
-        return FileResponse(path, media_type=item["mimeType"], filename=item["originalName"])
 
     @app.post("/internal/v1/models/{model_id}/load", dependencies=[Depends(authenticate)])
     async def load_model(model_id: str) -> dict[str, str]:

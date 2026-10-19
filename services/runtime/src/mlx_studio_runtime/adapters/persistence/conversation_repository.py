@@ -5,10 +5,14 @@ import sqlite3
 import time
 from typing import Any
 
+from mlx_studio_runtime.adapters.persistence.attachment_reference_repository import (
+    AttachmentReferences,
+)
 from mlx_studio_runtime.adapters.persistence.attachment_repository import (
     AttachmentRepository,
 )
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
+from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 
 
 class ConversationRepository:
@@ -22,14 +26,16 @@ class ConversationRepository:
 
     def list(self) -> list[dict[str, Any]]:
         rows = self.database.connection.execute(
-            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned "
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned,"
+            "web_search_enabled "
             "FROM conversations ORDER BY pinned DESC, updated_at DESC, rowid DESC"
         ).fetchall()
         return [_conversation(row) for row in rows]
 
     def get(self, conversation_id: str) -> dict[str, Any] | None:
         row = self.database.connection.execute(
-            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned "
+            "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned,"
+            "web_search_enabled "
             "FROM conversations WHERE id=?",
             (conversation_id,),
         ).fetchone()
@@ -54,6 +60,11 @@ class ConversationRepository:
             }
             for item in rows
         ]
+        for message in messages:
+            message["sources"] = message["parameters"].get("sources", [])
+            versions = message["parameters"].get("attachmentPreparations", {})
+            for attachment in message["attachments"]:
+                attachment["preparationId"] = versions.get(attachment["id"])
         conversation["messages"] = order_messages_by_turn(messages)
         return conversation
 
@@ -77,18 +88,40 @@ class ConversationRepository:
     def rename(self, conversation_id: str, title: str) -> bool:
         return self.update_metadata(conversation_id, title, None)
 
-    def update_metadata(self, conversation_id: str, title: str | None, pinned: bool | None) -> bool:
+    def update_metadata(
+        self,
+        conversation_id: str,
+        title: str | None,
+        pinned: bool | None,
+        web_search_enabled: bool | None = None,
+    ) -> bool:
         with self.database.transaction() as connection:
             cursor = connection.execute(
                 "UPDATE conversations SET title=COALESCE(?,title), "
                 "pinned=COALESCE(?,pinned), "
+                "web_search_enabled=COALESCE(?,web_search_enabled), "
                 "updated_at=CASE WHEN ? IS NULL THEN updated_at ELSE ? END WHERE id=?",
-                (title, pinned, title, int(time.time()), conversation_id),
+                (title, pinned, web_search_enabled, title, int(time.time()), conversation_id),
             )
         return cursor.rowcount > 0
 
     def delete(self, conversation_id: str) -> bool:
         with self.database.transaction() as connection:
+            active = connection.execute(
+                "SELECT 1 FROM jobs WHERE kind='chat' AND json_valid(request_json) "
+                "AND json_extract(request_json,'$.conversationId')=? "
+                "AND state IN ('queued','preparing','running','cancelling')",
+                (conversation_id,),
+            ).fetchone()
+            if active:
+                raise RuntimeFault(
+                    RuntimeErrorInfo("CONVERSATION_IN_USE", "会话仍有任务运行", True)
+                )
+            connection.execute(
+                "DELETE FROM jobs WHERE kind='chat' AND json_valid(request_json) "
+                "AND json_extract(request_json,'$.conversationId')=?",
+                (conversation_id,),
+            )
             cursor = connection.execute(
                 "DELETE FROM conversations WHERE id=?",
                 (conversation_id,),
@@ -133,6 +166,7 @@ class ConversationRepository:
                 ),
             )
             for position, attachment_id in enumerate(item.get("attachmentIds", [])):
+                AttachmentReferences(self.database).require_active(attachment_id)
                 connection.execute(
                     "INSERT INTO message_attachments(message_id,attachment_id,position) "
                     "VALUES(?,?,?)",
@@ -158,6 +192,7 @@ def _conversation(row: sqlite3.Row) -> dict[str, Any]:
         "createdAt": row[4],
         "updatedAt": row[5],
         "pinned": bool(row[6]),
+        "webSearchEnabled": bool(row[7]),
     }
 
 

@@ -64,6 +64,10 @@ async def serve() -> None:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--prepare"]:
+        from mlx_studio_runtime.entrypoints.prepare import main as prepare_main
+
+        return prepare_main()
     if sys.argv[1:] == ["--worker"]:
         from mlx_studio_runtime.entrypoints.worker.main import main as worker_main
 

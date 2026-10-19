@@ -5,13 +5,21 @@ import type { ChatMessage, ChatState } from '../domain/chat-state'
 import ChatWelcome from './ChatWelcome.vue'
 import MessageBubble from './MessageBubble.vue'
 import { useAutoScroll } from '../presentation/use-auto-scroll'
+import type { MessageSource } from '../domain/message-source'
 defineProps<{
   messages: ChatMessage[]
   totalCount: number
   status: ChatState['status']
   error: string | null
 }>()
-defineEmits<{ prompt: [text: string]; image: [text: string]; continue: [] }>()
+defineEmits<{
+  prompt: [text: string]
+  image: [text: string]
+  continue: []
+  preview: [source: MessageSource]
+  regenerate: [message: ChatMessage]
+  attachment: [file: NonNullable<ChatMessage['attachments']>[number]]
+}>()
 const messageList = ref<HTMLElement | null>(null)
 useAutoScroll(messageList)
 </script>
@@ -37,6 +45,9 @@ useAutoScroll(messageList)
       :message="item"
       :can-continue="status !== 'sending' && item === messages.at(-1)"
       @continue="$emit('continue')"
+      @preview="$emit('preview', $event)"
+      @attachment="$emit('attachment', $event)"
+      @regenerate="$emit('regenerate', item)"
     />
     <NEmpty v-if="totalCount && !messages.length" description="没有找到匹配的消息" />
     <p v-if="error" role="alert" class="error-text">

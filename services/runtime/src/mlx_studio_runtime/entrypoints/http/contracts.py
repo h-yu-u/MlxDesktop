@@ -5,10 +5,20 @@ from typing import Any, Self
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from mlx_studio_runtime.entrypoints.http.audio_contracts import SpeechCapabilitiesView
+from mlx_studio_runtime.entrypoints.http.chat_contracts import (
+    FileSource,
+    VisualSelection,
+    WebSearchOptions,
+    WebSource,
+)
 
 
 class ReadModel(BaseModel):
     model_config = ConfigDict(extra="allow")
+
+
+class InputLimitsView(BaseModel):
+    maxImages: int = Field(ge=0, le=4)
 
 
 class ModelView(ReadModel):
@@ -23,6 +33,7 @@ class ModelView(ReadModel):
     outputModalities: list[str]
     contextLength: int | None = None
     capabilities: dict[str, bool]
+    inputLimits: InputLimitsView | None = None
     installationId: str | None = None
     managedInstallation: bool = False
     artifactIdentity: str | None = None
@@ -33,6 +44,9 @@ class AttachmentView(ReadModel):
     id: str
     mimeType: str
     originalName: str
+    kind: str | None = None
+    format: str | None = None
+    preparationId: str | None = None
 
 
 class MessageView(ReadModel):
@@ -42,10 +56,12 @@ class MessageView(ReadModel):
     turnId: str
     parameters: dict[str, Any]
     attachments: list[AttachmentView]
+    sources: list[FileSource | WebSource] = Field(default_factory=list)
 
 
 class ConversationView(ReadModel):
     pinned: bool = False
+    webSearchEnabled: bool = False
     id: str
     title: str
     modelId: str | None = None
@@ -55,6 +71,10 @@ class ConversationView(ReadModel):
 class ChatSubmission(ReadModel):
     jobId: str
     state: str
+    attemptId: str = ""
+    userMessageId: str = ""
+    turnId: str = ""
+    acceptedSnapshotHash: str = ""
 
 
 class RuntimeInfo(ReadModel):
@@ -93,6 +113,11 @@ class JobSnapshot(JobView):
     text: str
     event_sequence: int
     instance_id: str
+    phase: str = ""
+    details: dict[str, Any] = Field(default_factory=dict)
+    projectionVersion: int = 0
+    textRevision: int = 0
+    sources: list[FileSource | WebSource] = Field(default_factory=list)
 
 
 class ErrorInfo(BaseModel):
@@ -116,21 +141,33 @@ class ConversationPatch(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True, extra="forbid")
     title: str | None = Field(default=None, min_length=1, max_length=160)
     pinned: bool | None = Field(default=None, strict=True)
+    web_search_enabled: bool | None = Field(default=None, strict=True)
 
     @model_validator(mode="after")
     def require_change(self) -> Self:
-        if self.title is None and self.pinned is None:
+        if self.title is None and self.pinned is None and self.web_search_enabled is None:
             raise ValueError("Provide a title or pinned state")
         return self
 
 
 class ChatMessageRequest(BaseModel):
-    content: str = Field(min_length=1, max_length=200_000)
+    model_config = ConfigDict(extra="forbid")
+    content: str = Field(default="", max_length=200_000)
     model_id: str = Field(min_length=1, max_length=200)
     max_tokens: int = Field(default=4096, ge=1, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
-    attachment_ids: list[str] = Field(default_factory=list, max_length=4)
+    attachment_ids: list[str] = Field(default_factory=list, max_length=8)
     client_request_id: str | None = Field(default=None, min_length=1, max_length=100)
+    web_search: WebSearchOptions = Field(default_factory=WebSearchOptions)
+    visual_selection: VisualSelection | None = None
+
+    @model_validator(mode="after")
+    def require_input(self) -> Self:
+        if not self.content.strip() and not self.attachment_ids:
+            raise ValueError("A message requires text or attachments")
+        if self.web_search.enabled and not self.content.strip():
+            raise ValueError("Web search requires a question")
+        return self
 
 
 class ModelPathRequest(BaseModel):

@@ -67,7 +67,11 @@ class RuntimeApiTests(unittest.TestCase):
                 self.assertEqual(
                     client.get("/v1/models", headers=headers).status_code, 404
                 )
-                png = b"\x89PNG\r\n\x1a\n" + b"\x00" * 24
+                from PIL import Image
+
+                image_buffer = io.BytesIO()
+                Image.new("RGB", (1, 1)).save(image_buffer, "PNG")
+                png = image_buffer.getvalue()
                 attachment = client.post(
                     "/internal/v1/attachments?filename=../../private.png",
                     headers=headers,
@@ -100,6 +104,27 @@ class RuntimeApiTests(unittest.TestCase):
                 )
                 self.assertEqual(sent.status_code, 200)
                 job_id = sent.json()["jobId"]
+                sent_again = client.post(
+                    f"/internal/v1/conversations/{conversation_id}/messages",
+                    headers=headers,
+                    json={
+                        "content": "follow up",
+                        "model_id": "builtin-fake-text",
+                        "max_tokens": 20,
+                    },
+                )
+                self.assertEqual(sent_again.status_code, 409)
+                self.assertEqual(
+                    sent_again.json()["error"]["code"], "CONVERSATION_BUSY"
+                )
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    first_job = client.get(
+                        f"/internal/v1/jobs/{job_id}", headers=headers
+                    ).json()
+                    if first_job["state"] in {"succeeded", "failed", "cancelled"}:
+                        break
+                    time.sleep(0.03)
                 sent_again = client.post(
                     f"/internal/v1/conversations/{conversation_id}/messages",
                     headers=headers,

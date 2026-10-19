@@ -26,6 +26,11 @@ import { createImageController } from '../modules/image-studio/presentation/imag
 import { createModelsGateway } from '../modules/models/infrastructure/models-gateway'
 import { createModelsController } from '../modules/models/presentation/models-controller'
 import { exportBlob, pickModelDirectory, pickProjectDirectory } from '../platform/files'
+import { createAttachmentGateway } from '../modules/chat/infrastructure/attachment-gateway'
+import { createChatDraftController } from '../modules/chat/presentation/chat-draft-controller'
+import { configureWebSearch } from '../capabilities/web-search/store'
+import { createWebSearchController } from '../capabilities/web-search/controller'
+import { createWebSearchGateway } from '../capabilities/web-search/gateway'
 
 const observer = new JobObserver(runtimeClient)
 function directoryDependencies() {
@@ -38,8 +43,15 @@ function directoryDependencies() {
 }
 export function createChatWorkspace() {
   const { directory, refreshModels } = directoryDependencies()
+  const gateway = createChatGateway(runtimeClient)
   return createChatController({
-    gateway: createChatGateway(runtimeClient),
+    gateway,
+    draftFactory: (conversation) =>
+      createChatDraftController(
+        conversation,
+        createAttachmentGateway(runtimeClient),
+        (id, enabled) => gateway.update(id, { web_search_enabled: enabled }),
+      ),
     models: toRef(directory, 'items'),
     refreshModels,
     exportText: (content, filename) =>
@@ -90,6 +102,7 @@ export function createCodingWorkspace() {
 }
 
 export function installWorkspaces(): void {
+  configureWebSearch(() => createWebSearchController(createWebSearchGateway(runtimeClient)))
   configureCodingSettings(() =>
     createCodingSettingsController(createCodingSettingsGateway(runtimeClient)),
   )

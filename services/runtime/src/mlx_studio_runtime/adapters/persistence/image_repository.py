@@ -4,6 +4,9 @@ import json
 import time
 from typing import Any
 
+from mlx_studio_runtime.adapters.persistence.attachment_reference_repository import (
+    AttachmentReferences,
+)
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
 
 
@@ -20,6 +23,14 @@ class ImageRepository:
                 "VALUES(?,?,'image',?,?,?)",
                 (artifact_id, job_id, relative_path, json.dumps(metadata), int(time.time())),
             )
+            refs = AttachmentReferences(self.database)
+            reference_ids = metadata.get("reference_ids", [])
+            if isinstance(reference_ids, list):
+                refs.artifact(
+                    artifact_id, "image_reference", [str(value) for value in reference_ids]
+                )
+            if metadata.get("mask_id"):
+                refs.artifact(artifact_id, "image_mask", [str(metadata["mask_id"])])
 
     def list_artifacts(self, limit: int = 24, offset: int = 0) -> list[dict[str, Any]]:
         rows = self.database.connection.execute(

@@ -4,6 +4,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+from mlx_studio_runtime.application.chat_context_ports import ChatContexts
 from mlx_studio_runtime.application.job_lifecycle import JobLifecycle
 from mlx_studio_runtime.application.ports import (
     ConversationRepository,
@@ -21,12 +22,14 @@ class Queries:
         images: ImageRepository,
         lifecycle: JobLifecycle,
         image_path: Callable[[str], Path],
+        contexts: ChatContexts | None = None,
     ) -> None:
         self.conversations = conversations
         self.jobs = jobs
         self.images = images
         self.lifecycle = lifecycle
         self.image_path = image_path
+        self.contexts = contexts
 
     def conversation(self, conversation_id: str) -> dict[str, Any]:
         item = self.conversations.get(conversation_id)
@@ -40,9 +43,15 @@ class Queries:
         return self.conversation(conversation_id)
 
     def update_conversation(
-        self, conversation_id: str, title: str | None, pinned: bool | None
+        self,
+        conversation_id: str,
+        title: str | None,
+        pinned: bool | None,
+        web_search_enabled: bool | None = None,
     ) -> dict[str, Any]:
-        if not self.conversations.update_metadata(conversation_id, title, pinned):
+        if not self.conversations.update_metadata(
+            conversation_id, title, pinned, web_search_enabled
+        ):
             raise RuntimeFault(RuntimeErrorInfo("CONVERSATION_NOT_FOUND", "找不到此会话"))
         return self.conversation(conversation_id)
 
@@ -62,7 +71,22 @@ class Queries:
         item = self.jobs.get(job_id)
         if item is None:
             raise RuntimeFault(RuntimeErrorInfo("JOB_NOT_FOUND", "找不到此任务"))
-        return dict(item, text=self.lifecycle.output_text(job_id))
+        sources: list[dict[str, Any]] = []
+        request = item["request"]
+        if self.contexts and item["kind"] == "chat":
+            try:
+                sources = self.contexts.load(job_id, request["conversationId"], request["turnId"])[
+                    "sources"
+                ]
+            except RuntimeFault:
+                pass  # Legacy/unfinished jobs have no context yet.
+        result_text = item.pop("resultText", "")
+        return dict(
+            item,
+            text=self.lifecycle.output_text(job_id) or result_text,
+            textRevision=self.lifecycle.text_revision(job_id),
+            sources=sources,
+        )
 
     def list_conversations(self) -> list[dict[str, Any]]:
         return self.conversations.list()

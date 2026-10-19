@@ -6,6 +6,8 @@ from mlx_studio_runtime.domain.models import ModelManifest
 
 
 def validate_attachments(model: ModelManifest, attachment_ids: list[str]) -> None:
+    if len(attachment_ids) > 4:
+        raise RuntimeFault(RuntimeErrorInfo("ATTACHMENT_TOTAL_LIMIT", "最多使用 4 张图片"))
     if attachment_ids and "image" not in model.input_modalities:
         raise RuntimeFault(RuntimeErrorInfo("MODEL_INPUT_UNSUPPORTED", "当前模型不支持图片输入"))
     if attachment_ids and model.engine != "mlx-vlm":

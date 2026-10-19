@@ -32,6 +32,7 @@ class WorkerHost:
         self.write_lock = asyncio.Lock()
         self.reader_task: asyncio.Task[None] | None = None
         self.last_sequence = 0
+        self.active_job_id: str | None = None
 
     @property
     def pid(self) -> int | None:
@@ -120,7 +121,8 @@ class WorkerHost:
             yield event
 
     async def cancel(self, job_id: str) -> None:
-        await self._send("generation.cancel", {"job_id": job_id})
+        if self.active_job_id == job_id:
+            await self._send("generation.cancel", {"job_id": job_id})
 
     async def generate_audio(
         self, job_id: str, parameters: dict[str, object], output_path: Path
@@ -168,6 +170,13 @@ class WorkerHost:
             "payload": payload,
         }
         async with self.write_lock:
+            if command_type in {
+                "generation.start",
+                "inference.start",
+                "image.start",
+                "audio.start",
+            }:
+                self.active_job_id = str(payload["job_id"])
             self.process.stdin.write((json.dumps(frame) + "\n").encode())
             await self.process.stdin.drain()
         return frame["id"]
@@ -226,6 +235,8 @@ class WorkerHost:
                 raise WorkerProtocolError("Worker returned an event for another job")
             yield event
             if event["type"] in terminal:
+                if self.active_job_id == job_id:
+                    self.active_job_id = None
                 return
 
     async def _drain_stderr(self) -> None:

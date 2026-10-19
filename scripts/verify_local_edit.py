@@ -128,5 +128,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("model-path", "source", "reference", "mask", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
-    parser.add_argument("--sidecar", help="Exercise the packaged Runtime instead of source")
+    parser.add_argument(
+        "--sidecar", help="Exercise the packaged Runtime instead of source"
+    )
     asyncio.run(run(parser.parse_args()))

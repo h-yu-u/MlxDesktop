@@ -15,7 +15,7 @@ import {
 } from './coding-decoders'
 const root = '/internal/v1/coding'
 const id = encodeURIComponent
-export function codingEndpoints(transport: Transport) {
+export function codingEndpoints(transport: Pick<Transport, 'get' | 'post' | 'patch' | 'delete'>) {
   return {
     settings: async () => decodeCodingSettings(await transport.get(`${root}/settings`)),
     saveSettings: async (body: CodingSettings) =>

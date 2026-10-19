@@ -23,6 +23,9 @@ class WorkerHostTests(unittest.TestCase):
         captured_sampler: list[object] = []
 
         class FakeTokenizer:
+            def encode(self, text):
+                return list(text.encode())
+
             def apply_chat_template(self, messages, **_kwargs):
                 captured_messages.extend(messages)
                 return "rendered prompt"
@@ -60,7 +63,9 @@ class WorkerHostTests(unittest.TestCase):
     def test_vlm_uses_streaming_api(self) -> None:
         worker = EngineSession()
         worker.model = object()
-        worker.processor = object()
+        worker.processor = SimpleNamespace(
+            tokenizer=SimpleNamespace(encode=lambda text: list(text.encode()))
+        )
         worker.model_config = object()
         fake_library = ModuleType("mlx_vlm")
         fake_library.__path__ = []
@@ -80,7 +85,9 @@ class WorkerHostTests(unittest.TestCase):
         worker = EngineSession()
         worker.engine = "mlx-vlm"
         worker.model = object()
-        worker.processor = object()
+        worker.processor = SimpleNamespace(
+            tokenizer=SimpleNamespace(encode=lambda text: list(text.encode()))
+        )
         worker.model_config = object()
         history = [
             {"role": "user", "content": "记住暗号蓝鲸"},

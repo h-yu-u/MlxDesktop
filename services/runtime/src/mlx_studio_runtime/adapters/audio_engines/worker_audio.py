@@ -49,7 +49,6 @@ class WorkerAudioEngine:
     ) -> None:
         job_id = str(payload["job_id"])
         cancel, shutdown = signals
-        cancel.clear()
         output: Path | None = None
         try:
             parameters = dict(payload["parameters"])

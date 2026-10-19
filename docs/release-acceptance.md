@@ -70,6 +70,42 @@ sh scripts/run-bundle-acceptance.sh '/Applications/MLX Studio.app' \
 
 最终发布结论绑定应用清单摘要、模型登记身份/revision、硬件、系统版本、实际运行时长、轮数及完整结果。换应用包或模型版本后重新验收。
 
+## 六项短时专项复验
+
+2026-10-19 的实际结果与限制见 [六项专项验收](./status.md#六项专项验收2026-10-19) 和 [总报告](../.build/acceptance-six-20261019/report.json)。旧数据、故障恢复、图片编辑、隐私和长语音在已记录范围内通过；大量历史的 API 分页通过，但原生搜索仅覆盖已加载会话，全历史搜索仍需修复复验。八小时长测继续暂停。
+
+以下工具从仓库根目录运行，与上面的无 Python 可携带工具分开。数据库造数需要已有 Python 3.12 开发环境；仅由该环境准备合成 fixture，实际 API/迁移/Host 使用指定应用包。输出目录必须是新目录。不要传入用户数据库或安装版数据目录。
+
+```bash
+APP='apps/desktop/src-tauri/target/release/bundle/macos/MLX Studio.app'
+"$APP/Contents/Resources/coding-agent/bin/node" scripts/verify-packaged-data.mjs \
+  --app "$APP" --python services/runtime/.venv/bin/python3 \
+  --output .build/acceptance-data-new
+```
+
+默认依次执行 `migration`、`privacy`、`faults`、`history`，可通过 `--only` 指定其中一项。每项使用独立 HOME/缓存/临时目录与数据；故障注入仅影响这些 fixture 和按出生时间识别的测试进程。数据/故障使用显式登记的 FakeEngine，不把结果当作真实模型压力结论。旧库覆盖受支持格式的合成迁移与二次启动、媒体/模型文件摘要、审批失效和不重放；不代表任意私人历史库。大数据集为 2 万会话、2 万运行、10.2 万事件及 120 个大文件变更。
+
+真实编辑与语音需要现有本地完整模型及开发环境中的验收客户端，不自动下载。以下变量分别指向完整编辑模型、CustomVoice、Base 克隆模型，以及测试 PNG 的源图、参考图和蒙版：
+
+```bash
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  uv run --project services/runtime --python 3.12 python scripts/verify_local_edit.py \
+  --sidecar "$APP/Contents/MacOS/mlx-studio-runtime" \
+  --model-path "$EDIT_MODEL" --source "$SOURCE_PNG" \
+  --reference "$REFERENCE_PNG" --mask "$MASK_PNG" \
+  --output .build/acceptance-edit-new
+
+HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 \
+  uv run --project services/runtime --python 3.12 python scripts/verify_speech_quality.py \
+  --sidecar "$APP/Contents/MacOS/mlx-studio-runtime" \
+  --preset-model "$PRESET_MODEL" --clone-model "$CLONE_MODEL" \
+  --output .build/acceptance-speech-new
+```
+
+图片探针检查双参考图、取消后生成、蒙版作品及重启摘要；蒙版外像素对照、参数复用和原生文件保存还需按实际输出补验。语音探针生成参考音、364 字预设与克隆样本，只自动判定 WAV 格式、帧数、能量与削波等指标；人工试听之前报告保留 `subjective_review` 待确认。人工结论应另记实际试听者、原话和样本范围，不能把信号指标改称自然度或音色相似度评分。
+
+原生复验应使用独立应用标识及新数据目录，将合成历史和已生成媒体副本放入该目录，记录 fixture 来源、应用与包内资源摘要，不覆盖安装版。核对旧会话加载/搜索、恶意 Markdown 惰性展示、图片输入顺序/蒙版复用、播放暂停、保存及取消保存；仅终止该应用的 Runtime，确认断连提示、点击重试、历史恢复与退出后无残留。独立标识应用的本机结果不能替代下载 DMG、原生安装和独立干净 Mac 检查单。
+
 ## 干净机器人工检查单
 
 独立 Mac 首次测试前不要安装开发工具或拷贝开发目录/缓存。记录该机器与构建机不同、芯片、内存、macOS 版本及安装包 SHA-256。新建本机用户只算补充隔离测试，不算独立机器。

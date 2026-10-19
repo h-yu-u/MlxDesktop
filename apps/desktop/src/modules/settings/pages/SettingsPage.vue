@@ -4,6 +4,7 @@ import { onMounted } from 'vue'
 import { storeToRefs } from 'pinia'
 import { useRuntimeStore } from '../../../capabilities/runtime'
 import { CodingSettingsPanel } from '../../../capabilities/coding-settings'
+import { WebSearchSettings } from '../../../capabilities/web-search'
 import PageHeader from '../../../shared/ui/PageHeader.vue'
 const runtime = useRuntimeStore()
 const { info, loading } = storeToRefs(runtime)
@@ -70,6 +71,7 @@ onMounted(() => {
       </NCard>
     </NSpin>
     <CodingSettingsPanel />
+    <WebSearchSettings />
     <NCard title="隐私与数据" style="margin-top: 16px">
       <p>会话和生成文件保存在本机。日志默认不记录完整提示词、模型输出或附件内容。</p>
       <p>本地兼容 API 默认关闭，仅监听回环地址并使用独立令牌。</p>

@@ -7,7 +7,7 @@ import type {
 } from '@mlx-studio/api-client'
 import { conversationTitle } from '../domain/conversation-list'
 import { formatConversation } from '../domain/export-conversation'
-import { SubmitChat } from '../application/submit-chat'
+import { SubmitChat, submissionAttachments } from '../application/submit-chat'
 import {
   initialChatState,
   reduceChatState,
@@ -15,10 +15,15 @@ import {
   type ChatMessage,
 } from '../domain/chat-state'
 import type { ChatGateway } from '../application/ports'
-import { createDeltaBuffer } from './delta-buffer'
+import { createChatStream } from './chat-stream-controller'
+import type { createChatDraftController } from './chat-draft-controller'
+import { createChatAttempts } from './chat-attempts'
 
 interface ChatDependencies {
   gateway: ChatGateway
+  draftFactory?: (
+    conversationId: Ref<string | null>,
+  ) => ReturnType<typeof createChatDraftController>
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
   exportText(content: string, filename: string): Promise<void> | void
@@ -44,16 +49,34 @@ export function createChatController(deps: ChatDependencies) {
   )
   const busy = computed(() => state.value.status === 'sending')
   const submission = new SubmitChat(deps.gateway)
-  let release: (() => void) | undefined
   let readEpoch = 0
   let readAbort: AbortController | undefined
   let viewActive = true
   let viewEpoch = 0
-  const deltas = createDeltaBuffer((jobId, text) => {
-    state.value = reduceChatState(state.value, { type: 'generation.delta', jobId, text })
+  const drafts = deps.draftFactory?.(conversationId)
+  const stream = createChatStream({
+    gateway: deps.gateway,
+    state,
+    conversationId,
+    present,
+    refresh: (items) => {
+      conversations.value = items
+    },
+    observe: deps.observe,
+  })
+  const attempt = createChatAttempts({
+    gateway: deps.gateway,
+    state,
+    conversationId,
+    pending,
+    modelId: selectedModelId,
+    maxTokens,
+    temperature,
+    start: stream.start,
   })
 
   function present(item: Conversation, selectModel = true): void {
+    drafts?.restore(item)
     conversationId.value = item.id
     if (selectModel) selectedModelId.value = item.modelId ?? selectedModelId.value
     const messages: ChatMessage[] = item.messages
@@ -79,23 +102,10 @@ export function createChatController(deps: ChatDependencies) {
     const owner = ++viewEpoch
     if (pending.value) return
     if (busy.value && state.value.activeJobId) {
-      const id = state.value.activeJobId
-      try {
-        const sequence = await reconcile()
-        if (
-          viewActive &&
-          owner === viewEpoch &&
-          id === state.value.activeJobId &&
-          sequence !== undefined
-        ) {
-          release?.()
-          release = deps.observe(id, sequence, applyEvent, reconcile)
-        }
-      } catch (cause) {
-        if (owner === viewEpoch) state.value.error = errorText(cause)
-      }
+      await stream.resume()
       return
     }
+    await stream.resume()
     state.value = { ...state.value, status: 'loading', error: null }
     try {
       const [, items] = await Promise.all([deps.refreshModels(), deps.gateway.list()])
@@ -132,11 +142,12 @@ export function createChatController(deps: ChatDependencies) {
     pending.value = true
     try {
       await deps.gateway.delete(id)
+      drafts?.discard(id)
       readEpoch += 1
       readAbort?.abort()
       conversations.value = conversations.value.filter((item) => item.id !== id)
       if (conversationId.value === id) {
-        release?.()
+        stream.dispose()
         conversationId.value = null
         state.value = { ...initialChatState, messages: [] }
       }
@@ -164,82 +175,19 @@ export function createChatController(deps: ChatDependencies) {
     const item = conversations.value.find((entry) => entry.id === id)
     if (item) await updateConversation(id, { pinned: !item.pinned })
   }
-  async function reconcile(): Promise<number | void> {
-    deltas.flush()
-    const owner = viewEpoch
-    if (!conversationId.value) return
-    const id = conversationId.value
-    const jobId = state.value.activeJobId
-    if (jobId) {
-      const snapshot = await deps.gateway.job(jobId)
-      if (
-        owner !== viewEpoch ||
-        !viewActive ||
-        jobId !== state.value.activeJobId ||
-        id !== conversationId.value
-      )
-        return
-      if (['succeeded', 'failed', 'cancelled'].includes(snapshot.state)) {
-        applyEvent({
-          type: `job.${snapshot.state}`,
-          seq: snapshot.event_sequence,
-          payload: { job_id: jobId },
-        })
-        if (snapshot.state === 'succeeded') {
-          const item = await deps.gateway.get(id)
-          if (owner === viewEpoch && viewActive && id === conversationId.value) present(item, false)
-        }
-      } else {
-        state.value = {
-          ...state.value,
-          messages: state.value.messages.map((message) =>
-            message.id === jobId ? { ...message, content: snapshot.text } : message,
-          ),
-        }
-      }
-      return snapshot.event_sequence
-    }
-    const [items, item] = await Promise.all([deps.gateway.list(), deps.gateway.get(id)])
-    if (owner !== viewEpoch || !viewActive || id !== conversationId.value) return
-    conversations.value = items
-    present(item, false)
-  }
-  function applyEvent(event: RuntimeEvent): void {
-    if (!viewActive) return
-    const id = event.payload.job_id
-    if (typeof id !== 'string' || id !== state.value.activeJobId) return
-    if (event.type === 'generation.delta') {
-      deltas.push(id, String(event.payload.text ?? ''))
-      return
-    }
-    const terminal =
-      event.type === 'job.succeeded'
-        ? {
-            type: 'generation.completed' as const,
-            finishReason:
-              event.payload.finish_reason === 'length' ? ('length' as const) : undefined,
-          }
-        : event.type === 'job.cancelled'
-          ? { type: 'generation.cancelled' as const }
-          : event.type === 'job.failed'
-            ? { type: 'generation.failed' as const, message: '生成失败，请检查 Runtime 状态' }
-            : undefined
-    if (!terminal) return
-    deltas.flush()
-    state.value = reduceChatState(state.value, { ...terminal, jobId: id })
-    release?.()
-    release = undefined
-    if (event.type === 'job.succeeded')
-      void reconcile().catch((cause) => {
-        state.value.error = errorText(cause)
-      })
-  }
   async function send(content: string, files: File[] = []): Promise<boolean> {
-    if ((!content.trim() && !files.length) || busy.value || pending.value) return false
+    const draft = drafts?.draft.value.text === content ? drafts.draft.value : undefined
+    if (
+      (!content.trim() && !files.length && !draft?.attachments.length) ||
+      busy.value ||
+      pending.value
+    )
+      return false
     pending.value = true
     try {
       if (!conversationId.value) {
         const item = await deps.gateway.create(selectedModelId.value)
+        drafts?.bind(item.id)
         present(item)
         conversations.value = [item, ...conversations.value]
       }
@@ -247,15 +195,21 @@ export function createChatController(deps: ChatDependencies) {
         conversationId: conversationId.value!,
         content,
         files,
+        attachments: files.length ? undefined : submissionAttachments(draft),
+        draftIdentity: draft ? `${draft.id}:${draft.revision}` : undefined,
+        webSearch: { enabled: draft?.webSearchEnabled ?? false },
+        webSearchProvider: draft?.webSearchEnabled ? deps.gateway.webSearch : undefined,
+        visualSelection: draft?.visualSelection,
         modelId: selectedModelId.value,
         maxTokens: maxTokens.value,
         temperature: temperature.value,
       })
       if (!result) return false
+      if (draft) drafts?.consume(draft.key, draft.revision)
       state.value = reduceChatState(state.value, {
         type: 'send.started',
         userMessage: {
-          id: crypto.randomUUID(),
+          id: result.userMessageId ?? crypto.randomUUID(),
           role: 'user',
           content: result.content,
           state: 'complete',
@@ -263,8 +217,7 @@ export function createChatController(deps: ChatDependencies) {
         },
         assistantMessage: { id: result.jobId, role: 'assistant', content: '', state: 'streaming' },
       })
-      release?.()
-      if (viewActive) release = deps.observe(result.jobId, result.after, applyEvent, reconcile)
+      stream.start(result.jobId, result.after)
       return true
     } finally {
       pending.value = false
@@ -295,13 +248,12 @@ export function createChatController(deps: ChatDependencies) {
     }
   }
   function dispose(): void {
-    deltas.flush()
+    stream.dispose()
+    drafts?.disposePreview()
     viewActive = false
     viewEpoch += 1
     readEpoch += 1
     readAbort?.abort()
-    release?.()
-    release = undefined
   }
   return {
     state,
@@ -325,6 +277,9 @@ export function createChatController(deps: ChatDependencies) {
     resetParameters,
     exportConversation,
     dispose,
+    drafts,
+    phase: stream.phase,
+    attempt,
   }
 }
 function errorText(cause: unknown): string {

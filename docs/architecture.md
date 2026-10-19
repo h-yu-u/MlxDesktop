@@ -91,3 +91,9 @@ Pi 本地 Provider 使用受限短期凭据访问 `/internal/v1/inference`，每
 Audio Studio 提供预设合成、参考克隆、版本化音色库、作品历史、WAV 试听与导出。`SpeechGenerationService` 依赖模型目录、任务提交、音频文件与仓库窄端口；`VoiceProfileService` 保存音色及授权记录，任务冻结输入快照。WorkerHost 只处理 IPC；WorkerRuntime 从静态注册表选择单活 Text/VLM、Image 或 Speech Driver。中性的 WorkerContext 持有取消、退出和设备兼容策略，语音和图像不构造或调用文本 Session。业务服务依赖各自的模态推理端口，不能停止 Worker；JobLifecycle 提供不可变 Job 查询和只读任务映射，清理决策归属调度器。
 
 Qwen3-TTS Base 和 CustomVoice 由静态配置区分，资源完整性检查支持 tokenizer.json 或 vocab.json + merges.txt，并检查 codec、克隆 encoder 与分片权重。能力描述记录适配版本和候选状态，未知模型不会默认作为文本模型开放。SQLite 迁移 5 与 `media/audio` 保存资产、音色、任务和作品，音频文件经认证读取，失败补偿和启动媒体恢复纳入统一生命周期。范围、使用流程与验收证据见[语音创作](./audio-studio.md)。
+
+## 聊天资料准备
+
+统一附件入口通过独立准备进程生成不可变的文档块、缩略图和模型图片表示。草稿分别记录上传、准备及模型兼容性，字节句柄和预览 URL 由应用边界与媒体 controller 管理。迁移 7 保存准备版本、草稿/消息/任务/作品引用和自足聊天资料快照，自动 GC 保持关闭。
+
+ChatJob 使用 `schedule_prepared` 先在锁外构建本地与网页资料，再取得单活模型租约执行生成，释放租约后提交回答。联网 Search/Extract 使用固定供应商 origin、不可变配置 revision 与 Keychain 引用；关闭路径不解析凭据、不检索 URL。回答来源与所用资料一起保存，重试与重新生成通过原用户消息的新 attempt 执行。详细行为、限制及验证边界见[聊天附件与联网搜索](./chat-attachments-web.md)。

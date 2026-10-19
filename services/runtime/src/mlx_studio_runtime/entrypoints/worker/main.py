@@ -10,6 +10,7 @@ from typing import Any
 
 from mlx_studio_runtime import PROTOCOL_VERSION
 from mlx_studio_runtime.adapters.import_diagnostics import import_failure_chain
+from mlx_studio_runtime.adapters.worker_runtime.cancellation import WorkerCancellation
 from mlx_studio_runtime.adapters.worker_runtime.context import WorkerContext
 from mlx_studio_runtime.adapters.worker_runtime.runtime import WorkerRuntime
 from mlx_studio_runtime.domain.speech import speech_error_code
@@ -24,6 +25,7 @@ class Worker:
         self.context = WorkerContext(self.emit)
         self.runtime = WorkerRuntime(self.context)
         self.cancel, self.shutdown = self.context.signals
+        self.cancellation = WorkerCancellation(self.cancel)
         self.sequence = 0
         self.protocol_lock = threading.Lock()
         self.protocol_output = sys.stdout
@@ -53,7 +55,7 @@ class Worker:
                 self.shutdown.set()
                 return
             if command["type"] == "generation.cancel":
-                self.cancel.set()
+                self.cancellation.cancel(str(command.get("payload", {}).get("job_id", "")))
             if command["type"] == "worker.shutdown":
                 self.shutdown.set()
             self.commands.put(command)
@@ -103,6 +105,19 @@ class Worker:
         return 0
 
     def handle(self, command: dict[str, Any]) -> None:
+        if command["type"] in {"audio.start", "image.start", "inference.start", "generation.start"}:
+            job_id = str(command.get("payload", {}).get("job_id", ""))
+            if not self.cancellation.begin(job_id):
+                self.emit("generation.cancelled", {"job_id": job_id})
+                return
+            try:
+                self._handle(command)
+            finally:
+                self.cancellation.finish(job_id)
+        else:
+            self._handle(command)
+
+    def _handle(self, command: dict[str, Any]) -> None:
         kind = command["type"]
         payload = command.get("payload", {})
         if kind == "worker.load":

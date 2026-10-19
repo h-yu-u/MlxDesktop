@@ -33,7 +33,6 @@ class WorkerImageEngine:
     ) -> None:
         job_id = str(payload["job_id"])
         cancel, shutdown = signals
-        cancel.clear()
         output: Path | None = None
         try:
             values = dict(payload["parameters"])

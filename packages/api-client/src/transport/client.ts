@@ -7,6 +7,7 @@ import type { RuntimeConnection, RuntimeEvent } from '../types'
 import { createEndpoints } from '../endpoints'
 import { decodeError } from '../errors'
 import { decodeAudioAsset } from '../audio-decoders'
+import { decodeAttachment } from '../attachments'
 
 export type { ModelSummary, Conversation, Message, Submission, ChatCommand } from '../endpoints'
 
@@ -43,6 +44,45 @@ export class RuntimeClient {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
     })
+  }
+
+  async put(path: string, body: unknown): Promise<unknown> {
+    return this.request(path, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+  }
+
+  async uploadAttachment(
+    file: File,
+    options: { uploadId: string; draftId: string; revision: number },
+    signal?: AbortSignal,
+  ) {
+    const query = new URLSearchParams({
+      filename: file.name,
+      client_upload_id: options.uploadId,
+      draft_id: options.draftId,
+      draft_revision: String(options.revision),
+    })
+    const response = await this.fetch(`/internal/v1/attachments?${query}`, {
+      method: 'POST',
+      body: file,
+      signal,
+    })
+    const payload: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) throw decodeError(payload, response.status)
+    return decodeAttachment(payload)
+  }
+
+  async attachmentThumbnail(id: string, preparation: string, signal?: AbortSignal): Promise<Blob> {
+    const response = await this.fetch(
+      `/internal/v1/attachments/${encodeURIComponent(id)}/preview?view=thumbnail&preparation_id=${encodeURIComponent(preparation)}`,
+      { signal },
+    )
+    if (!response.ok)
+      throw decodeError(await response.json().catch(() => undefined), response.status)
+    return response.blob()
   }
 
   async delete(path: string): Promise<unknown> {

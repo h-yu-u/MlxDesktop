@@ -2,6 +2,9 @@
 
 from pathlib import Path
 
+from mlx_studio_runtime.adapters.persistence.attachment_context_migrations import (
+    migrate_attachment_context,
+)
 from mlx_studio_runtime.adapters.persistence.attachment_repository import (
     AttachmentRepository,
 )
@@ -21,6 +24,7 @@ class SQLiteRepositories:
         self.database = SQLiteDatabase(path)
         migrate_audio(self.database)
         migrate_model_catalog(self.database)
+        migrate_attachment_context(self.database)
         self.audio = AudioRepository(self.database)
         self.attachments = AttachmentRepository(self.database)
         self.models = ModelRepository(self.database)

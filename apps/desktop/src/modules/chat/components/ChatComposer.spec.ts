@@ -10,6 +10,18 @@ const baseProps = {
 }
 
 describe('ChatComposer', () => {
+  it('uses one attachment button and an accessible network toggle without removing incompatible attachments', async () => {
+    const wrapper = mount(ChatComposer, { props: { ...baseProps, webEnabled: true } })
+    expect(wrapper.findAll('input[type=file]')).toHaveLength(1)
+    expect(wrapper.find('button[aria-label="添加附件"]').exists()).toBe(true)
+    expect(wrapper.find('[aria-label="添加图片附件"]').exists()).toBe(false)
+    expect(wrapper.get('[aria-label="联网已开启"]').attributes('aria-pressed')).toBe('true')
+    await wrapper.get('[aria-label="联网已开启"]').trigger('click')
+    expect(wrapper.emitted('toggleWeb')).toHaveLength(1)
+    await wrapper.setProps({ imageLimit: 4 })
+    await wrapper.setProps({ imageLimit: 0 })
+    expect(wrapper.emitted('update:images')).toBeUndefined()
+  })
   it('does not discard or submit a draft while generation is active', async () => {
     const wrapper = mount(ChatComposer, { props: { ...baseProps, busy: true } })
     await wrapper.get('textarea').trigger('keydown', { key: 'Enter' })

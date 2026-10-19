@@ -22,6 +22,7 @@ class JobLifecycle:
         self.transaction = transaction
         self._items: dict[str, Job] = {}
         self._output: dict[str, str] = {}
+        self._text_revisions: dict[str, int] = {}
 
     @property
     def items(self) -> Mapping[str, Job]:
@@ -36,6 +37,17 @@ class JobLifecycle:
     def output_text(self, job_id: str) -> str:
         return self._output.get(job_id, "")
 
+    def text_revision(self, job_id: str) -> int:
+        return self._text_revisions.get(job_id, 0)
+
+    async def set_phase(self, job_id: str, phase: str) -> None:
+        if terminal_state(self.get(job_id).state) or self.cancellation_requested(job_id):
+            return
+        version = self.store.set_phase(job_id, phase)
+        await self.events.publish(
+            "job.phase_changed", {"job_id": job_id, "phase": phase, "projectionVersion": version}
+        )
+
     def prune(self, retained: set[str], limit: int = 200) -> None:
         for job in tuple(self._items.values()):
             if len(self._items) <= limit:
@@ -43,13 +55,12 @@ class JobLifecycle:
             if job.id not in retained and terminal_state(job.state):
                 self._items.pop(job.id)
                 self._output.pop(job.id, None)
+                self._text_revisions.pop(job.id, None)
 
     async def register(
         self, job: Job, request: dict[str, object], persist: Callable[[], None] | None = None
     ) -> None:
         with self.transaction():
-            if persist:
-                persist()
             self.store.save(
                 {
                     "id": job.id,
@@ -59,6 +70,8 @@ class JobLifecycle:
                     "request": request,
                 }
             )
+            if persist:
+                persist()
         self._items[job.id] = job
         await self.events.publish(
             "job.updated",
@@ -86,6 +99,8 @@ class JobLifecycle:
         current = self._items[job_id]
         if terminal_state(current.state):
             return current
+        if current.state is JobState.CANCELLING and event is JobEvent.COMPLETE:
+            event, persist = JobEvent.CANCEL_COMPLETE, None
         updated = transition_job(current, event, error_code)
         with self.transaction():
             if persist:
@@ -112,4 +127,7 @@ class JobLifecycle:
         return await self.finish(job_id, JobEvent.FAIL, error_code)
 
     def append_output(self, job_id: str, text: str) -> None:
+        if self.get(job_id).state is not JobState.RUNNING:
+            return
         self._output[job_id] = self._output.get(job_id, "") + text
+        self._text_revisions[job_id] = self.text_revision(job_id) + 1

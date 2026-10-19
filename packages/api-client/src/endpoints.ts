@@ -5,6 +5,9 @@ import { audioEndpoints } from './audio-endpoints'
 import { decodeSpeech } from './audio-decoders'
 import { decodeCatalog } from './model-catalog'
 import { decodeRuntimeMetrics } from './runtime-metrics'
+import { attachmentEndpoints } from './attachments'
+import { decodeSource, type MessageSource } from './chat-sources'
+import { webSearchEndpoints, type ChatAttempt } from './web-search'
 import type { components } from './generated-schema'
 import { list, record, text, number, nullableText, malformed } from './decoders'
 
@@ -28,11 +31,13 @@ export interface ModelSummary
   managedInstallation: boolean
   artifactIdentity: string | null
   speech?: ModelSchema['speech']
+  inputLimits?: { maxImages: number }
 }
 export interface Attachment {
   id: string
   mimeType: string
   originalName: string
+  preparationId?: string
 }
 export interface Message {
   id: string
@@ -41,6 +46,7 @@ export interface Message {
   turnId: string
   attachments: Attachment[]
   parameters: Record<string, unknown>
+  sources?: MessageSource[]
 }
 export type ConversationPatch = components['schemas']['ConversationPatch']
 export interface Conversation extends Pick<components['schemas']['ConversationView'], 'pinned'> {
@@ -48,10 +54,13 @@ export interface Conversation extends Pick<components['schemas']['ConversationVi
   title: string
   modelId: string | null
   messages: Message[]
+  webSearchEnabled?: boolean
 }
 export interface Submission {
   jobId: string
   state: string
+  userMessageId?: string
+  turnId?: string
 }
 export interface JobSnapshot {
   id: string
@@ -59,6 +68,10 @@ export interface JobSnapshot {
   text: string
   event_sequence: number
   instance_id: string
+  phase?: string
+  projectionVersion?: number
+  textRevision?: number
+  sources?: MessageSource[]
 }
 export type ChatCommand = components['schemas']['ChatMessageRequest']
 const root = '/internal/v1'
@@ -69,6 +82,12 @@ export function decodeModel(value: unknown): ModelSummary {
   const capabilities = record(item.capabilities)
   if (typeof item.managedInstallation !== 'boolean') throw malformed()
   const decodedCapabilities: Record<string, boolean> = {}
+  let inputLimits: ModelSummary['inputLimits']
+  if (item.inputLimits != null) {
+    const maxImages = number(record(item.inputLimits).maxImages)
+    if (!Number.isInteger(maxImages) || maxImages < 0 || maxImages > 4) throw malformed()
+    inputLimits = { maxImages }
+  }
   for (const [key, value] of Object.entries(capabilities)) {
     if (typeof value !== 'boolean') throw malformed()
     decodedCapabilities[key] = value
@@ -87,6 +106,7 @@ export function decodeModel(value: unknown): ModelSummary {
     inputModalities: list(item.inputModalities, text),
     outputModalities: list(item.outputModalities, text),
     capabilities: decodedCapabilities,
+    inputLimits,
     contextLength:
       item.contextLength === null || item.contextLength === undefined
         ? null
@@ -110,30 +130,43 @@ export function decodeMessage(value: unknown): Message {
         id: text(attachment.id),
         mimeType: text(attachment.mimeType),
         originalName: text(attachment.originalName),
+        preparationId:
+          attachment.preparationId == null ? undefined : text(attachment.preparationId),
       }
     }),
+    sources: list(item.sources ?? [], decodeSource),
   }
 }
 export function decodeConversation(value: unknown): Conversation {
   const item = record(value)
   if (item.pinned !== undefined && typeof item.pinned !== 'boolean') throw malformed()
+  if (item.webSearchEnabled !== undefined && typeof item.webSearchEnabled !== 'boolean')
+    throw malformed()
   return {
     pinned: item.pinned === true,
     id: text(item.id),
     title: text(item.title),
     modelId: nullableText(item.modelId),
     messages: item.messages === undefined ? [] : list(item.messages, decodeMessage),
+    webSearchEnabled: item.webSearchEnabled === true,
   }
 }
 export function decodeSubmission(value: unknown): Submission {
   const item = record(value)
-  return { jobId: text(item.jobId), state: text(item.state) }
+  return {
+    jobId: text(item.jobId),
+    state: text(item.state),
+    userMessageId: item.userMessageId == null ? undefined : text(item.userMessageId),
+    turnId: item.turnId == null ? undefined : text(item.turnId),
+  }
 }
 export function createEndpoints(transport: Transport) {
   return {
     images: imageEndpoints(transport),
     audio: audioEndpoints(transport),
     coding: codingEndpoints(transport),
+    attachments: attachmentEndpoints(transport),
+    webSearch: webSearchEndpoints(transport),
     jobs: {
       get: async (id: string): Promise<JobSnapshot> => {
         const item = record(await transport.get(`${root}/jobs/${idPath(id)}`))
@@ -143,6 +176,11 @@ export function createEndpoints(transport: Transport) {
           text: text(item.text),
           event_sequence: number(item.event_sequence),
           instance_id: text(item.instance_id),
+          phase: item.phase == null ? undefined : text(item.phase),
+          projectionVersion:
+            item.projectionVersion == null ? undefined : number(item.projectionVersion),
+          textRevision: item.textRevision == null ? undefined : number(item.textRevision),
+          sources: list(item.sources ?? [], decodeSource),
         }
       },
     },
@@ -161,6 +199,13 @@ export function createEndpoints(transport: Transport) {
       pull: (repo_id: string) => transport.post(`${root}/models/pull`, { repo_id }),
     },
     conversations: {
+      attempt: async (id: string, user: string, body: ChatAttempt) =>
+        decodeSubmission(
+          await transport.post(
+            `${root}/conversations/${idPath(id)}/messages/${idPath(user)}/attempts`,
+            body,
+          ),
+        ),
       list: async (signal?: AbortSignal) =>
         list(await transport.get(`${root}/conversations`, signal), decodeConversation),
       get: async (id: string, signal?: AbortSignal) =>

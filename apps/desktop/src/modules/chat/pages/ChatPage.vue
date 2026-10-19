@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { NButton, NDrawer, NDrawerContent, NSelect, useDialog, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
+import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { RuntimeStatusBanner as RuntimeStatus } from '../../../capabilities/runtime'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import ChatComposer from '../components/ChatComposer.vue'
+import AttachmentPreview from '../components/AttachmentPreview.vue'
+import { getSendEligibility } from '../domain/attachment-policy'
+import { useWebSearch } from '../../../capabilities/web-search'
+import type { MessageSource } from '../domain/message-source'
+import type { ChatMessage } from '../domain/chat-state'
 import ChatInspector from '../components/ChatInspector.vue'
 import ChatMessageList from '../components/ChatMessageList.vue'
 import { useRuntimeStore } from '../../../capabilities/runtime'
@@ -17,8 +22,131 @@ const message = useMessage()
 const dialog = useDialog()
 const router = useRouter()
 const { state, models, selectedModelId, busy, pending, maxTokens, temperature } = storeToRefs(store)
-const draft = ref('')
-const images = ref<File[]>([])
+const drafts =
+  store.drafts ??
+  (() => {
+    throw new Error('Chat drafts are not configured')
+  })()
+const web = useWebSearch()
+const draft = computed({ get: () => drafts.draft.text, set: (value) => drafts.setText(value) })
+const historyImages = computed(() => {
+  if (
+    drafts.draft.visualSelection.mode !== 'auto' ||
+    drafts.draft.attachments.some((item) => item.kind === 'image')
+  )
+    return 0
+  return (
+    [...state.value.messages]
+      .reverse()
+      .find(
+        (item) =>
+          item.role === 'user' &&
+          item.attachments?.some((file) => file.mimeType.startsWith('image/')),
+      )
+      ?.attachments?.filter((file) => file.mimeType.startsWith('image/')).length ?? 0
+  )
+})
+const eligibility = computed(() =>
+  getSendEligibility(
+    drafts.draft,
+    imageLimit.value,
+    busy.value || pending.value,
+    historyImages.value,
+    selectedModel.value?.capabilities.historyImages === true,
+  ),
+)
+watch(
+  () =>
+    drafts.draft.attachments
+      .map((item) => `${item.attachmentId}:${item.preparationId}:${item.processing}`)
+      .join(','),
+  () => {
+    void drafts.loadThumbnails()
+  },
+  { immediate: true },
+)
+watch(
+  () => drafts.draft.key,
+  () => drafts.preview.close(),
+)
+async function toggleWeb(): Promise<void> {
+  if (busy.value || pending.value) return
+  try {
+    if (!drafts.draft.webSearchEnabled) {
+      await web.load()
+      if (!web.settings?.ready) {
+        message.info('请在设置中保存联网搜索配置并测试连接')
+        await router.push('/settings')
+        return
+      }
+      message.info('搜索关键词会发送给所配置的搜索服务，附件在本地解析。')
+    }
+    await drafts.setWeb(!drafts.draft.webSearchEnabled)
+  } catch (cause) {
+    message.error(cause instanceof Error ? cause.message : '联网设置更新失败')
+  }
+}
+async function openSource(source: MessageSource): Promise<void> {
+  if (source.kind === 'file')
+    await drafts.preview.open(
+      {
+        id: source.attachmentId,
+        preparationId: source.preparationId,
+        kind: source.representation === 'image' ? 'image' : 'document',
+        originalName: source.originalName,
+      },
+      'history',
+    )
+}
+async function openAttachment(
+  file: NonNullable<ChatMessage['attachments']>[number],
+): Promise<void> {
+  if (!file.preparationId && !file.mimeType.startsWith('image/')) return
+  await drafts.preview.open(
+    {
+      id: file.id,
+      preparationId: file.preparationId ?? '',
+      kind: file.mimeType.startsWith('image/') ? 'image' : 'document',
+      originalName: file.originalName,
+    },
+    'history',
+  )
+}
+async function retryAnswer(
+  mode: 'refresh_web' | 'local_only',
+  assistant?: ChatMessage,
+): Promise<void> {
+  const user = [...state.value.messages]
+    .reverse()
+    .find(
+      (item) => item.role === 'user' && (!assistant?.turnId || item.turnId === assistant.turnId),
+    )
+  if (!user) return
+  try {
+    await store.attempt(
+      user.id,
+      assistant ? 'reuse_context' : mode,
+      typeof assistant?.parameters?.contextJobId === 'string'
+        ? assistant.parameters.contextJobId
+        : undefined,
+    )
+  } catch (cause) {
+    message.error(cause instanceof Error ? cause.message : '重试失败')
+  }
+}
+const phaseText = computed(
+  () =>
+    ({
+      accepted: '已提交',
+      preparing_context: '正在准备资料',
+      searching: '正在搜索网页',
+      reading_sources: '正在读取来源',
+      waiting_model: '等待模型可用',
+      loading_model: '正在加载模型',
+      generating: '正在生成回答',
+    })[store.phase] ?? '正在处理',
+)
+
 const showInspector = ref(false)
 const clearing = ref(false)
 const options = computed(() =>
@@ -27,12 +155,14 @@ const options = computed(() =>
 const selectedModel = computed(() =>
   models.value.find((model) => model.id === selectedModelId.value),
 )
-const imageLimit = computed(() =>
-  selectedModel.value?.inputModalities.includes('image')
-    ? selectedModel.value.multiImage
-      ? 4
-      : 1
-    : 0,
+const imageLimit = computed(
+  () =>
+    selectedModel.value?.inputLimits?.maxImages ??
+    (selectedModel.value?.inputModalities.includes('image')
+      ? selectedModel.value.multiImage
+        ? 4
+        : 1
+      : 0),
 )
 onMounted(() => {
   void store.loadWorkspace()
@@ -40,12 +170,9 @@ onMounted(() => {
 onBeforeUnmount(() => store.dispose())
 
 async function send(): Promise<void> {
-  if (pending.value || busy.value) return
+  if (!eligibility.value.allowed) return
   try {
-    if (await store.send(draft.value, images.value)) {
-      draft.value = ''
-      images.value = []
-    }
+    await store.send(draft.value)
   } catch (error) {
     message.error(error instanceof Error ? error.message : '发送失败')
   }
@@ -118,13 +245,34 @@ function exportChat(): void {
         @prompt="draft = $event"
         @image="router.push({ path: '/image-studio', query: { prompt: $event } })"
         @continue="continueReply"
+        @preview="openSource"
+        @attachment="openAttachment"
+        @regenerate="retryAnswer('local_only', $event)"
       />
+      <p v-if="busy" role="status">{{ phaseText }}</p>
+      <div v-if="state.status === 'error' && state.messages.some((item) => item.role === 'user')">
+        <NButton :disabled="busy || pending" @click="retryAnswer('refresh_web')">重试联网</NButton>
+        <NButton :disabled="busy || pending" @click="retryAnswer('local_only')"
+          >使用本地资料回答</NButton
+        >
+      </div>
       <ChatComposer
         v-model:draft="draft"
-        v-model:images="images"
+        :attachments="drafts.draft.attachments"
+        :web-enabled="drafts.draft.webSearchEnabled"
+        :disabled-reason="eligibility.reason"
+        :history-image-count="historyImages"
+        :history-verified="selectedModel?.capabilities.historyImages === true"
+        :thumbnails="drafts.thumbnailUrls"
         :busy="busy || pending"
         :generating="busy"
         :image-limit="imageLimit"
+        @add="drafts.add"
+        @remove="drafts.remove"
+        @retry="drafts.retry"
+        @preview="drafts.open"
+        @toggle-web="toggleWeb"
+        @clear-visuals="drafts.ignoreVisuals"
         @submit="send"
         @cancel="cancel"
       >
@@ -146,6 +294,8 @@ function exportChat(): void {
         </template>
       </ChatComposer>
     </section>
+    <p v-if="drafts.error" role="alert">{{ drafts.error }}</p>
+    <AttachmentPreview :preview="drafts.preview" />
     <NDrawer v-model:show="showInspector" :width="360" placement="right">
       <NDrawerContent title="模型与会话" closable>
         <ChatInspector

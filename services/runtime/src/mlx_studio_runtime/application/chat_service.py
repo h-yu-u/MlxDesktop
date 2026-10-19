@@ -1,15 +1,11 @@
-"""Chat submissions and result persistence; no transport or Worker construction."""
+"""A ChatJob owns one answer attempt and its immutable evidence snapshot."""
 
-import hashlib
-import json
 import uuid
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator
 from typing import Any
 
-from mlx_studio_runtime.application.chat_support import (
-    conversation_context,
-    validate_attachments,
-)
+from mlx_studio_runtime.application.chat_admission import ChatAdmission
+from mlx_studio_runtime.application.chat_preparation import ChatPreparation
 from mlx_studio_runtime.application.ports import (
     ConversationRepository,
     JobAdmission,
@@ -25,20 +21,21 @@ class ChatService:
     def __init__(
         self,
         conversations: ConversationRepository,
-        attachment_paths: Callable[[list[str]], list[str]],
+        preparation: ChatPreparation,
         models: dict[str, ModelManifest],
         scheduler: JobAdmission,
         runtime: TextInference,
         journal: SubmissionJournal,
     ) -> None:
         self.conversations = conversations
-        self.attachment_paths = attachment_paths
+        self.preparation = preparation
         self.models = models
         self.scheduler = scheduler
         self.runtime = runtime
         self.job_lifecycle = scheduler.lifecycle
         self.events = runtime.events
         self.journal = journal
+        self.admission = ChatAdmission(conversations, models, scheduler, journal, preparation)
 
     async def create_conversation(self, title: str, model_id: str | None) -> dict[str, Any]:
         item: dict[str, Any] = {
@@ -58,140 +55,114 @@ class ChatService:
         max_tokens: int,
         temperature: float,
         attachment_ids: list[str] | None = None,
+        client_request_id: str | None = None,
+        web_search: dict[str, Any] | None = None,
+        visual_selection: dict[str, Any] | None = None,
+        operation: str = "send",
+        target_user: str | None = None,
+        source_context_job_id: str | None = None,
         persist_user_message: bool = True,
         turn_id: str | None = None,
         replace_assistant_message_id: str | None = None,
-        client_request_id: str | None = None,
-    ) -> dict[str, str]:
-        digest = hashlib.sha256(
-            json.dumps(
-                {
-                    "content": content,
-                    "model": model_id,
-                    "maxTokens": max_tokens,
-                    "temperature": temperature,
-                    "attachments": attachment_ids or [],
-                },
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
-        if client_request_id:
-            previous = self.journal.find(conversation_id, client_request_id)
-            if previous:
-                if previous[0] != digest:
-                    raise RuntimeFault(
-                        RuntimeErrorInfo("IDEMPOTENCY_CONFLICT", "请求编号已用于不同输入")
-                    )
-                return {"jobId": previous[1], "state": "accepted"}
-        self.scheduler.check_admission(model_id)
-        conversation = self.conversations.get(conversation_id)
-        if conversation is None:
-            raise RuntimeFault(RuntimeErrorInfo("CONVERSATION_NOT_FOUND", "找不到此会话"))
-        selected_model = self.models.get(model_id)
-        if selected_model is None:
-            raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "找不到此模型"))
-        if "text" not in selected_model.output_modalities:
-            raise RuntimeFault(
-                RuntimeErrorInfo("MODEL_CAPABILITY_INVALID", "请选择文本或多模态对话模型")
+    ) -> dict[str, Any]:
+        if not persist_user_message and target_user is None:
+            conversation = self.conversations.get(conversation_id) or {"messages": []}
+            user = next(
+                (
+                    item
+                    for item in conversation["messages"]
+                    if item["role"] == "user" and (item.get("turnId") or item["id"]) == turn_id
+                ),
+                None,
             )
-        attachment_ids = attachment_ids or []
-        validate_attachments(selected_model, attachment_ids)
-        image_paths = self.attachment_paths(attachment_ids)
-        turn_id = turn_id or str(uuid.uuid4())
-        job = Job(str(uuid.uuid4()), "chat", JobState.QUEUED, model_id)
-
-        def persist_submission() -> None:
-            if persist_user_message:
-                self.conversations.save_message(
-                    {
-                        "id": turn_id,
-                        "turnId": turn_id,
-                        "conversationId": conversation_id,
-                        "role": "user",
-                        "content": content,
-                        "parameters": {"maxTokens": max_tokens, "temperature": temperature},
-                        "attachmentIds": attachment_ids,
-                    }
-                )
-            if client_request_id:
-                self.journal.save(conversation_id, client_request_id, digest, job.id)
-
-        await self.job_lifecycle.register(
+            if user is None:
+                raise RuntimeFault(RuntimeErrorInfo("MESSAGE_NOT_FOUND", "找不到原用户消息"))
+            operation, target_user = "local_only", user["id"]
+        options = web_search if web_search and web_search.get("enabled") else {"enabled": False}
+        intent = {
+            "content": content,
+            "model_id": model_id,
+            "max_tokens": max_tokens,
+            "temperature": temperature,
+            "attachment_ids": attachment_ids or [],
+            "web_search": options,
+            "visual_selection": visual_selection,
+            "operation": operation,
+            "target_user": target_user,
+            "source_context_job_id": source_context_job_id,
+        }
+        job, request = await self.admission.admit(conversation_id, intent, client_request_id)
+        if job is None:
+            return request
+        self.scheduler.schedule_prepared(
             job,
-            {
-                "conversationId": conversation_id,
-                "maxTokens": max_tokens,
-                "temperature": temperature,
-                "attachmentIds": attachment_ids,
-                "turnId": turn_id,
-                "replaceAssistantMessageId": replace_assistant_message_id,
-            },
-            persist=persist_submission,
+            lambda: self._prepare(job, request),
+            lambda snapshot: self._execute(job, request, snapshot),
+            lambda result, snapshot: self._finalize(job, request, result, snapshot),
         )
-        self.scheduler.schedule(
-            job,
-            lambda: self._run_chat_job_serial(
-                job,
-                conversation_id,
-                content,
-                max_tokens,
-                temperature,
-                image_paths,
-                conversation_context(self.conversations, conversation_id, turn_id),
-                turn_id,
-                replace_assistant_message_id,
+        return self.admission.response(job.id)
+
+    async def _prepare(self, job: Job, request: dict[str, Any]) -> dict[str, Any]:
+        snapshot = await self.preparation.prepare(job.id, request, self.models[job.model_id or ""])
+        await self.events.publish(
+            "chat.sources_ready", {"job_id": job.id, "sources": snapshot["sources"]}
+        )
+        return snapshot
+
+    async def _execute(
+        self, job: Job, request: dict[str, Any], snapshot: dict[str, Any]
+    ) -> tuple[str, dict[str, Any]] | None:
+        return await self._collect_reply(
+            job.id,
+            self.runtime.generate(
+                job.id,
+                snapshot["prompt"],
+                request["maxTokens"],
+                request["temperature"],
+                self.preparation.image_paths(snapshot),
+                snapshot["messages"],
             ),
         )
-        return {"jobId": job.id, "state": job.state.value}
 
-    async def _run_chat_job_serial(
+    async def _finalize(
         self,
-        initial_job: Job,
-        conversation_id: str,
-        content: str,
-        max_tokens: int,
-        temperature: float,
-        image_paths: list[str],
-        messages: list[dict[str, str]],
-        turn_id: str,
-        replace_assistant_message_id: str | None,
+        job: Job,
+        request: dict[str, Any],
+        result: tuple[str, dict[str, Any]] | None,
+        snapshot: dict[str, Any],
     ) -> None:
-        job_id = initial_job.id
-        if self.job_lifecycle.cancellation_requested(job_id):
-            await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
-            return
-        await self.job_lifecycle.transition(job_id, JobEvent.START)
-        result = await self._collect_reply(
-            job_id,
-            self.runtime.generate(job_id, content, max_tokens, temperature, image_paths, messages),
-        )
         if result is None:
             return
         output, completion = result
 
-        def persist_result() -> None:
+        def persist() -> None:
             self.conversations.save_message(
                 {
                     "id": str(uuid.uuid4()),
-                    "turnId": turn_id,
-                    "conversationId": conversation_id,
+                    "turnId": request["turnId"],
+                    "conversationId": request["conversationId"],
                     "role": "assistant",
                     "content": output,
-                    "modelSnapshot": self.models[initial_job.model_id or ""].to_dict(),
+                    "modelSnapshot": self.models[job.model_id or ""].to_dict(),
                     "parameters": {
-                        "maxTokens": max_tokens,
-                        "temperature": temperature,
+                        "maxTokens": request["maxTokens"],
+                        "temperature": request["temperature"],
                         "finishReason": completion.get("finish_reason", "stop"),
                         "generationTokens": completion.get("generation_tokens"),
+                        "jobId": job.id,
+                        "contextJobId": job.id,
+                        "attemptMode": request["operation"],
+                        "retrieval": snapshot.get("retrieval", {}),
+                        "sources": snapshot["sources"],
                     },
                 },
-                replace_message_id=replace_assistant_message_id,
+                replace_message_id=request.get("replaceAssistantMessageId"),
             )
 
         await self.job_lifecycle.finish(
-            job_id,
+            job.id,
             JobEvent.COMPLETE,
-            persist=persist_result,
+            persist=persist,
             finish_reason=str(completion.get("finish_reason", "stop")),
         )
 
@@ -200,21 +171,32 @@ class ChatService:
     ) -> tuple[str, dict[str, Any]] | None:
         output: list[str] = []
         completion: dict[str, Any] | None = None
+        revision = 0
         async for event in events:
-            event_type, payload = event["type"], event["payload"]
-            if event_type == "generation.delta":
+            kind, payload = event["type"], event["payload"]
+            if kind == "generation.delta":
+                if self.job_lifecycle.get(job_id).state is not JobState.RUNNING:
+                    continue
                 delta = str(payload.get("text", ""))
                 output.append(delta)
                 self.job_lifecycle.append_output(job_id, delta)
-                await self.events.publish(event_type, {"job_id": job_id, "text": delta})
-            elif event_type == "generation.completed":
+                revision += 1
+                await self.events.publish(
+                    kind, {"job_id": job_id, "text": delta, "textRevision": revision}
+                )
+            elif kind == "generation.completed":
                 completion = payload
-            elif event_type == "generation.cancelled":
+            elif kind == "generation.cancelled":
+                if not self.job_lifecycle.cancellation_requested(job_id):
+                    await self.job_lifecycle.transition(job_id, JobEvent.CANCEL_REQUESTED)
                 await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
                 return None
-            elif event_type == "generation.failed":
-                code = str(payload.get("error_code", "INFERENCE_FAILED"))
-                raise RuntimeFault(RuntimeErrorInfo(code, "模型推理失败", True))
+            elif kind == "generation.failed":
+                raise RuntimeFault(
+                    RuntimeErrorInfo(
+                        str(payload.get("error_code", "INFERENCE_FAILED")), "模型推理失败", True
+                    )
+                )
         if self.job_lifecycle.cancellation_requested(job_id):
             await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
             return None
@@ -224,32 +206,36 @@ class ChatService:
 
     async def regenerate(
         self, conversation_id: str, model_id: str, max_tokens: int | None = None
-    ) -> dict[str, str]:
+    ) -> dict[str, Any]:
         conversation = self.conversations.get(conversation_id)
         if conversation is None:
             raise RuntimeFault(RuntimeErrorInfo("CONVERSATION_NOT_FOUND", "找不到此会话"))
-        messages = conversation.get("messages", [])
-        user = next((item for item in reversed(messages) if item["role"] == "user"), None)
+        user = next(
+            (item for item in reversed(conversation["messages"]) if item["role"] == "user"), None
+        )
         if user is None:
             raise RuntimeFault(RuntimeErrorInfo("MESSAGE_NOT_FOUND", "没有可重新生成的用户消息"))
-        turn_id = str(user.get("turnId") or user["id"])
+        params = user.get("parameters", {})
         assistant = next(
             (
                 item
-                for item in reversed(messages)
-                if item["role"] == "assistant" and item.get("turnId") == turn_id
+                for item in reversed(conversation["messages"])
+                if item["role"] == "assistant" and item.get("turnId") == user.get("turnId")
             ),
             None,
         )
-        parameters = user.get("parameters", {})
+        source_job = assistant.get("parameters", {}).get("contextJobId") if assistant else None
         return await self.send_message(
             conversation_id,
-            str(user["content"]),
+            user["content"],
             model_id,
-            max_tokens if max_tokens is not None else int(parameters.get("maxTokens", 4096)),
-            float(parameters.get("temperature", 0.7)),
-            [str(item["id"]) for item in user.get("attachments", [])],
-            persist_user_message=False,
-            turn_id=turn_id,
-            replace_assistant_message_id=str(assistant["id"]) if assistant else None,
+            max_tokens if max_tokens is not None else int(params.get("maxTokens", 4096)),
+            float(params.get("temperature", 0.7)),
+            [item["id"] for item in user.get("attachments", [])],
+            client_request_id=str(uuid.uuid4()),
+            operation="reuse_context" if source_job else "local_only",
+            target_user=user["id"],
+            source_context_job_id=source_job,
+            turn_id=str(user.get("turnId") or user["id"]),
+            replace_assistant_message_id=assistant["id"] if assistant else None,
         )

@@ -4,6 +4,9 @@ import json
 import time
 from typing import Any
 
+from mlx_studio_runtime.adapters.persistence.attachment_reference_repository import (
+    AttachmentReferences,
+)
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
 
 
@@ -27,13 +30,37 @@ class JobRepository:
                     now,
                 ),
             )
+            if item["kind"] == "image":
+                request = item.get("request", {})
+                refs = AttachmentReferences(self.database)
+                refs.job(
+                    item["id"],
+                    "image_reference",
+                    [{"id": value} for value in request.get("reference_ids", [])],
+                )
+                if request.get("mask_id"):
+                    refs.job(item["id"], "image_mask", [{"id": request["mask_id"]}])
 
     def update(self, job_id: str, state: str, error_code: str | None = None) -> None:
         with self.database.transaction() as connection:
             connection.execute(
-                "UPDATE jobs SET state=?,error_code=?,updated_at=? WHERE id=?",
+                "UPDATE jobs SET "
+                "state=?,error_code=?,updated_at=?,projection_version=projection_version+1 "
+                "WHERE id=?",
                 (state, error_code, int(time.time()), job_id),
             )
+
+    def set_phase(self, job_id: str, phase: str) -> int:
+        with self.database.transaction() as connection:
+            connection.execute(
+                "UPDATE jobs SET phase=?,projection_version=projection_version+1,updated_at=? "
+                "WHERE id=? AND state IN ('queued','preparing','running')",
+                (phase, int(time.time()), job_id),
+            )
+            row = connection.execute(
+                "SELECT projection_version FROM jobs WHERE id=?", (job_id,)
+            ).fetchone()
+            return int(row[0]) if row else 0
 
     def recover_interrupted(self, error_code: str) -> int:
         with self.database.transaction() as connection:
@@ -64,11 +91,17 @@ class JobRepository:
 
     def get(self, job_id: str) -> dict[str, Any] | None:
         row = self.database.connection.execute(
-            "SELECT id,kind,state,model_id,error_code,request_json FROM jobs WHERE id=?",
+            "SELECT id,kind,state,model_id,error_code,request_json,phase,projection_version "
+            "FROM jobs WHERE id=?",
             (job_id,),
         ).fetchone()
         if row is None:
             return None
+        message = self.database.connection.execute(
+            "SELECT content FROM messages WHERE role='assistant' AND json_valid(parameters_json) "
+            "AND json_extract(parameters_json,'$.jobId')=? ORDER BY rowid DESC LIMIT 1",
+            (job_id,),
+        ).fetchone()
         return {
             "id": row[0],
             "kind": row[1],
@@ -76,4 +109,7 @@ class JobRepository:
             "modelId": row[3],
             "errorCode": row[4],
             "request": json.loads(row[5]),
+            "phase": row[6],
+            "projectionVersion": row[7],
+            "resultText": message[0] if message else "",
         }

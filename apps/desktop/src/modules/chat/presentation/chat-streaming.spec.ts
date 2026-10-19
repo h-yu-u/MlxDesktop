@@ -45,9 +45,64 @@ function setup() {
   })
   controller.conversationId.value = 'conversation'
   controller.selectedModelId.value = 'model'
-  return { controller, release, receive: (event: RuntimeEvent) => receive(event) }
+  return { controller, gateway, release, receive: (event: RuntimeEvent) => receive(event) }
 }
 afterEach(() => vi.useRealTimers())
+it('ignores duplicate deltas and replaces text from a snapshot when a revision is skipped', async () => {
+  const { controller, gateway, receive } = setup()
+  gateway.job.mockResolvedValue({
+    id: 'job',
+    state: 'running',
+    text: 'ABC',
+    textRevision: 3,
+    projectionVersion: 5,
+    phase: 'generating',
+    sources: [],
+    event_sequence: 9,
+    instance_id: 'runtime',
+  })
+  await controller.send('hello')
+  receive({
+    type: 'generation.delta',
+    seq: 1,
+    payload: { job_id: 'job', text: 'A', textRevision: 1 },
+  })
+  receive({
+    type: 'generation.delta',
+    seq: 2,
+    payload: { job_id: 'job', text: 'A', textRevision: 1 },
+  })
+  expect(controller.state.value.messages.at(-1)?.content).toBe('A')
+  receive({
+    type: 'generation.delta',
+    seq: 3,
+    payload: { job_id: 'job', text: 'C', textRevision: 3 },
+  })
+  await vi.waitFor(() => expect(controller.state.value.messages.at(-1)?.content).toBe('ABC'))
+  receive({
+    type: 'generation.delta',
+    seq: 4,
+    payload: { job_id: 'job', text: 'D', textRevision: 4 },
+  })
+  await vi.waitFor(() => expect(controller.state.value.messages.at(-1)?.content).toBe('ABCD'))
+  controller.dispose()
+})
+it('does not regress phase when a late older projection event arrives', async () => {
+  const { controller, receive } = setup()
+  await controller.send('hello')
+  receive({
+    type: 'job.phase_changed',
+    seq: 1,
+    payload: { job_id: 'job', phase: 'generating', projectionVersion: 5 },
+  })
+  receive({
+    type: 'job.phase_changed',
+    seq: 2,
+    payload: { job_id: 'job', phase: 'loading_model', projectionVersion: 4 },
+  })
+  expect(controller.phase.value).toBe('generating')
+  controller.dispose()
+})
 it('flushes pending text before cancellation and stops late output', async () => {
   vi.useFakeTimers()
   const { controller, receive, release } = setup()

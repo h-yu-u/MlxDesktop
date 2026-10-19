@@ -29,7 +29,11 @@ TEXT = (
 
 def audio_metrics(content: bytes) -> dict[str, object]:
     with wave.open(io.BytesIO(content)) as stream:
-        rate, channels, width = stream.getframerate(), stream.getnchannels(), stream.getsampwidth()
+        rate, channels, width = (
+            stream.getframerate(),
+            stream.getnchannels(),
+            stream.getsampwidth(),
+        )
         frames = stream.getnframes()
         raw = stream.readframes(frames)
     if rate != 24000 or channels != 1 or width != 2 or len(raw) != frames * 2:
@@ -78,36 +82,100 @@ async def run(args: argparse.Namespace) -> None:
             process, client = await start_runtime(directory, args.sidecar)
             try:
                 async with client:
-                    preset = await response(client, "POST", "/models/import", json={"path": args.preset_model})
-                    clone = await response(client, "POST", "/models/import", json={"path": args.clone_model})
-                    operation = next(op for op in preset["speech"]["operations"] if op["mode"] == "preset")
-                    parameters = {"modelId": preset["id"], "mode": "preset", "language": "zh", "speaker": operation["presetSpeakers"][0]}
-                    reference = await generate(client, {**parameters, "text": REFERENCE})
-                    reference_bytes, reference_meta = await wav(client, reference["artifact_id"], args.output / "reference.wav")
-                    report["reference"] = {**reference_meta, **audio_metrics(reference_bytes)}
-                    asset = await response(client, "POST", "/audio-assets?filename=generated-reference.wav", content=reference_bytes)
-                    voice = await response(client, "POST", "/voices", json={"name": "长文本验收合成音色", "reference_asset_id": asset["id"], "reference_text": REFERENCE, "language": "zh", "source": "generated", "consent": True})
+                    preset = await response(
+                        client,
+                        "POST",
+                        "/models/import",
+                        json={"path": args.preset_model},
+                    )
+                    clone = await response(
+                        client,
+                        "POST",
+                        "/models/import",
+                        json={"path": args.clone_model},
+                    )
+                    operation = next(
+                        op
+                        for op in preset["speech"]["operations"]
+                        if op["mode"] == "preset"
+                    )
+                    parameters = {
+                        "modelId": preset["id"],
+                        "mode": "preset",
+                        "language": "zh",
+                        "speaker": operation["presetSpeakers"][0],
+                    }
+                    reference = await generate(
+                        client, {**parameters, "text": REFERENCE}
+                    )
+                    reference_bytes, reference_meta = await wav(
+                        client, reference["artifact_id"], args.output / "reference.wav"
+                    )
+                    report["reference"] = {
+                        **reference_meta,
+                        **audio_metrics(reference_bytes),
+                    }
+                    asset = await response(
+                        client,
+                        "POST",
+                        "/audio-assets?filename=generated-reference.wav",
+                        content=reference_bytes,
+                    )
+                    voice = await response(
+                        client,
+                        "POST",
+                        "/voices",
+                        json={
+                            "name": "长文本验收合成音色",
+                            "reference_asset_id": asset["id"],
+                            "reference_text": REFERENCE,
+                            "language": "zh",
+                            "source": "generated",
+                            "consent": True,
+                        },
+                    )
                     samples = {}
-                    for name, parameters in [
+                    for name, sample_parameters in [
                         ("preset-long", parameters),
-                        ("clone-long", {"modelId": clone["id"], "mode": "clone", "voiceId": voice["id"], "language": "zh"}),
+                        (
+                            "clone-long",
+                            {
+                                "modelId": clone["id"],
+                                "mode": "clone",
+                                "voiceId": voice["id"],
+                                "language": "zh",
+                            },
+                        ),
                     ]:
                         print("Generating " + name, flush=True)
-                        job = await generate(client, {**parameters, "text": TEXT})
-                        content, metadata = await wav(client, job["artifact_id"], args.output / (name + ".wav"))
+                        job = await generate(
+                            client, {**sample_parameters, "text": TEXT}
+                        )
+                        content, metadata = await wav(
+                            client, job["artifact_id"], args.output / (name + ".wav")
+                        )
                         metrics = audio_metrics(content)
                         if float(metrics["duration_seconds"]) < len(TEXT) * 0.08:
                             raise RuntimeError("Long-form audio is suspiciously short")
                         samples[name] = {**metadata, **metrics}
                     report["samples"] = samples
                     await response(client, "POST", f"/models/{clone['id']}/unload")
-                    report["worker_released"] = (await response(client, "GET", "/runtime/metrics"))["worker_memory_bytes"] == 0
+                    report["worker_released"] = (
+                        await response(client, "GET", "/runtime/metrics")
+                    )["worker_memory_bytes"] == 0
                     report["subjective_review"] = {
                         "status": "requires_human_listening",
-                        "items": ["intelligibility/text completeness", "punctuation prosody", "voice consistency", "reference speaker similarity"],
+                        "items": [
+                            "intelligibility/text completeness",
+                            "punctuation prosody",
+                            "voice consistency",
+                            "reference speaker similarity",
+                        ],
                         "reason": "WAV and energy checks do not establish pronunciation, naturalness or identity similarity.",
                     }
-                    report["status"] = "objective_checks_passed_subjective_review_pending"
+                    report["status"] = (
+                        "objective_checks_passed_subjective_review_pending"
+                    )
             finally:
                 await client.aclose()
                 await stop_runtime(process)
@@ -115,7 +183,9 @@ async def run(args: argparse.Namespace) -> None:
         report.update(status="failed", error=str(error))
         raise
     finally:
-        (args.output / "report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2))
+        (args.output / "report.json").write_text(
+            json.dumps(report, ensure_ascii=False, indent=2)
+        )
 
 
 if __name__ == "__main__":

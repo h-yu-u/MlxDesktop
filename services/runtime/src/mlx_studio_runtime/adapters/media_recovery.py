@@ -2,10 +2,12 @@
 
 import uuid
 
+from mlx_studio_runtime.adapters.attachment_gc import AttachmentGC, recover_derivatives
 from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDatabase
 
 
 def recover_media(store: SQLiteDatabase) -> int:
+    AttachmentGC(store).recover()
     known = {
         str(row[0]) for row in store.connection.execute("SELECT relative_path FROM attachments")
     }
@@ -17,7 +19,7 @@ def recover_media(store: SQLiteDatabase) -> int:
             str(row[0])
             for row in store.connection.execute("SELECT relative_path FROM audio_assets")
         )
-    recovered = 0
+    recovered = recover_derivatives(store)
     for subdirectory in [
         "attachments",
         "images",

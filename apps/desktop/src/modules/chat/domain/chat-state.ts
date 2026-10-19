@@ -1,10 +1,20 @@
+import type { MessageSource } from './message-source'
+
 export interface ChatMessage {
   id: string
   role: 'user' | 'assistant'
   content: string
   state?: 'streaming' | 'complete' | 'error' | 'cancelled'
   finishReason?: 'length'
-  attachments?: Array<{ id: string; originalName: string; mimeType: string }>
+  attachments?: Array<{
+    id: string
+    originalName: string
+    mimeType: string
+    preparationId?: string
+  }>
+  sources?: MessageSource[]
+  parameters?: Record<string, unknown>
+  turnId?: string
 }
 
 export interface ChatState {

@@ -128,7 +128,6 @@ def scripted_reply(payload: dict[str, Any]) -> str:
 
 def generate_structured(session: Any, payload: dict[str, Any]) -> None:
     job_id = str(payload["job_id"])
-    session.cancel.clear()
     session.finish_reason = "stop"
     session.generation_tokens = 0
     session.emit("generation.started", {"job_id": job_id})

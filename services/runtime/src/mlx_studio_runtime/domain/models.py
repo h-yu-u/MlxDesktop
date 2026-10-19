@@ -24,6 +24,7 @@ class ModelCapabilities:
     tools: bool = False
     structured_output: bool = False
     multi_image: bool = False
+    history_images: bool = False
     image_editing: bool = False
     inpainting: bool = False
     lora: bool = False
@@ -74,9 +75,15 @@ class ModelManifest:
                 "tools": self.capabilities.tools,
                 "structuredOutput": self.capabilities.structured_output,
                 "multiImage": self.capabilities.multi_image,
+                "historyImages": self.capabilities.history_images,
                 "imageEditing": self.capabilities.image_editing,
                 "inpainting": self.capabilities.inpainting,
                 "lora": self.capabilities.lora,
+            },
+            "inputLimits": {
+                "maxImages": (4 if self.capabilities.multi_image else 1)
+                if self.engine == "mlx-vlm" and "image" in self.input_modalities
+                else 0
             },
         }
 
@@ -244,6 +251,7 @@ def manifest_from_dict(value: dict[str, object]) -> ModelManifest:
             tools=capabilities.get("tools") is True,
             structured_output=capabilities.get("structuredOutput") is True,
             multi_image=capabilities.get("multiImage") is True,
+            history_images=capabilities.get("historyImages") is True,
             image_editing=capabilities.get("imageEditing") is True,
             inpainting=capabilities.get("inpainting") is True,
             lora=capabilities.get("lora") is True,

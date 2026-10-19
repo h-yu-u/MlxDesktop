@@ -1,0 +1,53 @@
+import unittest
+
+from mlx_studio_runtime.domain.attachments import (
+    MAX_TOTAL_BYTES,
+    validate_attachment_set,
+)
+from mlx_studio_runtime.domain.chat_context import build_context, select_blocks
+from mlx_studio_runtime.domain.errors import RuntimeFault
+
+
+class ChatContextTests(unittest.TestCase):
+    def test_long_summary_cannot_silently_become_top_k(self):
+        blocks = [{"id": str(index), "text": "long " * 100} for index in range(10)]
+        with self.assertRaises(RuntimeFault) as error:
+            select_blocks(blocks, "请总结全文", 600)
+        self.assertEqual(error.exception.info.code, "CONTEXT_BUDGET_EXCEEDED")
+
+    def test_chinese_lexical_selection_reports_partial_coverage(self):
+        blocks = [
+            {"id": "a", "text": "经济增长" * 100},
+            {"id": "b", "text": "人工智能" * 100},
+        ]
+        selected = select_blocks(blocks, "人工智能情况如何", 1500)
+        self.assertEqual([block["id"] for block in selected], ["b"])
+        snapshot = build_context(
+            "人工智能情况如何",
+            [],
+            [
+                {
+                    "id": "doc",
+                    "preparationId": "prep",
+                    "originalName": "report",
+                    "coverage": {"complete": True},
+                    "blocks": blocks,
+                }
+            ],
+            [],
+            4096,
+            1000,
+            0,
+        )
+        self.assertFalse(snapshot["sources"][0]["coverage"]["complete"])
+        self.assertEqual(snapshot["sources"][0]["locations"][0]["blockId"], "b")
+
+    def test_total_limits_are_independent_of_image_count_and_duplicates(self):
+        validate_attachment_set([{"id": str(i), "sizeBytes": 1} for i in range(8)])
+        for items in [
+            [{"id": str(i), "sizeBytes": 1} for i in range(9)],
+            [{"id": "a", "sizeBytes": MAX_TOTAL_BYTES + 1}],
+            [{"id": "same", "sizeBytes": 1}] * 2,
+        ]:
+            with self.assertRaises(RuntimeFault):
+                validate_attachment_set(items)

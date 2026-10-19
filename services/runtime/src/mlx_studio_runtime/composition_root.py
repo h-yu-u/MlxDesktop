@@ -4,7 +4,9 @@ import time
 from pathlib import Path
 
 from mlx_studio_runtime.adapters.agent_host import AgentHost
+from mlx_studio_runtime.adapters.attachment_derivatives import AttachmentDerivatives
 from mlx_studio_runtime.adapters.attachment_files import AttachmentFiles
+from mlx_studio_runtime.adapters.attachment_preparation_executor import PreparationExecutor
 from mlx_studio_runtime.adapters.audio_files import AudioFiles
 from mlx_studio_runtime.adapters.coding_model_identity import coding_model_identity
 from mlx_studio_runtime.adapters.diagnostics import HostDiagnostics
@@ -14,10 +16,22 @@ from mlx_studio_runtime.adapters.managed_models import ManagedModelFiles
 from mlx_studio_runtime.adapters.media_recovery import recover_media
 from mlx_studio_runtime.adapters.model_download import download_model
 from mlx_studio_runtime.adapters.model_scan import manifest_from_directory
+from mlx_studio_runtime.adapters.persistence.attachment_preparation_repository import (
+    PreparationRepository,
+)
+from mlx_studio_runtime.adapters.persistence.attachment_reference_repository import (
+    AttachmentReferences,
+)
+from mlx_studio_runtime.adapters.persistence.chat_context_repository import ChatContextRepository
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.adapters.persistence.submission_journal import SubmissionJournal
+from mlx_studio_runtime.adapters.persistence.web_config_repository import WebConfigRepository
+from mlx_studio_runtime.adapters.secret_store import KeychainSecrets
+from mlx_studio_runtime.adapters.web.tavily import Tavily
+from mlx_studio_runtime.adapters.web.url_policy import PublicResultPolicy
 from mlx_studio_runtime.adapters.worker_host import WorkerHost
 from mlx_studio_runtime.application.attachments import Attachments
+from mlx_studio_runtime.application.chat_preparation import ChatPreparation
 from mlx_studio_runtime.application.chat_service import ChatService
 from mlx_studio_runtime.application.coding_gateway import CodingGateway
 from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
@@ -34,6 +48,8 @@ from mlx_studio_runtime.application.runtime_control import RuntimeControl
 from mlx_studio_runtime.application.runtime_overview import RuntimeOverview, RuntimeSnapshot
 from mlx_studio_runtime.application.speech_generation_service import SpeechGenerationService
 from mlx_studio_runtime.application.voice_profile_service import VoiceProfileService
+from mlx_studio_runtime.application.web_retrieval import WebRetrieval
+from mlx_studio_runtime.application.web_settings import WebSettings
 
 
 class RuntimeApplication:
@@ -69,19 +85,37 @@ class RuntimeApplication:
             self.catalog.models, self.scheduler, self.inference
         )
         self.controls = RuntimeControl(self.scheduler, self.inference)
+        contexts = ChatContextRepository(store.database)
         self.queries = Queries(
             store.conversations,
             store.jobs,
             store.images,
             self.lifecycle,
             ImageFiles(store.media_path).read,
+            contexts,
         )
         attachment_files = AttachmentFiles(store.attachments, store.media_path)
-        self.attachments = Attachments(attachment_files.upload, attachment_files.read)
+        preparations = PreparationRepository(store.database)
+        preparations.recover()
+        self.attachment_references = AttachmentReferences(store.database)
+        self.attachments = Attachments(
+            attachment_files,
+            preparations,
+            AttachmentDerivatives(store.media_path),
+            PreparationExecutor(runtime_source),
+        )
+        configs = WebConfigRepository(store.database)
+        secrets = KeychainSecrets()
+        provider = Tavily()
+        retrieval = WebRetrieval(provider, provider, secrets, PublicResultPolicy())
+        self.web_settings = WebSettings(configs, secrets, retrieval)
+        preparation = ChatPreparation(
+            self.attachments, contexts, configs, retrieval, self.lifecycle
+        )
         self.downloads = Downloads(download_model, self.catalog)
         self.chat = ChatService(
             store.conversations,
-            attachment_files.paths,
+            preparation,
             self.catalog.models,
             self.scheduler,
             self.inference,
@@ -130,6 +164,7 @@ class RuntimeApplication:
 
     async def close(self) -> None:
         await self.agent_host.close()
+        await self.attachments.close()
         await self.scheduler.close()
         self.store.close()
 
