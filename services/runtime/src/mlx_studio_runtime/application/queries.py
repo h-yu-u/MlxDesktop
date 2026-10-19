@@ -62,7 +62,7 @@ class Queries:
         item = self.jobs.get(job_id)
         if item is None:
             raise RuntimeFault(RuntimeErrorInfo("JOB_NOT_FOUND", "找不到此任务"))
-        return dict(item, text=self.lifecycle.output.get(job_id, ""))
+        return dict(item, text=self.lifecycle.output_text(job_id))
 
     def list_conversations(self) -> list[dict[str, Any]]:
         return self.conversations.list()

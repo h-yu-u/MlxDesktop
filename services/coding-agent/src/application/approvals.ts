@@ -49,7 +49,7 @@ export class Approvals {
     this.pending.delete(id)
   }
   denyRun(runId: string): void {
-    for (const approval of this.repo.list('approval'))
+    for (const approval of this.repo.pendingApprovals(runId))
       if (approval.runId === runId && approval.status === 'pending')
         this.resolve(approval.id, false)
   }

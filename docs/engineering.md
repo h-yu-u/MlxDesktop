@@ -72,6 +72,8 @@ Rust 保持精简，负责固定 Sidecar 生命周期、安全、原生对话框
 
 原计划的覆盖率目标保留为质量目标：Domain 90%、状态机/调度分支 100%、Application 和前端 Store/composable 80%、整体 75%。这些目标不代表当前已有覆盖率门禁或已达成，Adapter 重点验证真实契约与系统行为。
 
+`pnpm rpc:generate` 从内部 Coding RPC schema 生成两端契约，门禁检查漂移及共享 fixtures。生成的协议数据有明确的格式与长度豁免，手写校验器仍参加检查。
+
 完成代码修改前运行：
 
 ```bash

@@ -38,7 +38,11 @@ pnpm test
 pnpm build:web
 ```
 
-release Sidecar 构建脚本已纳入 audio extra 及相关动态依赖；fake profile 排除真实语音库。新增语音能力的 PyInstaller 产物、原生 WebView 音频导出、签名/公证与干净机器验收尚未执行。
+release Sidecar 构建脚本已纳入 audio extra 及相关动态依赖；fake profile 排除真实语音库。新增语音能力的实际安装包验收与剩余交付边界见[验收状态](./status.md)，源码、包内 Runtime、原生 WebView 与正式分发分别记录。
+
+可复用离线验收入口为 `scripts/verify_local_speech.py`，接受两款本地模型及可选最终 Sidecar，检查预设、合成样本克隆、WAV 解码、取消后再生成、卸载释放与重启历史。完整安装包使用 `scripts/verify_release_bundle.py --app ... --text-model ... --image-model ... --preset-model ... --clone-model ...`，启动包内 Runtime/Node 并输出分层证据。`.github/workflows/release-acceptance.yml` 提供 Apple Silicon 自托管机器的手动门禁；它不发布、不进行 Developer ID 签名或公证。打包显式收集已接入的 Qwen3-TTS，并开启模型离线策略，防止枚举其他语音后端触发下载。
+
+原生 WebView 的媒体策略允许本地 blob 音频。桌面导出使用原生保存对话框和 Rust 原子写入，前端只提供受限建议文件名及最多 64 MiB 的二进制内容，不接收目标路径；用户取消保存不会创建文件。生成、历史/媒体查询、音色库各有独立职责；离开页面中止查询并释放 Object URL，后台任务继续运行。可重试的观察错误自动退避，权限、缺失任务和主动中止不持续重试。
 
 ## 本机验证（2026-10-17）
 
@@ -53,7 +57,7 @@ Apple Silicon / 64 GB，源码 Runtime、mlx-audio 0.5.9、MLX 0.32.1、关闭 J
 
 证据位于忽略的 `.build/audio-validation/real-v2/evidence.json`，样本为同目录 `preset.wav`、`clone.wav`，没有使用私人录音。自动化覆盖有效 WAV、分段完整写入、模式/资源检查、幂等冲突、授权/输入拒绝、排队及运行取消、迟到完成、事务失败清理、恢复隔离、切页恢复及 Object URL 回收；已有聊天、图片、Coding 回归保留。
 
-浏览器隔离数据验收通过真实预设合成、参考 WAV 导入/来源确认/音色保存、Base 克隆、切页恢复、播放（readyState=4）、参数复用和 WAV 下载，控制台无错误；检查了桌面与窄窗口布局。截图位于 `.build/audio-validation/audio-studio.jpg`。质量检查 `pnpm check`、`pnpm test`（127 前端 + 116 Runtime + 8 Coding）和 `pnpm build:web` 通过；构建保留既有主包超过 500 kB 的提示。未执行本次语音安装包构建或验收，未提交或推送代码。
+浏览器隔离数据验收通过真实预设合成、参考 WAV 导入/来源确认/音色保存、Base 克隆、切页恢复、播放（readyState=4）、参数复用和 WAV 下载，控制台无错误；检查了桌面与窄窗口布局。截图位于 `.build/audio-validation/audio-studio.jpg`。当时质量检查 `pnpm check`、`pnpm test`（127 前端 + 116 Runtime + 8 Coding）和 `pnpm build:web` 通过，尚未进行安装包验收；后续架构路线的安装包复验单独记入验收状态。构建保留既有主包超过 500 kB 的提示，未提交或推送代码。
 
 ## 主要改动位置
 

@@ -105,6 +105,7 @@ class CodingApprovalView(BaseModel):
 
 
 class CodingVerificationView(BaseModel):
+    purpose: Literal["command", "verification"] = "command"
     id: str
     runId: str
     sessionId: str

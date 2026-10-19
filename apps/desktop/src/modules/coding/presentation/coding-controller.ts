@@ -1,5 +1,10 @@
+import { createProjectSessionController } from './project-session-controller'
+import { projectCodingEvent } from './event-projection'
+import { decodeCodingProjection } from '@mlx-studio/api-client'
 import { createCodingInspector } from './coding-inspector-controller'
-import { codingErrorText, modelNeedsVerification } from './coding-errors'
+import { codingErrorText } from './coding-errors'
+import { modelNeedsVerification, submitCodingRun } from '../application/submit-coding-run'
+import { ensureModelCapability } from '../application/ensure-model-capability'
 import { computed, ref, type Ref } from 'vue'
 import type { ModelSummary, CodingSessionPatch } from '@mlx-studio/api-client'
 import type {
@@ -8,6 +13,7 @@ import type {
   CodingSession,
   CodingSnapshot,
   CodingCapability,
+  CodingEvent,
 } from '../application/ports'
 import { activeStatus, type CodingMode } from '../domain/status'
 interface Dependencies {
@@ -15,15 +21,18 @@ interface Dependencies {
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
   pickDirectory(): Promise<string | null>
-  observe(after: number, refresh: () => Promise<number>, fail: (error: unknown) => void): () => void
+  observe(
+    after: number,
+    refresh: () => Promise<number>,
+    fail: (error: unknown) => void,
+    apply?: (event: CodingEvent) => boolean,
+  ): () => void
 }
 export function createCodingController(deps: Dependencies) {
   const projects = ref<CodingProject[]>([]),
-    sessions = ref<CodingSession[]>([]),
     snapshot = ref<CodingSnapshot | null>(null)
   const capabilities = ref<CodingCapability[]>([]),
     selectedModelId = ref(''),
-    projectId = ref(''),
     sessionId = ref('')
   const mode = ref<CodingMode>('develop'),
     pending = ref(false),
@@ -41,26 +50,48 @@ export function createCodingController(deps: Dependencies) {
   )
   const active = computed(() => snapshot.value?.activeRun ?? null)
   const busy = computed(() => !!active.value && activeStatus(active.value.status))
+  const projectSelection = createProjectSessionController({
+    gateway: deps.gateway,
+    guard,
+    alive: () => !disposed,
+    pending: () => pending.value,
+    clearSession: () => {
+      epoch++
+      release?.()
+      release = undefined
+      sessionId.value = ''
+      snapshot.value = null
+      inspector.resetInspector()
+    },
+  })
+  const { projectId, sessions, sessionsHasMore, selectProject, loadMoreSessions } = projectSelection
   const inspector = createCodingInspector({
     gateway: deps.gateway,
     sessionId,
     busy,
     onRestored: refresh,
   })
+  const pendingRequests = new Set<symbol>()
+  let disposed = false
   let epoch = 0,
     release: (() => void) | undefined
-  async function guard<T>(action: () => Promise<T>): Promise<T | undefined> {
+  async function guard<T>(action: () => Promise<T>, valid?: () => boolean): Promise<T | undefined> {
+    const owner = epoch
+    const request = Symbol()
+    pendingRequests.add(request)
     pending.value = true
     error.value = null
     try {
       return await action()
     } catch (cause) {
+      if (owner !== epoch || disposed || valid?.() === false) return undefined
       error.value = codingErrorText(cause)
       if (modelNeedsVerification(cause))
         capabilities.value = capabilities.value.filter((item) => item.id !== selectedModelId.value)
       return undefined
     } finally {
-      pending.value = false
+      pendingRequests.delete(request)
+      pending.value = pendingRequests.size > 0
     }
   }
   async function refresh(): Promise<number> {
@@ -81,34 +112,48 @@ export function createCodingController(deps: Dependencies) {
     error.value = null
     return result.watermark
   }
+  function applyEvent(event: CodingEvent): boolean {
+    if (!snapshot.value || disposed) return false
+    try {
+      const next = projectCodingEvent(snapshot.value, event, decodeCodingProjection(event.data))
+      if (!next) return false
+      snapshot.value = next
+      if (
+        event.sessionId === sessionId.value &&
+        ['file.changed', 'file.restored'].includes(event.type)
+      )
+        void inspector.refreshInspector()
+      return true
+    } catch {
+      return false
+    }
+  }
   async function openSession(id: string): Promise<void> {
-    epoch++
+    const owner = ++epoch
     release?.()
+    release = undefined
     sessionId.value = id
     snapshot.value = null
     inspector.resetInspector()
     await guard(async () => {
       const after = await refresh()
-      if (sessionId.value !== id) return
-      release = deps.observe(after, refresh, (cause) => {
-        error.value = cause instanceof Error ? cause.message : '正在重新连接 Coding'
-      })
-    })
-  }
-  async function selectProject(id: string): Promise<void> {
-    if (projectId.value !== id) {
-      epoch++
-      release?.()
-      sessionId.value = ''
-      snapshot.value = null
-      inspector.resetInspector()
-    }
-    projectId.value = id
-    await guard(async () => {
-      sessions.value = await deps.gateway.sessions(id)
+      if (owner !== epoch || disposed || sessionId.value !== id) return
+      release = deps.observe(
+        after,
+        refresh,
+        (cause) => {
+          if (owner !== epoch || disposed) return
+          error.value = cause instanceof Error ? cause.message : '正在重新连接 Coding'
+        },
+        (event) => owner === epoch && !disposed && applyEvent(event),
+      )
     })
   }
   async function loadWorkspace(routeProject?: string, routeSession?: string): Promise<void> {
+    disposed = false
+    const owner = ++epoch
+    release?.()
+    release = undefined
     await guard(async () => {
       const [items, caps, settings] = await Promise.all([
         deps.gateway.projects(),
@@ -116,6 +161,7 @@ export function createCodingController(deps: Dependencies) {
         deps.gateway.settings(),
         deps.refreshModels(),
       ])
+      if (owner !== epoch || disposed) return
       projects.value = items
       capabilities.value = caps
       if (!selectedModelId.value)
@@ -123,8 +169,17 @@ export function createCodingController(deps: Dependencies) {
           settings.defaultModelId ||
           (caps.find((item) => item.status === 'verified')?.id ?? models.value[0]?.value ?? '')
     })
+    if (owner !== epoch || disposed) return
     const target = routeProject ?? (projectId.value || projects.value[0]?.id)
+    const selection = projectSelection.generation + 1
+    const selectionEpoch = epoch + (target && target !== projectId.value ? 1 : 0)
     if (target) await selectProject(target)
+    if (
+      disposed ||
+      epoch !== selectionEpoch ||
+      (target && selection !== projectSelection.generation)
+    )
+      return
     if (routeSession) await openSession(routeSession)
     else if (sessionId.value) await openSession(sessionId.value)
   }
@@ -139,11 +194,12 @@ export function createCodingController(deps: Dependencies) {
   }
   async function newSession(): Promise<CodingSession | undefined> {
     if (!projectId.value) return
-    const session = await guard(() => deps.gateway.create(projectId.value))
-    if (session) {
-      sessions.value.push(session)
-      await openSession(session.id)
-    }
+    const owner = epoch,
+      project = projectId.value
+    const session = await guard(() => deps.gateway.create(project))
+    if (!session || owner !== epoch || disposed || project !== projectId.value) return
+    sessions.value = [session, ...sessions.value]
+    await openSession(session.id)
     return session
   }
   async function updateSession(id: string, patch: CodingSessionPatch): Promise<void> {
@@ -179,24 +235,17 @@ export function createCodingController(deps: Dependencies) {
       target = sessionId.value,
       selectedMode = mode.value
     return !!(await guard(async () => {
-      if (!capabilities.value.some((item) => item.id === modelId && item.status === 'verified'))
-        await prepareModel(modelId)
-      const submission = {
-        submissionId: crypto.randomUUID(),
-        text,
-        modelId,
-        mode: selectedMode,
-        queue,
-      }
-      try {
-        await deps.gateway.submit(target, submission)
-      } catch (cause) {
-        if (!modelNeedsVerification(cause)) throw cause
-        capabilities.value = capabilities.value.filter((item) => item.id !== modelId)
-        await prepareModel(modelId)
-        // Reuse the idempotency key when a cached model identity has expired.
-        await deps.gateway.submit(target, submission)
-      }
+      await submitCodingRun(
+        { sessionId: target, modelId, text, mode: selectedMode, queue },
+        {
+          gateway: deps.gateway,
+          ensure: prepareModel,
+          invalidate: (id) => {
+            capabilities.value = capabilities.value.filter((item) => item.id !== id)
+          },
+          createId: () => crypto.randomUUID(),
+        },
+      )
       await refresh()
       return true
     }))
@@ -231,20 +280,33 @@ export function createCodingController(deps: Dependencies) {
       error.value = cause instanceof Error ? cause.message : '停止失败'
     }
   }
-  async function prepareModel(id: string): Promise<void> {
-    preparingModel.value = true
-    try {
-      const result = await deps.gateway.verifyModel(id)
-      capabilities.value = [...capabilities.value.filter((item) => item.id !== result.id), result]
-      if (result.status !== 'verified') throw new Error(result.detail)
-    } finally {
-      preparingModel.value = false
-    }
+  async function prepareModel(id: string, force = false): Promise<void> {
+    await ensureModelCapability(
+      id,
+      {
+        gateway: deps.gateway,
+        capabilities: () => capabilities.value,
+        update: (result) => {
+          capabilities.value = [
+            ...capabilities.value.filter((item) => item.id !== result.id),
+            result,
+          ]
+        },
+        preparing: (value) => {
+          preparingModel.value = value
+        },
+      },
+      force,
+    )
   }
   async function verifyModel(): Promise<void> {
-    await guard(() => prepareModel(selectedModelId.value))
+    await guard(() => prepareModel(selectedModelId.value, true))
   }
   function dispose(): void {
+    disposed = true
+    projectSelection.dispose()
+    pendingRequests.clear()
+    pending.value = false
     epoch++
     release?.()
     release = undefined
@@ -270,6 +332,8 @@ export function createCodingController(deps: Dependencies) {
     loadWorkspace,
     openProject,
     selectProject,
+    sessionsHasMore,
+    loadMoreSessions,
     openSession,
     newSession,
     updateSession,

@@ -1,0 +1,1602 @@
+// Generated; edit packages/coding-protocol/schema.json.
+export const rpcSchema = {
+  "protocolVersion": 1,
+  "methods": {
+    "settings.get": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSettings"
+      }
+    },
+    "settings.update": {
+      "params": {
+        "$ref": "#/$defs/CodingSettings"
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSettings"
+      }
+    },
+    "projects.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/CodingProjectView"
+        }
+      }
+    },
+    "projects.register": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingProjectView"
+      }
+    },
+    "projects.get": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingProjectView"
+      }
+    },
+    "projects.update": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "commands": {
+            "type": "array",
+            "maxItems": 8,
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            }
+          }
+        },
+        "required": [
+          "id",
+          "commands"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingProjectView"
+      }
+    },
+    "projects.remove": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sessions.list": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/CodingSessionView"
+        }
+      }
+    },
+    "sessions.create": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "projectId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          }
+        },
+        "required": [
+          "projectId"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSessionView"
+      }
+    },
+    "sessions.get": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSessionView"
+      }
+    },
+    "sessions.update": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 160
+          },
+          "pinned": {
+            "type": "boolean"
+          },
+          "archived": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSessionView"
+      }
+    },
+    "sessions.remove": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sessions.snapshot": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingSnapshot"
+      }
+    },
+    "sessions.files": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingFileList"
+      }
+    },
+    "sessions.read": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id",
+          "path"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "sha256": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "content",
+          "sha256"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "sessions.changes": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "diff": {
+            "type": "boolean"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingChanges"
+      }
+    },
+    "changes.get": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingChangeView"
+      }
+    },
+    "changes.restore": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingChangeView"
+      }
+    },
+    "runs.submit": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 32000
+          },
+          "mode": {
+            "enum": [
+              "analyze",
+              "develop",
+              "review"
+            ]
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32768
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "modelId",
+              "baseUrl",
+              "token",
+              "contextWindow"
+            ],
+            "additionalProperties": false
+          },
+          "queue": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "sessionId",
+          "submissionId",
+          "text",
+          "mode",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "sessions.verify": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "submissionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "provider": {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32768
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "modelId",
+              "baseUrl",
+              "token",
+              "contextWindow"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "sessionId",
+          "submissionId",
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "runs.cancel-active": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/CodingRunView"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "cancelled": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "cancelled"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      }
+    },
+    "runs.cancel": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingRunView"
+      }
+    },
+    "runs.steer": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 16000
+          }
+        },
+        "required": [
+          "id",
+          "text"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "accepted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "accepted"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "approvals.resolve": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 8192
+          },
+          "allowed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "allowed"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "resolved"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "events.list": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CodingEventView"
+            }
+          },
+          "watermark": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "events",
+          "watermark"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "events.wait": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CodingEventView"
+            }
+          },
+          "watermark": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "events",
+          "watermark"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "capabilities.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/CodingCapability"
+        }
+      }
+    },
+    "capabilities.verify": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": "object",
+            "properties": {
+              "modelId": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "baseUrl": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "token": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "contextWindow": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 32768
+              },
+              "fingerprint": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              },
+              "engineVersion": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 8192
+              }
+            },
+            "required": [
+              "modelId",
+              "baseUrl",
+              "token",
+              "contextWindow"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "provider"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "$ref": "#/$defs/CodingCapability"
+      }
+    },
+    "shutdown": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "closed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "closed"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "$defs": {
+    "CodingSettings": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "const": "coding",
+          "title": "Id",
+          "default": "coding"
+        },
+        "defaultModelId": {
+          "type": "string",
+          "maxLength": 128,
+          "title": "Defaultmodelid",
+          "default": ""
+        },
+        "contextBudget": {
+          "type": "integer",
+          "maximum": 32768.0,
+          "minimum": 4096.0,
+          "title": "Contextbudget",
+          "default": 32768
+        },
+        "maxRepairRounds": {
+          "type": "integer",
+          "maximum": 2.0,
+          "minimum": 0.0,
+          "title": "Maxrepairrounds",
+          "default": 2
+        }
+      },
+      "additionalProperties": false,
+      "type": "object",
+      "title": "CodingSettings"
+    },
+    "CodingProjectView": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "path": {
+          "type": "string",
+          "title": "Path"
+        },
+        "name": {
+          "type": "string",
+          "title": "Name"
+        },
+        "git": {
+          "type": "boolean",
+          "title": "Git"
+        },
+        "branch": {
+          "type": "string",
+          "title": "Branch"
+        },
+        "dirty": {
+          "type": "string",
+          "title": "Dirty"
+        },
+        "instructions": {
+          "type": "string",
+          "title": "Instructions"
+        },
+        "commands": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Commands"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "path",
+        "name",
+        "git",
+        "branch",
+        "dirty",
+        "instructions",
+        "commands"
+      ],
+      "title": "CodingProjectView"
+    },
+    "CodingSessionView": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "projectId": {
+          "type": "string",
+          "title": "Projectid"
+        },
+        "title": {
+          "type": "string",
+          "title": "Title"
+        },
+        "pinned": {
+          "type": "boolean",
+          "title": "Pinned"
+        },
+        "archived": {
+          "type": "boolean",
+          "title": "Archived"
+        },
+        "piPath": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Pipath"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "projectId",
+        "title",
+        "pinned",
+        "archived",
+        "piPath"
+      ],
+      "title": "CodingSessionView"
+    },
+    "CodingRunView": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "Sessionid"
+        },
+        "submissionId": {
+          "type": "string",
+          "title": "Submissionid"
+        },
+        "text": {
+          "type": "string",
+          "title": "Text"
+        },
+        "modelId": {
+          "type": "string",
+          "title": "Modelid"
+        },
+        "mode": {
+          "type": "string",
+          "enum": [
+            "analyze",
+            "develop",
+            "review"
+          ],
+          "title": "Mode"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "queued",
+            "starting",
+            "running",
+            "awaiting_approval",
+            "cancelling",
+            "completed",
+            "failed",
+            "cancelled",
+            "interrupted"
+          ],
+          "title": "Status"
+        },
+        "phase": {
+          "type": "string",
+          "title": "Phase"
+        },
+        "verification": {
+          "type": "string",
+          "enum": [
+            "not_run",
+            "running",
+            "passed",
+            "failed",
+            "partial"
+          ],
+          "title": "Verification"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Error"
+        },
+        "createdAt": {
+          "type": "string",
+          "title": "Createdat"
+        },
+        "baseline": {
+          "type": "string",
+          "title": "Baseline"
+        },
+        "fingerprint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Fingerprint"
+        },
+        "maxRepairRounds": {
+          "type": "integer",
+          "title": "Maxrepairrounds"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "sessionId",
+        "submissionId",
+        "text",
+        "modelId",
+        "mode",
+        "status",
+        "phase",
+        "verification",
+        "error",
+        "createdAt",
+        "baseline",
+        "fingerprint",
+        "maxRepairRounds"
+      ],
+      "title": "CodingRunView"
+    },
+    "CodingApprovalView": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "runId": {
+          "type": "string",
+          "title": "Runid"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "Sessionid"
+        },
+        "toolCallId": {
+          "type": "string",
+          "title": "Toolcallid"
+        },
+        "action": {
+          "type": "string",
+          "enum": [
+            "command",
+            "file_write"
+          ],
+          "title": "Action"
+        },
+        "parameters": {
+          "additionalProperties": true,
+          "type": "object",
+          "title": "Parameters"
+        },
+        "command": {
+          "type": "string",
+          "title": "Command"
+        },
+        "cwd": {
+          "type": "string",
+          "title": "Cwd"
+        },
+        "policyVersion": {
+          "type": "integer",
+          "const": 1,
+          "title": "Policyversion"
+        },
+        "expiresAt": {
+          "type": "integer",
+          "title": "Expiresat"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "allowed",
+            "denied"
+          ],
+          "title": "Status"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "runId",
+        "sessionId",
+        "toolCallId",
+        "action",
+        "parameters",
+        "command",
+        "cwd",
+        "policyVersion",
+        "expiresAt",
+        "status"
+      ],
+      "title": "CodingApprovalView"
+    },
+    "CodingVerificationView": {
+      "properties": {
+        "purpose": {
+          "type": "string",
+          "enum": [
+            "command",
+            "verification"
+          ],
+          "title": "Purpose",
+          "default": "command"
+        },
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "runId": {
+          "type": "string",
+          "title": "Runid"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "Sessionid"
+        },
+        "command": {
+          "type": "string",
+          "title": "Command"
+        },
+        "exitCode": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Exitcode"
+        },
+        "output": {
+          "type": "string",
+          "title": "Output"
+        },
+        "truncated": {
+          "type": "boolean",
+          "title": "Truncated"
+        },
+        "fingerprint": {
+          "type": "string",
+          "title": "Fingerprint"
+        },
+        "stale": {
+          "type": "boolean",
+          "title": "Stale"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "runId",
+        "sessionId",
+        "command",
+        "exitCode",
+        "output",
+        "truncated",
+        "fingerprint",
+        "stale"
+      ],
+      "title": "CodingVerificationView"
+    },
+    "CodingChangeView": {
+      "properties": {
+        "contentLoaded": {
+          "type": "boolean",
+          "title": "Contentloaded",
+          "default": true
+        },
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "runId": {
+          "type": "string",
+          "title": "Runid"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "Sessionid"
+        },
+        "path": {
+          "type": "string",
+          "title": "Path"
+        },
+        "before": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Before"
+        },
+        "after": {
+          "type": "string",
+          "title": "After"
+        },
+        "restored": {
+          "type": "boolean",
+          "title": "Restored"
+        },
+        "state": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "written"
+          ],
+          "title": "State"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "runId",
+        "sessionId",
+        "path",
+        "before",
+        "after",
+        "restored",
+        "state"
+      ],
+      "title": "CodingChangeView"
+    },
+    "CodingChanges": {
+      "properties": {
+        "managed": {
+          "items": {
+            "$ref": "#/$defs/CodingChangeView"
+          },
+          "type": "array",
+          "title": "Managed"
+        },
+        "workspace": {
+          "type": "string",
+          "title": "Workspace"
+        },
+        "diff": {
+          "type": "string",
+          "title": "Diff"
+        },
+        "scope": {
+          "type": "string",
+          "title": "Scope"
+        }
+      },
+      "type": "object",
+      "required": [
+        "managed",
+        "workspace",
+        "diff",
+        "scope"
+      ],
+      "title": "CodingChanges"
+    },
+    "CodingFileList": {
+      "properties": {
+        "files": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array",
+          "title": "Files"
+        }
+      },
+      "type": "object",
+      "required": [
+        "files"
+      ],
+      "title": "CodingFileList"
+    },
+    "CodingFileView": {
+      "properties": {
+        "content": {
+          "type": "string",
+          "title": "Content"
+        },
+        "sha256": {
+          "type": "string",
+          "title": "Sha256"
+        }
+      },
+      "type": "object",
+      "required": [
+        "content",
+        "sha256"
+      ],
+      "title": "CodingFileView"
+    },
+    "CodingCapability": {
+      "properties": {
+        "id": {
+          "type": "string",
+          "title": "Id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "verified",
+            "unverified"
+          ],
+          "title": "Status"
+        },
+        "verifiedAt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Verifiedat"
+        },
+        "engineVersion": {
+          "type": "string",
+          "title": "Engineversion"
+        },
+        "parserVersion": {
+          "type": "string",
+          "title": "Parserversion"
+        },
+        "modelFingerprint": {
+          "type": "string",
+          "title": "Modelfingerprint"
+        },
+        "detail": {
+          "type": "string",
+          "title": "Detail"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id",
+        "status",
+        "verifiedAt",
+        "engineVersion",
+        "parserVersion",
+        "modelFingerprint",
+        "detail"
+      ],
+      "title": "CodingCapability"
+    },
+    "CodingSnapshot": {
+      "properties": {
+        "session": {
+          "$ref": "#/$defs/CodingSessionView"
+        },
+        "project": {
+          "$ref": "#/$defs/CodingProjectView"
+        },
+        "runs": {
+          "items": {
+            "$ref": "#/$defs/CodingRunView"
+          },
+          "type": "array",
+          "title": "Runs"
+        },
+        "approvals": {
+          "items": {
+            "$ref": "#/$defs/CodingApprovalView"
+          },
+          "type": "array",
+          "title": "Approvals"
+        },
+        "verifications": {
+          "items": {
+            "$ref": "#/$defs/CodingVerificationView"
+          },
+          "type": "array",
+          "title": "Verifications"
+        },
+        "events": {
+          "items": {
+            "$ref": "#/$defs/CodingEventView"
+          },
+          "type": "array",
+          "title": "Events"
+        },
+        "watermark": {
+          "type": "integer",
+          "title": "Watermark"
+        },
+        "activeRun": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CodingRunView"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "type": "object",
+      "required": [
+        "session",
+        "project",
+        "runs",
+        "approvals",
+        "verifications",
+        "events",
+        "watermark",
+        "activeRun"
+      ],
+      "title": "CodingSnapshot"
+    },
+    "CodingEventView": {
+      "properties": {
+        "seq": {
+          "type": "integer",
+          "title": "Seq"
+        },
+        "sessionId": {
+          "type": "string",
+          "title": "Sessionid"
+        },
+        "runId": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Runid"
+        },
+        "type": {
+          "type": "string",
+          "title": "Type"
+        },
+        "text": {
+          "type": "string",
+          "title": "Text"
+        },
+        "data": {
+          "title": "Data"
+        }
+      },
+      "type": "object",
+      "required": [
+        "seq",
+        "sessionId",
+        "runId",
+        "type",
+        "text",
+        "data"
+      ],
+      "title": "CodingEventView"
+    }
+  },
+  "errors": [
+    "APPROVAL_ALREADY_RESOLVED",
+    "APPROVAL_DENIED",
+    "APPROVAL_NOT_FOUND",
+    "BINARY_FILE_REJECTED",
+    "CANCELLED",
+    "CAPABILITY_NOT_FOUND",
+    "CHANGE_NOT_FOUND",
+    "CODING_BUSY",
+    "CODING_DATABASE_TOO_NEW",
+    "CODING_DATA_DIRECTORY_REQUIRED",
+    "CODING_FAILED",
+    "CODING_QUEUE_FULL",
+    "COMMIT",
+    "DUPLICATE_TOOL_ID",
+    "EDIT_NOT_UNIQUE",
+    "ENOENT",
+    "ESRCH",
+    "FILE_TOO_LARGE_OR_NOT_TEXT",
+    "FILE_VERSION_CONFLICT",
+    "FRAME_TOO_LARGE",
+    "GIT_MUTATION_DISABLED",
+    "HEAD",
+    "HOST_FAILED",
+    "HOST_RESTARTED",
+    "HOST_SHUTTING_DOWN",
+    "IDEMPOTENCY_CONFLICT",
+    "INVALID_APPROVAL",
+    "INVALID_COMMANDS",
+    "INVALID_LIMIT",
+    "INVALID_MODE",
+    "INVALID_PARAMS",
+    "INVALID_PARENT",
+    "INVALID_SETTINGS",
+    "LOCAL_PROVIDER_REQUIRED",
+    "MODEL_CONNECTION_FAILED",
+    "MODEL_INFERENCE_FAILED",
+    "MODEL_NOT_FOUND",
+    "MODEL_OUTPUT_TRUNCATED",
+    "MODEL_REQUEST_TIMEOUT",
+    "MODEL_TOOLS_UNVERIFIED",
+    "PATH_EXCLUDED",
+    "PATH_OUTSIDE_WORKSPACE",
+    "PROBE_COMMAND_NOT_ALLOWED",
+    "PROJECT_DIRECTORY_REQUIRED",
+    "PROJECT_HAS_SESSIONS",
+    "PROJECT_NOT_FOUND",
+    "PROTOCOL_MISMATCH",
+    "READ_ONLY_MODE",
+    "RESTORE_CONFLICT",
+    "ROLLBACK",
+    "RPC_RESULT_INVALID",
+    "RUN_ALREADY_FINISHED",
+    "RUN_CANCELLING",
+    "RUN_NOT_FOUND",
+    "RUN_NOT_READY",
+    "SESSION_ARCHIVED",
+    "SESSION_IN_USE",
+    "SESSION_NOT_FOUND",
+    "SETTINGS_NOT_FOUND",
+    "SIGINT",
+    "SIGKILL",
+    "SIGTERM",
+    "SYMLINK_REJECTED",
+    "TOOL_BUDGET_EXCEEDED",
+    "UNKNOWN_METHOD",
+    "VERIFICATION_COMMANDS_REQUIRED",
+    "VERIFICATION_NOT_FOUND",
+    "WORKSPACE_FINGERPRINT_LIMIT",
+    "WORKSPACE_ROOT_CHANGED"
+  ],
+  "errorPattern": "^[A-Z][A-Z0-9_]{1,79}$"
+} as const

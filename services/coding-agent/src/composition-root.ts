@@ -1,3 +1,6 @@
+import { ProjectSessions } from './application/project-sessions.js'
+import { ChangeService } from './application/changes.js'
+import { CapabilityVerifier } from './application/capability-verifier.js'
 import { projectWorkspace } from './adapters/project-workspace.js'
 import { Repository } from './adapters/repository.js'
 import { Commands } from './adapters/commands.js'
@@ -16,5 +19,12 @@ export function createCodingService(
     workspace: (root, run) => new Workspace(repo, root, run),
     open: openPi,
   })
-  return new CodingService(repo, runs, projectWorkspace(repo))
+  const projects = projectWorkspace(repo)
+  return new CodingService(
+    repo,
+    runs,
+    new ProjectSessions(repo, projects),
+    new ChangeService(repo, projects),
+    new CapabilityVerifier(repo, runs, projects),
+  )
 }

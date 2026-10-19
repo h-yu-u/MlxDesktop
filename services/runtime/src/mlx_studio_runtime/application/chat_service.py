@@ -12,9 +12,9 @@ from mlx_studio_runtime.application.chat_support import (
 )
 from mlx_studio_runtime.application.ports import (
     ConversationRepository,
-    InferenceSession,
     JobAdmission,
     SubmissionJournal,
+    TextInference,
 )
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState
@@ -28,7 +28,7 @@ class ChatService:
         attachment_paths: Callable[[list[str]], list[str]],
         models: dict[str, ModelManifest],
         scheduler: JobAdmission,
-        runtime: InferenceSession,
+        runtime: TextInference,
         journal: SubmissionJournal,
     ) -> None:
         self.conversations = conversations
@@ -37,7 +37,6 @@ class ChatService:
         self.scheduler = scheduler
         self.runtime = runtime
         self.job_lifecycle = scheduler.lifecycle
-        self.jobs = scheduler.lifecycle.items
         self.events = runtime.events
         self.journal = journal
 
@@ -158,17 +157,13 @@ class ChatService:
         replace_assistant_message_id: str | None,
     ) -> None:
         job_id = initial_job.id
-        if self.jobs[job_id].state is JobState.CANCELLING:
+        if self.job_lifecycle.cancellation_requested(job_id):
             await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
             return
         await self.job_lifecycle.transition(job_id, JobEvent.START)
-        if self.runtime.worker is None:
-            raise RuntimeError("worker is unavailable")
         result = await self._collect_reply(
             job_id,
-            self.runtime.worker.generate(
-                job_id, content, max_tokens, temperature, image_paths, messages
-            ),
+            self.runtime.generate(job_id, content, max_tokens, temperature, image_paths, messages),
         )
         if result is None:
             return
@@ -220,7 +215,7 @@ class ChatService:
             elif event_type == "generation.failed":
                 code = str(payload.get("error_code", "INFERENCE_FAILED"))
                 raise RuntimeFault(RuntimeErrorInfo(code, "模型推理失败", True))
-        if self.jobs[job_id].state is JobState.CANCELLING:
+        if self.job_lifecycle.cancellation_requested(job_id):
             await self.job_lifecycle.finish(job_id, JobEvent.CANCEL_COMPLETE)
             return None
         if completion is None:

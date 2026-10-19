@@ -46,10 +46,11 @@ class JobScheduler:
         if model_id in self.removing or (path is not None and path in self.removing_paths):
             raise RuntimeFault(RuntimeErrorInfo("MODEL_IN_USE", "模型正在移除", True))
 
-    def schedule(self, job: Job, execute: Callable[[], Awaitable[None]]) -> None:
+    def schedule(self, job: Job, execute: Callable[[], Awaitable[None]]) -> asyncio.Task[None]:
         task = asyncio.create_task(self._run(job, execute))
         self.tasks[job.id] = task
         task.add_done_callback(lambda done: self._forget(job.id, done))
+        return task
 
     async def _run(self, job: Job, execute: Callable[[], Awaitable[None]]) -> None:
         try:
@@ -148,13 +149,7 @@ class JobScheduler:
             self.tasks.pop(job_id, None)
         if not task.cancelled() and task.exception():
             LOGGER.error("Task cleanup failed", extra={"job_id": job_id})
-        if len(self.lifecycle.items) > 200:
-            for previous in tuple(self.lifecycle.items.values()):
-                if previous.id not in self.tasks and terminal_state(previous.state):
-                    self.lifecycle.items.pop(previous.id, None)
-                    self.lifecycle.output.pop(previous.id, None)
-                    if len(self.lifecycle.items) <= 200:
-                        break
+        self.lifecycle.prune(set(self.tasks))
 
     async def close(self) -> None:
         tasks = tuple(self.tasks.values())

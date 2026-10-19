@@ -1,3 +1,5 @@
+import { createAudioHistoryController } from './audio-history-controller'
+import { SubmitSpeech } from '../application/submit-speech'
 import { computed, ref, watch } from 'vue'
 import type {
   AudioArtifact,
@@ -6,9 +8,8 @@ import type {
   SpeechDraft,
   Voice,
 } from '../application/ports'
-import { buildSpeechRequest, compatibleModels, terminal } from '../application/speech-request'
+import { compatibleModels, terminal } from '../application/speech-request'
 import type { useModelDirectory } from '../../../capabilities/models'
-import { MediaCache } from '../../../capabilities/media'
 import { JobPoller } from '../../../capabilities/jobs'
 import { createVoiceController } from './voice-controller'
 import { audioFailure } from './audio-feedback'
@@ -17,7 +18,7 @@ interface Dependencies {
   directory: ReturnType<typeof useModelDirectory>
   refreshModels(): Promise<void>
   gateway: AudioGateway
-  exportAudio(blob: Blob, id: string): void
+  exportAudio(blob: Blob, id: string): Promise<void> | void
 }
 export function createAudioController(deps: Dependencies) {
   const form = ref<SpeechDraft>({
@@ -30,39 +31,42 @@ export function createAudioController(deps: Dependencies) {
   })
   const voices = ref<Voice[]>([])
   const library = createVoiceController(deps.gateway, voices)
-  const artifacts = ref<AudioArtifact[]>([])
   const jobs = ref<AudioJob[]>([])
   const activeJob = ref<AudioJob | null>(null)
-  const selectedId = ref<string | null>(null)
-  const urls = ref<Record<string, string>>({})
   const error = ref<string | null>(null)
   const syncError = ref<string | null>(null)
   const loading = ref(false),
     submitting = ref(false),
     cancelling = ref(false)
-  const historyLoading = ref(false),
-    hasMore = ref(false)
-  const savingId = ref<string | null>(null)
   const speechModels = computed(() => compatibleModels(deps.directory.items, form.value.mode))
   const selectedModel = computed(() =>
     speechModels.value.find((model) => model.id === form.value.modelId),
   )
-  const selectedArtifact = computed(
-    () => artifacts.value.find((item) => item.id === selectedId.value) ?? null,
-  )
   const busy = computed(() => !!activeJob.value && !terminal(activeJob.value))
-  const media = new MediaCache(
-    deps.gateway.audio,
-    () => {
-      urls.value = media.snapshot()
+  const history = createAudioHistoryController({
+    ...deps,
+    onError: (cause) => {
+      error.value = cause instanceof Error ? cause.message : '作品请求失败'
     },
-    2,
-  )
+  })
+  const {
+    artifacts,
+    selectedId,
+    selectedArtifact,
+    urls,
+    historyLoading,
+    hasMore,
+    savingId,
+    loadHistory,
+    select,
+    save,
+    remove,
+  } = history
   const poller = new JobPoller()
   let epoch = 0,
     disposed = false
   let scope = new AbortController()
-  let retry: { key: string; id: string } | undefined
+  const submit = new SubmitSpeech(deps.gateway, () => crypto.randomUUID())
   let polling = false
 
   watch(
@@ -99,6 +103,7 @@ export function createAudioController(deps: Dependencies) {
   async function loadWorkspace(): Promise<void> {
     dispose()
     disposed = false
+    history.activate()
     scope = new AbortController()
     const owner = epoch
     loading.value = true
@@ -123,38 +128,13 @@ export function createAudioController(deps: Dependencies) {
     })
     if (owner === epoch) loading.value = false
   }
-  async function loadHistory(reset = true): Promise<void> {
-    if (historyLoading.value) return
-    const owner = epoch
-    historyLoading.value = true
-    await action(async () => {
-      const page = await deps.gateway.history(reset ? 0 : artifacts.value.length, scope.signal)
-      if (owner !== epoch) return
-      artifacts.value = reset ? page : [...artifacts.value, ...page]
-      hasMore.value = page.length === 24
-      if (!artifacts.value.some((item) => item.id === selectedId.value))
-        selectedId.value = artifacts.value[0]?.id ?? null
-      if (selectedId.value) await select(selectedId.value)
-    })
-    if (owner === epoch) historyLoading.value = false
-  }
-  async function select(id: string): Promise<void> {
-    selectedId.value = id
-    await action(async () => {
-      await media.get(id)
-    })
-  }
   async function generate(): Promise<void> {
     if (busy.value || submitting.value || disposed) return
     submitting.value = true
     const owner = epoch
     await action(async () => {
-      const request = buildSpeechRequest(form.value, deps.directory.items)
-      const key = JSON.stringify(request)
-      if (retry?.key !== key) retry = { key, id: crypto.randomUUID() }
-      const job = await deps.gateway.generate({ ...request, clientRequestId: retry.id })
+      const job = await submit.execute(form.value, deps.directory.items)
       if (owner !== epoch) return
-      retry = undefined
       activeJob.value = job
       jobs.value = [job, ...jobs.value.filter((item) => item.id !== job.id)]
       poller.schedule(refreshJob)
@@ -173,6 +153,7 @@ export function createAudioController(deps: Dependencies) {
       activeJob.value = job
       jobs.value = jobs.value.map((item) => (item.id === id ? job : item))
       syncError.value = null
+      poller.recovered()
       if (job.state === 'succeeded') {
         selectedId.value = job.artifact_id
         await loadHistory(true)
@@ -186,7 +167,10 @@ export function createAudioController(deps: Dependencies) {
       }
       if (busy.value) poller.schedule(refreshJob)
     } catch (cause) {
-      if (owner === epoch) syncError.value = cause instanceof Error ? cause.message : '任务同步中断'
+      if (owner === epoch && !disposed) {
+        syncError.value = cause instanceof Error ? cause.message : '任务同步中断'
+        if (busy.value) poller.retry(refreshJob, cause)
+      }
     } finally {
       if (owner === epoch) polling = false
     }
@@ -215,37 +199,18 @@ export function createAudioController(deps: Dependencies) {
     if (item.mode === 'clone' && !form.value.voiceId)
       error.value = '原音色已删除，请重新选择或保存音色。'
   }
-  async function save(id: string): Promise<void> {
-    const owner = epoch
-    savingId.value = id
-    await action(async () => {
-      const blob = await deps.gateway.audio(id, scope.signal)
-      if (owner === epoch) deps.exportAudio(blob, id)
-    })
-    if (owner === epoch) savingId.value = null
-  }
-  async function remove(id: string): Promise<void> {
-    await action(async (owner) => {
-      await deps.gateway.deleteArtifact(id)
-      if (owner === epoch) {
-        media.dispose()
-        await loadHistory(true)
-      }
-    })
-  }
   function dispose(): void {
     epoch++
     disposed = true
     scope.abort()
     poller.stop()
-    media.dispose()
+    poller.recovered()
+    history.dispose()
     library.dispose()
     loading.value = false
     submitting.value = false
     cancelling.value = false
-    historyLoading.value = false
     polling = false
-    savingId.value = null
   }
   return {
     form,

@@ -13,11 +13,13 @@ defineProps<{
   busy: boolean
   pending: boolean
   error: string | null
+  hasMore?: boolean
 }>()
 const emit = defineEmits<{
   close: []
   panel: [panel: InspectorPanel]
   refresh: []
+  more: []
   restore: [id: string]
   detail: [id: string]
   read: [path: string]
@@ -61,6 +63,8 @@ const CodingChangesView = defineAsyncComponent(() => import('./CodingChangesView
       :selected="selected"
       :loading="pending"
       :busy="busy"
+      :has-more="hasMore"
+      @more="emit('more')"
       @select="emit('detail', $event)"
       @restore="emit('restore', $event)"
       @read="emit('read', $event)"

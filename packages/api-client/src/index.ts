@@ -19,3 +19,4 @@ export { readJob as decodeImageJob } from './image-endpoints'
 
 export * from './coding-decoders'
 export { codingEndpoints } from './coding-endpoints'
+export { decodeCodingProjection, type CodingProjection } from './coding-projection'

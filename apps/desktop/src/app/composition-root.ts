@@ -84,7 +84,8 @@ export function createCodingWorkspace() {
     models: toRef(directory, 'items'),
     refreshModels,
     pickDirectory: pickProjectDirectory,
-    observe: (after, refresh, fail) => observeCoding(runtimeClient, after, refresh, fail),
+    observe: (after, refresh, fail, apply) =>
+      observeCoding(runtimeClient, after, refresh, fail, apply),
   })
 }
 

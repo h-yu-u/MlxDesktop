@@ -1,10 +1,11 @@
-import type { RuntimeClient } from '@mlx-studio/api-client'
+import type { RuntimeClient, CodingEvent } from '@mlx-studio/api-client'
 /** Coding has its own persistent sequence, independent of inference Job events. */
 export function observeCoding(
   client: () => Promise<RuntimeClient>,
   after: number,
   refresh: () => Promise<number>,
   fail: (error: unknown) => void,
+  apply?: (event: CodingEvent) => boolean,
 ): () => void {
   const abort = new AbortController()
   let sequence = after,
@@ -31,9 +32,9 @@ export function observeCoding(
         if (abort.signal.aborted) return
         await connection.subscribeCoding(
           (event) => {
-            if (event.seq <= sequence) return
-            // Snapshot is authoritative, including sequence gaps and other sessions' changes.
-            void sync().catch(fail)
+            if (abort.signal.aborted || event.seq <= sequence) return
+            if (!syncing && event.seq === sequence + 1 && apply?.(event)) sequence = event.seq
+            else void sync().catch(fail)
           },
           abort.signal,
           sequence,

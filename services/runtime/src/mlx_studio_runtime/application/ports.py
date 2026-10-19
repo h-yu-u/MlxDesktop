@@ -1,5 +1,6 @@
 """Narrow contracts implemented by storage, transport and filesystem adapters."""
 
+import asyncio
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractContextManager
 from pathlib import Path
@@ -86,8 +87,8 @@ class SubmissionJournal(Protocol):
 
 
 class JobWriter(Protocol):
-    @property
-    def items(self) -> dict[str, "Job"]: ...
+    def get(self, job_id: str) -> Job: ...
+    def cancellation_requested(self, job_id: str) -> bool: ...
     async def register(
         self, job: "Job", request: dict[str, object], persist: Callable[[], None] | None = None
     ) -> None: ...
@@ -108,11 +109,39 @@ class JobAdmission(Protocol):
     @property
     def lifecycle(self) -> JobWriter: ...
     def check_admission(self, model_id: str) -> None: ...
-    def schedule(self, job: "Job", execute: Callable[[], "Awaitable[None]"]) -> None: ...
+    def schedule(self, job: Job, execute: Callable[[], Awaitable[None]]) -> asyncio.Task[None]: ...
+    async def cancel(self, job_id: str) -> dict[str, str]: ...
 
 
-class InferenceSession(Protocol):
-    @property
-    def worker(self) -> InferenceWorker | None: ...
+class TextInference(Protocol):
     @property
     def events(self) -> EventPublisher: ...
+    def generate(
+        self,
+        job_id: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        image_paths: list[str],
+        messages: list[dict[str, str]],
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+
+class ImageInference(Protocol):
+    @property
+    def events(self) -> EventPublisher: ...
+    def generate_image(
+        self, job_id: str, parameters: dict[str, object], output_path: Path
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+
+class SpeechInference(Protocol):
+    @property
+    def events(self) -> EventPublisher: ...
+    def generate_audio(
+        self, job_id: str, parameters: dict[str, object], output_path: Path
+    ) -> AsyncIterator[dict[str, Any]]: ...
+
+
+class StructuredInference(Protocol):
+    def infer(self, job_id: str, request: dict[str, object]) -> AsyncIterator[dict[str, Any]]: ...

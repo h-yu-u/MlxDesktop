@@ -1,6 +1,7 @@
 """Owns the loaded model and Worker; only the scheduler grants execution leases."""
 
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 from mlx_studio_runtime.application.ports import EventPublisher, InferenceWorker, ModelRepository
@@ -25,6 +26,37 @@ class ModelRuntime:
         self.active_model_id: str | None = None
         self.state = RuntimeState.READY
         self.worker_restarts = 0
+
+    def _execution_worker(self) -> InferenceWorker:
+        if self.worker is None:
+            raise RuntimeFault(RuntimeErrorInfo("WORKER_NOT_AVAILABLE", "Worker 不可用"))
+        return self.worker
+
+    def generate(
+        self,
+        job_id: str,
+        prompt: str,
+        max_tokens: int,
+        temperature: float,
+        image_paths: list[str],
+        messages: list[dict[str, str]],
+    ) -> AsyncIterator[dict[str, Any]]:
+        return self._execution_worker().generate(
+            job_id, prompt, max_tokens, temperature, image_paths, messages
+        )
+
+    def generate_image(
+        self, job_id: str, parameters: dict[str, object], output_path: Path
+    ) -> AsyncIterator[dict[str, Any]]:
+        return self._execution_worker().generate_image(job_id, parameters, output_path)
+
+    def generate_audio(
+        self, job_id: str, parameters: dict[str, object], output_path: Path
+    ) -> AsyncIterator[dict[str, Any]]:
+        return self._execution_worker().generate_audio(job_id, parameters, output_path)
+
+    def infer(self, job_id: str, request: dict[str, object]) -> AsyncIterator[dict[str, Any]]:
+        return self._execution_worker().infer(job_id, request)
 
     async def load(self, model_id: str) -> dict[str, Any]:
         manifest = self.models.get(model_id)

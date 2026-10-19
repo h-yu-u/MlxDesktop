@@ -9,9 +9,9 @@ import uuid
 from typing import Any
 
 from mlx_studio_runtime import PROTOCOL_VERSION
-from mlx_studio_runtime.adapters.audio_engines.worker_audio import WorkerAudioEngine
 from mlx_studio_runtime.adapters.import_diagnostics import import_failure_chain
-from mlx_studio_runtime.adapters.text_engines.session import EngineSession
+from mlx_studio_runtime.adapters.worker_runtime.context import WorkerContext
+from mlx_studio_runtime.adapters.worker_runtime.runtime import WorkerRuntime
 from mlx_studio_runtime.domain.speech import speech_error_code
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
@@ -21,9 +21,9 @@ LOGGER = logging.getLogger("mlx_studio.worker")
 class Worker:
     def __init__(self) -> None:
         self.commands: queue.Queue[dict[str, Any]] = queue.Queue()
-        self.session = EngineSession(self.emit)
-        self.audio_engine: WorkerAudioEngine | None = None
-        self.cancel, self.shutdown = self.session.cancel, self.session.shutdown
+        self.context = WorkerContext(self.emit)
+        self.runtime = WorkerRuntime(self.context)
+        self.cancel, self.shutdown = self.context.signals
         self.sequence = 0
         self.protocol_lock = threading.Lock()
         self.protocol_output = sys.stdout
@@ -106,32 +106,15 @@ class Worker:
         kind = command["type"]
         payload = command.get("payload", {})
         if kind == "worker.load":
-            self.unload()
-            manifest = payload.get("manifest", {})
-            if manifest.get("task") == "text-to-speech":
-                self.emit("model.loading", {"model_id": manifest["id"]})
-                if manifest["engine"] == "mlx-audio":
-                    self.session._configure_mlx()
-                self.audio_engine = WorkerAudioEngine(manifest["engine"], manifest["localPath"])
-                self.emit(
-                    "model.loaded", {"model_id": manifest["id"], "engine": manifest["engine"]}
-                )
-            else:
-                self.session._load(payload)
+            self.runtime.load(payload.get("manifest", {}))
         elif kind == "audio.start":
-            if self.audio_engine is None:
-                raise RuntimeError("SPEECH_MODEL_NOT_LOADED")
-            self.audio_engine.generate(payload, (self.cancel, self.shutdown), self.emit)
+            self.runtime.generate_audio(payload)
         elif kind == "image.start":
-            if self.session.image_engine is None:
-                raise RuntimeError("IMAGE_MODEL_NOT_LOADED")
-            self.session.image_engine.generate(payload, (self.cancel, self.shutdown), self.emit)
+            self.runtime.generate_image(payload)
         elif kind == "inference.start":
-            from mlx_studio_runtime.adapters.text_engines.structured import generate_structured
-
-            generate_structured(self.session, payload)
+            self.runtime.infer(payload)
         elif kind == "generation.start":
-            self.session._generate(payload)
+            self.runtime.generate_text(payload)
         elif kind == "generation.cancel":
             return
         elif kind == "worker.shutdown":
@@ -142,10 +125,7 @@ class Worker:
             raise ValueError(f"unsupported command type: {kind}")
 
     def unload(self) -> None:
-        if self.audio_engine:
-            self.audio_engine.close()
-            self.audio_engine = None
-        self.session._unload()
+        self.runtime.unload()
 
 
 def main() -> int:

@@ -9,8 +9,14 @@ const props = defineProps<{
   selected: CodingChange | null
   loading: boolean
   busy: boolean
+  hasMore?: boolean
 }>()
-const emit = defineEmits<{ select: [id: string]; restore: [id: string]; read: [path: string] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  restore: [id: string]
+  read: [path: string]
+  more: []
+}>()
 const scope = ref<'session' | 'workspace'>('session')
 const split = ref(false)
 const entries = computed(() => latestChanges(props.changes?.managed ?? []))
@@ -53,6 +59,7 @@ const DiffPreview = defineAsyncComponent(() => import('./DiffPreview.vue'))
           <span>{{ change.path }}</span
           ><small>{{ changeLabel(change) }}</small>
         </button>
+        <NButton v-if="hasMore" :disabled="loading" @click="emit('more')">加载更早变更</NButton>
       </nav>
       <section>
         <NSpace

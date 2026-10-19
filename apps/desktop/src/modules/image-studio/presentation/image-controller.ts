@@ -18,7 +18,7 @@ interface ImageDependencies {
   directory: ReturnType<typeof useModelDirectory>
   refreshModels(): Promise<void>
   gateway: ImageGateway
-  exportImage(blob: Blob, id: string): void
+  exportImage(blob: Blob, id: string): Promise<void> | void
 }
 
 export function createImageController(deps: ImageDependencies) {
@@ -233,7 +233,10 @@ export function createImageController(deps: ImageDependencies) {
     savingId.value = id
     try {
       const blob = await deps.gateway.image(id, scope.signal)
-      if (owner === epoch && !disposed) deps.exportImage(blob, id)
+      if (owner === epoch && !disposed) await deps.exportImage(blob, id)
+    } catch (cause) {
+      if (owner === epoch && !disposed)
+        error.value = cause instanceof Error ? cause.message : 'Image export failed'
     } finally {
       savingId.value = null
     }

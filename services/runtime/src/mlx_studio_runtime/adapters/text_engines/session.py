@@ -1,28 +1,29 @@
 """Concrete text/VLM engine loading, streaming and cleanup inside the Worker."""
 
-import gc
 import sys
-import threading
 import time
 from collections.abc import Callable, Iterator
 from contextlib import redirect_stdout
 from typing import Any, cast
 
-from mlx_studio_runtime.adapters.image_engines.worker_image import WorkerImageEngine
+from mlx_studio_runtime.adapters.worker_runtime.context import WorkerContext
 
 
 class EngineSession:
-    def __init__(self, emit: Callable[[str, dict[str, Any]], None] | None = None) -> None:
-        self.event_sink = emit
-        self.cancel = threading.Event()
-        self.shutdown = threading.Event()
+    def __init__(
+        self,
+        emit: Callable[[str, dict[str, Any]], None] | None = None,
+        context: WorkerContext | None = None,
+    ) -> None:
+        self.event_sink = context.emit if context else emit
+        self.context = context or WorkerContext(self.emit)
+        self.cancel, self.shutdown = self.context.signals
         self.model_id: str | None = None
         self.model: Any = None
         self.tokenizer: Any = None
         self.processor: Any = None
         self.model_config: Any = None
         self.engine = "fake"
-        self.image_engine: WorkerImageEngine | None = None
         self.finish_reason = "stop"
         self.generation_tokens = 0
 
@@ -31,20 +32,15 @@ class EngineSession:
             raise NotImplementedError
         self.event_sink(event_type, payload)
 
-    def _load(self, payload: dict[str, Any]) -> None:
-        self._unload()
+    def load(self, payload: dict[str, Any]) -> None:
+        self.unload()
         manifest_value = payload.get("manifest", {})
         if not isinstance(manifest_value, dict):
             raise ValueError("manifest must be an object")
         manifest = cast(dict[str, object], manifest_value)
         self.model_id = str(manifest.get("id", ""))
         self.engine = str(manifest.get("engine", "fake"))
-        self.emit("model.loading", {"model_id": self.model_id})
-        if self.engine in {"mlx-lm", "mlx-vlm", "mflux"}:
-            self._configure_mlx()
-        if manifest.get("task") == "image-generation":
-            self.image_engine = WorkerImageEngine(self.engine, str(manifest["localPath"]))
-        elif self.engine == "mlx-lm":
+        if self.engine == "mlx-lm":
             from mlx_lm import load  # type: ignore[import-not-found]
 
             with redirect_stdout(sys.stderr):
@@ -68,9 +64,8 @@ class EngineSession:
                 self.model_config = load_config(model_path)
         elif self.engine != "fake":
             raise RuntimeError(f"engine is not available in this Worker: {self.engine}")
-        self.emit("model.loaded", {"model_id": self.model_id, "engine": self.engine})
 
-    def _generate(self, payload: dict[str, Any]) -> None:
+    def generate(self, payload: dict[str, Any]) -> None:
         if self.model_id is None:
             raise RuntimeError("MODEL_NOT_LOADED")
         job_id = str(payload["job_id"])
@@ -150,7 +145,7 @@ class EngineSession:
             max_tokens=max_tokens,
             sampler=sampler,
         ):
-            self._record_completion(response)
+            self.record_completion(response)
             if self.cancel.is_set():
                 return
             yield response.text
@@ -188,14 +183,14 @@ class EngineSession:
             temperature=temperature,
             verbose=False,
         ):
-            self._record_completion(response)
+            self.record_completion(response)
             if self.cancel.is_set():
                 return
             text = response if isinstance(response, str) else getattr(response, "text", "")
             if text:
                 yield str(text)
 
-    def _record_completion(self, response: Any) -> None:
+    def record_completion(self, response: Any) -> None:
         reason = getattr(response, "finish_reason", None)
         if reason in {"stop", "length"}:
             self.finish_reason = reason
@@ -212,31 +207,13 @@ class EngineSession:
         for start in range(0, len(reply), 5):
             yield reply[start : start + 5]
 
-    def _unload(self) -> None:
-        release_mlx = self.engine in {"mlx-lm", "mlx-vlm", "mflux"} and (
-            self.model is not None or self.image_engine is not None
-        )
+    def unload(self) -> None:
         self.model = None
         self.tokenizer = None
         self.processor = None
         self.model_config = None
         self.model_id = None
-        self.image_engine = None
         self.engine = "fake"
-        if release_mlx:
-            import mlx.core as mx  # type: ignore[import-not-found]
-
-            mx.synchronize()
-            gc.collect()
-            mx.clear_cache()
-
-    @staticmethod
-    def _configure_mlx() -> None:
-        import mlx.core as mx  # type: ignore[import-not-found]
-
-        # MLX 0.32.1's compiled-cache teardown can segfault after Qwen inference.
-        mx.disable_compile()
-        mx.set_cache_limit(4 * 1024**3)
 
 
 def normalize_messages(messages: object, prompt: str) -> list[dict[str, str]]:

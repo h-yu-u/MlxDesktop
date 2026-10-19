@@ -1,3 +1,4 @@
+import { verificationStatus } from '../domain/verification.js'
 import { RunPolicy } from './run-policy.js'
 import type { PiSession, Provider, RepositoryPort, RunPorts } from './ports.js'
 import { checkModel } from './model-result.js'
@@ -35,9 +36,7 @@ export class Runs {
     this.approvals = new Approvals(repo)
   }
   async submit(input: Submission): Promise<Run> {
-    const previous = this.repo
-      .list('run')
-      .find((run) => run.sessionId === input.sessionId && run.submissionId === input.submissionId)
+    const previous = this.repo.findSubmission(input.sessionId, input.submissionId)
     if (previous) {
       if (
         previous.text !== input.text ||
@@ -62,11 +61,12 @@ export class Runs {
       status: this.current ? 'queued' : 'starting',
       phase: 'exploring',
       verification: 'not_run',
+      verificationCommands: input.probe || input.verifyOnly ? [...project.commands] : [],
       error: null,
       createdAt: new Date().toISOString(),
       baseline: '',
       fingerprint: null,
-      maxRepairRounds: (this.repo.list('settings')[0] ?? defaultSettings).maxRepairRounds,
+      maxRepairRounds: (this.repo.find('settings', 'coding') ?? defaultSettings).maxRepairRounds,
     }
     // Reservation occurs before the first asynchronous execution boundary.
     if (this.current && !input.queue) throw new Error('CODING_BUSY')
@@ -181,7 +181,8 @@ export class Runs {
     probe: boolean
     verifyOnly: boolean
   }): Promise<void> {
-    const { pi, run, project, abort, probe, verifyOnly } = input
+    const { pi, run, abort, probe, verifyOnly } = input
+    const commands = run.verificationCommands ?? []
     const id = run.id
     if (!verifyOnly) {
       await pi.prompt(run.text)
@@ -189,32 +190,25 @@ export class Runs {
     }
     for (
       let repair = 0;
-      (probe || verifyOnly) &&
-      !abort.signal.aborted &&
-      project.commands.length &&
-      run.mode === 'develop';
+      (probe || verifyOnly) && !abort.signal.aborted && commands.length && run.mode === 'develop';
       repair++
     ) {
       let passed = true
-      for (const command of project.commands) {
+      for (const command of commands) {
         const result = await this.command(
           id,
           `verify-${randomUUID()}`,
           command,
           abort.signal,
           probe,
+          true,
         )
         if (result.exitCode !== 0) passed = false
       }
       if (passed || repair >= run.maxRepairRounds || verifyOnly) break
       await pi.prompt(
         'Project verification failed. Repair without changing tests or verification configuration. Evidence:\n' +
-          JSON.stringify(
-            this.repo
-              .list('verification')
-              .filter((check) => check.runId === id)
-              .slice(-project.commands.length),
-          ),
+          JSON.stringify(this.repo.checksForRun(id).slice(-commands.length)),
       )
     }
     if (abort.signal.aborted) throw new Error('CANCELLED')
@@ -223,15 +217,8 @@ export class Runs {
   private async finalize(run: Run, root: string): Promise<void> {
     const id = run.id
     const currentFingerprint = await this.ports.fingerprint(root)
-    const checks = this.repo.list('verification').filter((check) => check.runId === id)
-    const fresh = checks.filter((check) => !check.stale && check.fingerprint === currentFingerprint)
-    const verification = fresh.length
-      ? fresh.every((check) => check.exitCode === 0)
-        ? 'passed'
-        : 'failed'
-      : checks.length
-        ? 'partial'
-        : 'not_run'
+    const checks = this.repo.checksForRun(id)
+    const verification = verificationStatus(run, checks, currentFingerprint)
     this.update(id, {
       status: 'completed',
       phase: 'reviewing',
@@ -245,6 +232,7 @@ export class Runs {
     command: string,
     signal: AbortSignal,
     probe: boolean,
+    verification = probe,
   ) {
     if (probe && command !== "/usr/bin/grep -qx 'after' probe.txt")
       throw new Error('PROBE_COMMAND_NOT_ALLOWED')
@@ -255,7 +243,10 @@ export class Runs {
       project = this.repo.get('project', session.projectId)
     if (run.mode === 'analyze') throw new Error('READ_ONLY_MODE')
     if (signal.aborted) throw new Error('CANCELLED')
-    this.update(id, { status: 'awaiting_approval', phase: 'verifying' })
+    this.update(id, {
+      status: 'awaiting_approval',
+      phase: verification ? 'verifying' : 'executing',
+    })
     const allowed = await this.approvals.request(
       {
         runId: id,
@@ -277,6 +268,7 @@ export class Runs {
     const after = await this.ports.fingerprint(project.path)
     const check = {
       id: randomUUID(),
+      purpose: verification ? ('verification' as const) : ('command' as const),
       sessionId: session.id,
       runId: id,
       command,
@@ -286,7 +278,7 @@ export class Runs {
     }
     this.repo.save('verification', check, 'verification.finished', result.output)
     this.update(id, {
-      verification: before !== after ? 'partial' : result.exitCode === 0 ? 'passed' : 'failed',
+      verification: verificationStatus(run, this.repo.checksForRun(id), after),
       fingerprint: before === after ? after : null,
     })
     return result

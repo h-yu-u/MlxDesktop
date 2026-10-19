@@ -37,7 +37,7 @@ Vue UI ──Tauri Commands──> Tauri Shell ──启停──> Runtime Super
 
 前端源码位于 [apps/desktop/src](../apps/desktop/src)，Runtime 位于 [services/runtime/src/mlx_studio_runtime](../services/runtime/src/mlx_studio_runtime)，生成的跨端 DTO 位于 [packages/api-client](../packages/api-client)。依赖方向和组件职责见工程规范。
 
-前端由 `app/composition-root.ts` 装配工作区；Pinia 入口仅暴露已配置的 controller。`application` 定义用例与端口，`presentation` 管理展示状态和视图生命周期，`infrastructure` 绑定类型化端点。跨工作区的模型目录、Runtime、任务观察和媒体缓存归属 `capabilities`，目录对消费者只读；Tauri、目录选择和导出归属 `platform`。展示组件只通过 props/events 交互。
+前端由 `app/composition-root.ts` 装配工作区；Pinia 入口仅暴露已配置的 controller。`application` 定义用例与端口，`presentation` 管理展示状态和视图生命周期，`infrastructure` 绑定类型化端点。跨工作区的模型目录、Runtime、任务观察和媒体缓存归属 `capabilities`，目录对消费者只读；Tauri、目录选择和导出归属 `platform`。桌面导出通过二进制 IPC、原生保存对话框及 Rust 原子写入完成，前端不提交目标路径；浏览器保留普通下载方式。展示组件只通过 props/events 交互。
 
 Runtime 的 `composition_root.py` 构造 Repository、文件和 Worker 适配器。ChatService 与 ImageGenerationService 依赖窄端口；JobScheduler 统一串行租约、排队、取消及故障终态，ModelRuntime 管理驻留模型，RuntimeControl 编排加载/卸载/重启。HTTP 路由只做协议适配。旧 RuntimeService 和 SQLite CRUD 转发 Facade 已删除。具体决策见 [ADR 0001](./adr/0001-runtime-boundaries.md)，迁移与验证见[本次重构记录](./refactor-2026-10-15.md)。
 
@@ -84,10 +84,10 @@ Coding 使用独立的 TypeScript Pi Host；Python 只桥接产品 NDJSON、认�
 
 Pi 本地 Provider 使用受限短期凭据访问 `/internal/v1/inference`，每次模型请求通过原有 JobScheduler 取得单次租约。文件工具、审批和命令执行不占推理锁。工具消息及结果 ID 保真传入 Worker 的工具模板，JSON/Qwen XML 解析失败不会降级为普通提示词。外部 `/v1` 仍维持原有边界。
 
-主导航已从聊天侧栏拆分，根布局通过 route meta 组合聊天与 Coding。Coding Store 仅暴露 composition root 装配的 controller；独立 CodingObserver 管理事件观察与恢复，离开页面不取消任务。具体权限、持久化、变更归因、验证版本及交付范围见 [Coding](./coding.md)。
+主导航已从聊天侧栏拆分，根布局通过 route meta 组合聊天与 Coding。Coding Store 仅暴露 composition root 装配的 controller；独立 CodingObserver 管理事件观察与恢复，离开页面不取消任务。Node 在事务提交后唤醒事件等待请求，Python 回放持久化事件并转 SSE；前端增量投影连续事件，首次打开、重连或缺口才恢复快照。查询使用会话/任务索引和游标分页。内部 RPC 以 `packages/coding-protocol/schema.json` 为单一协议描述，生成两端方法、请求/结果类型及校验数据，与 HTTP OpenAPI 分开版本化。具体权限、持久化、变更归因、验证版本及交付范围见 [Coding](./coding.md)。
 
 ## 语音创作工作区
 
-Audio Studio 提供预设合成、参考克隆、版本化音色库、作品历史、WAV 试听与导出。`SpeechGenerationService` 依赖模型目录、任务提交、音频文件与仓库窄端口；`VoiceProfileService` 保存音色及授权记录，任务冻结输入快照。Worker 组合文本/图像 Session 与语音引擎，语音不扩展文本 Session 的职责。
+Audio Studio 提供预设合成、参考克隆、版本化音色库、作品历史、WAV 试听与导出。`SpeechGenerationService` 依赖模型目录、任务提交、音频文件与仓库窄端口；`VoiceProfileService` 保存音色及授权记录，任务冻结输入快照。WorkerHost 只处理 IPC；WorkerRuntime 从静态注册表选择单活 Text/VLM、Image 或 Speech Driver。中性的 WorkerContext 持有取消、退出和设备兼容策略，语音和图像不构造或调用文本 Session。业务服务依赖各自的模态推理端口，不能停止 Worker；JobLifecycle 提供不可变 Job 查询和只读任务映射，清理决策归属调度器。
 
 Qwen3-TTS Base 和 CustomVoice 由静态配置区分，资源完整性检查支持 tokenizer.json 或 vocab.json + merges.txt，并检查 codec、克隆 encoder 与分片权重。能力描述记录适配版本和候选状态，未知模型不会默认作为文本模型开放。SQLite 迁移 5 与 `media/audio` 保存资产、音色、任务和作品，音频文件经认证读取，失败补偿和启动媒体恢复纳入统一生命周期。范围、使用流程与验收证据见[语音创作](./audio-studio.md)。

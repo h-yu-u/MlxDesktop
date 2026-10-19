@@ -42,6 +42,7 @@ export interface Run {
   createdAt: string
   baseline: string
   fingerprint: string | null
+  verificationCommands?: string[]
   maxRepairRounds: number
 }
 export interface Approval {
@@ -68,6 +69,7 @@ export interface Change {
   state: 'pending' | 'written'
 }
 export interface Verification {
+  purpose?: 'command' | 'verification'
   id: string
   runId: string
   sessionId: string

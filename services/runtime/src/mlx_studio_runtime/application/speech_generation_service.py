@@ -1,6 +1,5 @@
 """Speech submissions share the existing scheduler, worker and job terminal rules."""
 
-import asyncio
 import hashlib
 import json
 import time
@@ -9,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from mlx_studio_runtime.application.audio_ports import AudioRepository, AudioStorage
-from mlx_studio_runtime.application.ports import InferenceSession, JobAdmission
+from mlx_studio_runtime.application.ports import JobAdmission, SpeechInference
 from mlx_studio_runtime.application.voice_profile_service import VoiceProfileService
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState
@@ -22,7 +21,7 @@ class SpeechGenerationService:
         self,
         models: dict[str, ModelManifest],
         scheduler: JobAdmission,
-        runtime: InferenceSession,
+        runtime: SpeechInference,
         repository: AudioRepository,
         files: AudioStorage,
         voices: VoiceProfileService,
@@ -98,13 +97,10 @@ class SpeechGenerationService:
 
     async def _run(self, job: Job, snapshot: dict[str, Any]) -> None:
         output = self.files.temporary(job.id)
-        worker = self.runtime.worker
         try:
             if self._cancelled(job.id):
                 await self.lifecycle.finish(job.id, JobEvent.CANCEL_COMPLETE)
                 return
-            if worker is None:
-                raise RuntimeError("AUDIO_WORKER_UNAVAILABLE")
             parameters = {key: snapshot[key] for key in ("mode", "text", "language", "speaker")}
             voice = snapshot["voice_snapshot"]
             if voice:
@@ -115,7 +111,7 @@ class SpeechGenerationService:
             await self.lifecycle.transition(job.id, JobEvent.START)
             started = time.monotonic()
             completed = False
-            async for event in worker.generate_audio(job.id, parameters, output):
+            async for event in self.runtime.generate_audio(job.id, parameters, output):
                 kind, payload = event["type"], event["payload"]
                 if kind == "generation.failed":
                     raise RuntimeFault(
@@ -135,10 +131,6 @@ class SpeechGenerationService:
             if not completed:
                 raise RuntimeError("AUDIO_WORKER_ENDED_EARLY")
             await self._save(job, output, snapshot, time.monotonic() - started)
-        except asyncio.CancelledError:
-            if worker is not None:
-                await worker.stop()
-            raise
         except OSError as error:
             raise RuntimeFault(
                 RuntimeErrorInfo(speech_error_code(error), "无法保存语音文件")
@@ -189,4 +181,4 @@ class SpeechGenerationService:
         )
 
     def _cancelled(self, job_id: str) -> bool:
-        return self.lifecycle.items[job_id].state is JobState.CANCELLING
+        return self.lifecycle.cancellation_requested(job_id)

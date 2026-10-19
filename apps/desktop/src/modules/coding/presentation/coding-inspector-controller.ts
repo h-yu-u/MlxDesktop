@@ -16,14 +16,18 @@ export function createCodingInspector(input: {
   const fileList = ref<string[]>([])
   const fileContent = ref<string | null>(null)
   const filePath = ref('')
+  const changesHasMore = ref(false)
   const inspectorPending = ref(false)
   const inspectorError = ref<string | null>(null)
-  let epoch = 0
+  let epoch = 0,
+    dirty = false
 
   function resetInspector(): void {
     epoch++
+    dirty = false
     panel.value = null
     changes.value = null
+    changesHasMore.value = false
     selectedChange.value = null
     fileList.value = []
     fileContent.value = null
@@ -42,7 +46,13 @@ export function createCodingInspector(input: {
     } catch (error) {
       if (current()) inspectorError.value = codingErrorText(error)
     } finally {
-      if (current()) inspectorPending.value = false
+      if (current()) {
+        inspectorPending.value = false
+        if (dirty) {
+          dirty = false
+          void refreshInspector()
+        }
+      }
     }
   }
   async function changeContent(id: string): Promise<CodingChange> {
@@ -72,7 +82,11 @@ export function createCodingInspector(input: {
     })
   }
   async function refreshInspector(): Promise<void> {
-    if (!panel.value || inspectorPending.value) return
+    if (!panel.value) return
+    if (inspectorPending.value) {
+      dirty = true
+      return
+    }
     await load(async (current) => {
       if (panel.value === 'files') {
         const paths = await input.gateway.files(input.sessionId.value)
@@ -91,12 +105,27 @@ export function createCodingInspector(input: {
         if (!current()) return
         const path = selectedChange.value?.path
         changes.value = result
+        changesHasMore.value = result.managed.length === 100
         const item =
           latestChanges(result.managed).find((change) => change.path === path) ??
           latestChanges(result.managed)[0]
         const content = item ? await changeContent(item.id) : null
         if (current()) selectedChange.value = content
       }
+    })
+  }
+  async function loadMoreChanges(): Promise<void> {
+    if (!changesHasMore.value || inspectorPending.value || !changes.value) return
+    const previous = changes.value
+    await load(async (current) => {
+      const result = await input.gateway.changes(input.sessionId.value, previous.managed[0]?.id)
+      if (!current()) return
+      const known = new Set(previous.managed.map((item) => item.id))
+      changes.value = {
+        ...previous,
+        managed: [...result.managed.filter((item) => !known.has(item.id)), ...previous.managed],
+      }
+      changesHasMore.value = result.managed.length === 100
     })
   }
   async function inspect(value: InspectorPanel): Promise<void> {
@@ -122,6 +151,7 @@ export function createCodingInspector(input: {
       const result = await input.gateway.changes(input.sessionId.value)
       if (current()) {
         changes.value = result
+        changesHasMore.value = result.managed.length === 100
         selectedChange.value = null
       }
     })
@@ -129,6 +159,8 @@ export function createCodingInspector(input: {
   return {
     panel,
     changes,
+    changesHasMore,
+    loadMoreChanges,
     selectedChange,
     fileList,
     fileContent,

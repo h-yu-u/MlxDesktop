@@ -317,7 +317,7 @@ class ImageSubmissionTests(unittest.IsolatedAsyncioTestCase):
             service.catalog.models.update(first=first, second=second)
             from mlx_studio_runtime.domain.jobs import Job
 
-            service.lifecycle.items["reference"] = Job(
+            service.lifecycle._items["reference"] = Job(
                 "reference", "chat", JobState.QUEUED, second.id
             )
             try:
@@ -325,5 +325,5 @@ class ImageSubmissionTests(unittest.IsolatedAsyncioTestCase):
                     async with service.scheduler.reserve_removal(first.id):
                         self.fail("Referenced files must not be reserved for deletion")
             finally:
-                service.lifecycle.items.clear()
+                service.lifecycle._items.clear()
                 await service.close()

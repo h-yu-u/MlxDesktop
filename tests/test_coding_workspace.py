@@ -143,7 +143,10 @@ class CodingWorkspaceTests(unittest.IsolatedAsyncioTestCase):
                 break
             await asyncio.sleep(0.02)
         self.assertEqual(state["runs"][-1]["status"], "completed", state)
-        self.assertEqual(state["runs"][-1]["verification"], "passed")
+        self.assertEqual(state["runs"][-1]["verification"], "not_run")
+        self.assertTrue(
+            all(item["purpose"] == "command" for item in state["verifications"])
+        )
         tools = [
             (e["type"], e["text"])
             for e in state["events"]
@@ -169,7 +172,7 @@ class CodingWorkspaceTests(unittest.IsolatedAsyncioTestCase):
         (self.project / "probe.txt").write_text("manual edit")
         fresh = await self.snapshot(session)
         self.assertTrue(all(item["stale"] for item in fresh["verifications"]))
-        self.assertEqual(fresh["runs"][-1]["verification"], "partial")
+        self.assertEqual(fresh["runs"][-1]["verification"], "not_run")
         await self.post(f"/changes/{changes[-1]['id']}/restore", expected=409)
         self.assertEqual((self.project / "probe.txt").read_text(), "manual edit")
         (self.project / "probe.txt").write_text("after\n")

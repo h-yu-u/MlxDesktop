@@ -8,7 +8,11 @@ async function inspect(directory) {
     if (entry.isDirectory()) await inspect(path)
     else {
       const extension = Object.keys(limits).find((suffix) => path.endsWith(suffix))
-      if (!extension || /\.spec\.ts$|\.d\.ts$/.test(path)) continue
+      if (
+        !extension ||
+        /\.spec\.ts$|\.d\.ts$|\/protocol\/generated\/|\/domain\/generated\//.test(path)
+      )
+        continue
       const length = (await readFile(path, 'utf8')).trimEnd().split('\n').length
       if (length > limits[extension])
         errors.push(`${path}: ${length} lines exceeds ${limits[extension]}`)

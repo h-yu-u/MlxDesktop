@@ -32,7 +32,7 @@ async def verify(
         listener.close()
         env = {
             **os.environ,
-            "PYTHONPATH": str(ROOT / "services/runtime/src"),
+            "PYTHONPATH": "" if sidecar else str(ROOT / "services/runtime/src"),
             "MLX_STUDIO_SESSION_TOKEN": "isolated-coding-acceptance",
             "MLX_STUDIO_DATA_DIR": directory,
         }

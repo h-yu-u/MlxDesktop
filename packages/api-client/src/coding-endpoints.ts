@@ -26,8 +26,14 @@ export function codingEndpoints(transport: Transport) {
     configure: async (key: string, commands: string[]) =>
       decodeProject(await transport.patch(`${root}/projects/${id(key)}`, { commands })),
     removeProject: (key: string) => transport.delete(`${root}/projects/${id(key)}`),
-    sessions: async (key: string) =>
-      list(await transport.get(`${root}/projects/${id(key)}/sessions`), decodeSession),
+    sessions: async (key: string, signal?: AbortSignal, before?: string) =>
+      list(
+        await transport.get(
+          `${root}/projects/${id(key)}/sessions${before ? `?before=${id(before)}` : ''}`,
+          signal,
+        ),
+        decodeSession,
+      ),
     create: async (key: string) =>
       decodeSession(await transport.post(`${root}/projects/${id(key)}/sessions`, {})),
     update: async (key: string, patch: CodingSessionPatch) =>
@@ -52,8 +58,12 @@ export function codingEndpoints(transport: Transport) {
       transport.post(`${root}/runs/${id(key)}/steer`, { text: value }),
     resolve: (key: string, allowed: boolean) =>
       transport.post(`${root}/approvals/${id(key)}/resolve`, { allowed }),
-    changes: async (key: string) =>
-      decodeChanges(await transport.get(`${root}/sessions/${id(key)}/changes?diff=true`)),
+    changes: async (key: string, before?: string) =>
+      decodeChanges(
+        await transport.get(
+          `${root}/sessions/${id(key)}/changes?diff=true${before ? `&before=${id(before)}` : ''}`,
+        ),
+      ),
     files: async (key: string) =>
       list(record(await transport.get(`${root}/sessions/${id(key)}/files`)).files, text),
     read: async (key: string, path: string) =>

@@ -1,4 +1,5 @@
 import { createPinia, setActivePinia } from 'pinia'
+import { RuntimeError } from '@mlx-studio/api-client'
 import { reactive } from 'vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { modelFixture } from '../../../test-fixtures/runtime'
@@ -239,4 +240,97 @@ describe('Audio Studio', () => {
     expect(store.syncError).toBeNull()
     expect(store.busy).toBe(false)
   })
+})
+
+describe('Audio polling recovery', () => {
+  it('automatically recovers a failed query and stops at completion', async () => {
+    api.jobs.mockResolvedValue([job])
+    await store.loadWorkspace()
+    const completed = { ...job, state: 'succeeded' as const, artifact_id: artifact.id }
+    api.job
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce({ ...job, state: 'running' })
+      .mockResolvedValueOnce(completed)
+    await vi.advanceTimersByTimeAsync(750)
+    expect(store.syncError).toBe('offline')
+    await vi.advanceTimersByTimeAsync(750)
+    expect(store.syncError).toBeNull()
+    api.jobs.mockResolvedValue([completed])
+    api.history.mockResolvedValue([artifact])
+    await vi.advanceTimersByTimeAsync(750)
+    expect(store.busy).toBe(false)
+    expect(store.selectedId).toBe(artifact.id)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('backs off repeated failures and cancels retry on disposal', async () => {
+    api.jobs.mockResolvedValue([job])
+    api.job.mockRejectedValue(new Error('offline'))
+    await store.loadWorkspace()
+    await vi.advanceTimersByTimeAsync(1500)
+    expect(api.job).toHaveBeenCalledTimes(2)
+    await vi.advanceTimersByTimeAsync(1499)
+    expect(api.job).toHaveBeenCalledTimes(2)
+    store.dispose()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(api.job).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('ignores a failed in-flight request after leaving', async () => {
+    api.jobs.mockResolvedValue([job])
+    await store.loadWorkspace()
+    let reject!: (error: Error) => void
+    api.job.mockReturnValueOnce(
+      new Promise((_, fail) => {
+        reject = fail
+      }),
+    )
+    const refresh = store.refreshJob()
+    store.dispose()
+    reject(new Error('late failure'))
+    await refresh
+    expect(store.syncError).toBeNull()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+describe('Audio non-retryable failures', () => {
+  it.each([401, 403, 404])('does not retry HTTP %s even if marked retryable', async (status) => {
+    api.jobs.mockResolvedValue([job])
+    api.job.mockRejectedValue(new RuntimeError('unavailable', 'REQUEST_FAILED', status, true))
+    await store.loadWorkspace()
+    await vi.advanceTimersByTimeAsync(750)
+    expect(api.job).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+  it('does not retry an aborted observation', async () => {
+    api.jobs.mockResolvedValue([job])
+    api.job.mockRejectedValue(new DOMException('aborted', 'AbortError'))
+    await store.loadWorkspace()
+    await vi.advanceTimersByTimeAsync(750)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+})
+
+it('preserves the newer submission identity when an old workspace response arrives late', async () => {
+  await store.loadWorkspace()
+  store.form.text = 'first'
+  let finish!: (job: AudioJob) => void
+  api.generate.mockReturnValueOnce(
+    new Promise((resolve) => {
+      finish = resolve
+    }),
+  )
+  const old = store.generate()
+  store.dispose()
+  await store.loadWorkspace()
+  store.form.text = 'second'
+  api.generate.mockRejectedValueOnce(new Error('lost response'))
+  await store.generate()
+  const request = api.generate.mock.calls[1]?.[0].clientRequestId
+  finish(job)
+  await old
+  api.generate.mockResolvedValueOnce({ ...job, id: 'second' })
+  await store.generate()
+  expect(api.generate.mock.calls[2]?.[0].clientRequestId).toBe(request)
+  expect(store.activeJob?.id).toBe('second')
 })

@@ -2,15 +2,22 @@
 
 import asyncio
 import json
+import logging
 import os
+import re
 import shutil
 import signal
 import sys
+import time
 import uuid
 from pathlib import Path
 from typing import Any
 
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.domain.generated.coding_rpc import SCHEMA, RpcMethod
+from mlx_studio_runtime.domain.rpc_validation import validate_rpc
+
+LOGGER = logging.getLogger("mlx_studio.coding_host")
 
 
 class AgentHost:
@@ -22,6 +29,7 @@ class AgentHost:
         self.epoch = ""
         self.command_pids: set[int] = set()
         self.pending: dict[str, asyncio.Future[object]] = {}
+        self.methods: dict[str, RpcMethod] = {}
         self.start_lock = asyncio.Lock()
         self.write_lock = asyncio.Lock()
 
@@ -76,11 +84,17 @@ class AgentHost:
                     RuntimeErrorInfo("CODING_HOST_NOT_AVAILABLE", "Coding Host 启动失败", True)
                 ) from error
 
-    async def request(self, method: str, params: dict[str, object]) -> Any:
+    async def request(self, method: RpcMethod, params: dict[str, object]) -> Any:
+        try:
+            validate_rpc(method, "params", params)
+        except ValueError as error:
+            raise RuntimeFault(RuntimeErrorInfo(str(error), "Coding 请求无效")) from error
+        started = time.monotonic()
         await self.start()
         request_id = str(uuid.uuid4())
         future: asyncio.Future[object] = asyncio.get_running_loop().create_future()
         self.pending[request_id] = future
+        self.methods[request_id] = method
         frame = {
             "protocolVersion": 1,
             "hostEpoch": self.epoch,
@@ -101,6 +115,16 @@ class AgentHost:
             ) from error
         finally:
             self.pending.pop(request_id, None)
+            self.methods.pop(request_id, None)
+            LOGGER.debug(
+                "Coding request settled",
+                extra={
+                    "component": "coding_host",
+                    "operation": method,
+                    "request_id": request_id,
+                    "duration_ms": round((time.monotonic() - started) * 1000),
+                },
+            )
 
     async def _read(self) -> None:
         try:
@@ -126,15 +150,25 @@ class AgentHost:
                 if future is None or future.done():
                     continue
                 if isinstance(frame.get("error"), str):
+                    if re.fullmatch(SCHEMA["errorPattern"], frame["error"]) is None:
+                        raise ValueError("CODING_PROTOCOL_INVALID")
                     future.set_exception(
                         RuntimeFault(RuntimeErrorInfo(frame["error"], "Coding 操作未完成"))
                     )
                 elif "result" in frame:
+                    validate_rpc(self.methods[frame["requestId"]], "result", frame["result"])
                     future.set_result(frame["result"])
                 else:
                     raise ValueError("CODING_PROTOCOL_INVALID")
         except (ValueError, OSError):
-            pass  # Process boundary: reject all requests without logging protocol contents.
+            LOGGER.warning(
+                "Coding protocol/transport failure",
+                extra={
+                    "component": "coding_host",
+                    "operation": "read",
+                    "error_code": "CODING_PROTOCOL_INVALID",
+                },
+            )
         finally:
             self.epoch = ""
             for pid in self.command_pids:
@@ -157,8 +191,18 @@ class AgentHost:
 
     async def _drain_stderr(self) -> None:
         assert self.process is not None and self.process.stderr is not None
-        while await self.process.stderr.readline():
-            pass  # SDK diagnostics may contain source text. Never forward them to desktop logs.
+        discarded = 0
+        while chunk := await self.process.stderr.read(8192):
+            discarded += len(chunk)
+        if discarded:
+            LOGGER.debug(
+                "Coding diagnostics suppressed",
+                extra={
+                    "component": "coding_host",
+                    "operation": "stderr",
+                    "discarded_bytes": discarded,
+                },
+            )
 
     async def _stop(self) -> None:
         if self.process is not None and self.process.returncode is None:

@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.domain.generated.coding_rpc import RpcMethod
 
 
 class CodingGateway:
-    def __init__(self, request: Callable[[str, dict[str, object]], Awaitable[Any]]) -> None:
+    def __init__(self, request: Callable[[RpcMethod, dict[str, object]], Awaitable[Any]]) -> None:
         self.request = request
         self.credentials: dict[str, float] = {}
 
@@ -27,12 +28,12 @@ class CodingGateway:
             return False
         return self.credentials.get(authorization[7:], 0) > time.monotonic()
 
-    async def call(self, method: str, params: dict[str, object]) -> Any:
+    async def call(self, method: RpcMethod, params: dict[str, object]) -> Any:
         return await self.request(method, params)
 
     async def model_call(
         self,
-        method: str,
+        method: RpcMethod,
         params: dict[str, object],
         base_url: str,
         model_id: str,

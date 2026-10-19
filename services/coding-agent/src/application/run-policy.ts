@@ -41,7 +41,7 @@ export class RunPolicy {
       phase: ['write', 'edit'].includes(name)
         ? 'editing'
         : name === 'run_command'
-          ? 'verifying'
+          ? 'executing'
           : 'exploring',
     })
     repo.append(run.sessionId, run.id, 'tool.started', name, { toolCallId: id })

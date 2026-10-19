@@ -95,6 +95,7 @@ export function decodeApproval(value: unknown): CodingApproval {
 export function decodeVerification(value: unknown): CodingVerification {
   const p = record(value)
   return {
+    purpose: p.purpose === undefined ? 'command' : choice(p.purpose, ['command', 'verification']),
     id: text(p.id),
     runId: text(p.runId),
     sessionId: text(p.sessionId),

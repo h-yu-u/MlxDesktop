@@ -1,3 +1,4 @@
+import { migrateCoding } from './coding-migrations.js'
 import { DatabaseSync } from 'node:sqlite'
 import { mkdirSync, realpathSync } from 'node:fs'
 import { join } from 'node:path'
@@ -6,6 +7,8 @@ import type { Entities, Event, Run } from '../domain/types.js'
 // This is the sole writer of Coding metadata. Pi owns the actual model transcript.
 export class Repository {
   private db: DatabaseSync
+  private writing = false
+  private listeners = new Set<() => void>()
   constructor(readonly directory: string) {
     mkdirSync(directory, { recursive: true, mode: 0o700 })
     this.directory = realpathSync(directory)
@@ -13,7 +16,14 @@ export class Repository {
     this.db
       .exec(`PRAGMA journal_mode=WAL; CREATE TABLE IF NOT EXISTS entities (kind TEXT, id TEXT, value TEXT NOT NULL, PRIMARY KEY(kind,id));
       CREATE TABLE IF NOT EXISTS events (seq INTEGER PRIMARY KEY AUTOINCREMENT, sessionId TEXT, runId TEXT, type TEXT, text TEXT, data TEXT);`)
-    for (const run of this.list('run')) {
+    migrateCoding(this.db)
+    for (const run of this.byStatus('run', [
+      'queued',
+      'starting',
+      'running',
+      'awaiting_approval',
+      'cancelling',
+    ])) {
       if (!['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status)) {
         this.save(
           'run',
@@ -23,14 +33,109 @@ export class Repository {
         )
       }
     }
-    for (const approval of this.list('approval')) {
+    for (const approval of this.byStatus('approval', ['pending'])) {
       if (approval.status === 'pending') this.save('approval', { ...approval, status: 'denied' })
     }
   }
-  get<K extends keyof Entities>(kind: K, id: string): Entities[K] {
+  find<K extends keyof Entities>(kind: K, id: string): Entities[K] | undefined {
     const row = this.db.prepare('SELECT value FROM entities WHERE kind=? AND id=?').get(kind, id)
-    if (!row || typeof row.value !== 'string') throw new Error(`${kind.toUpperCase()}_NOT_FOUND`)
-    return JSON.parse(row.value) as Entities[K]
+    return row && typeof row.value === 'string' ? (JSON.parse(row.value) as Entities[K]) : undefined
+  }
+  get<K extends keyof Entities>(kind: K, id: string): Entities[K] {
+    const item = this.find(kind, id)
+    if (!item) throw new Error(`${kind.toUpperCase()}_NOT_FOUND`)
+    return item
+  }
+  private scoped<K extends keyof Entities>(
+    kind: K,
+    field: 'sessionId' | 'projectId' | 'runId' | 'path',
+    id: string,
+    limit = 100,
+    before?: string,
+    headers = false,
+  ): Entities[K][] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 500) throw new Error('INVALID_LIMIT')
+    const projection = headers
+      ? `json_set(json_remove(value,'$.before','$.after'),
+      '$.before',CASE WHEN json_type(value,'$.before')='null' THEN NULL ELSE '' END,'$.after','')`
+      : 'value'
+    return this.db
+      .prepare(
+        `SELECT ${projection} AS value FROM entities INDEXED BY entities_${field === 'sessionId' ? 'session' : field === 'projectId' ? 'project' : field === 'runId' ? 'run' : 'path'}
+      WHERE kind=? AND json_extract(value,'$.${field}')=?
+      AND rowid < COALESCE((SELECT rowid FROM entities WHERE kind=? AND id=?),9223372036854775807)
+      ORDER BY rowid DESC LIMIT ?`,
+      )
+      .all(kind, id, kind, before ?? '', limit)
+      .map((row) => JSON.parse(String(row.value)) as Entities[K])
+  }
+  private byStatus<K extends 'run' | 'approval'>(kind: K, statuses: string[]): Entities[K][] {
+    return this.db
+      .prepare(
+        `SELECT value FROM entities INDEXED BY entities_status WHERE kind=?
+      AND json_extract(value,'$.status') IN (${statuses.map(() => '?').join(',')}) ORDER BY rowid`,
+      )
+      .all(kind, ...statuses)
+      .map((row) => JSON.parse(String(row.value)) as Entities[K])
+  }
+  listSessions(projectId: string, before?: string, limit = 100): Entities['session'][] {
+    return this.scoped('session', 'projectId', projectId, limit, before)
+  }
+  listRuns(sessionId: string, before?: string, limit = 50): Run[] {
+    return this.scoped('run', 'sessionId', sessionId, limit, before).reverse()
+  }
+  listApprovals(sessionId: string): Entities['approval'][] {
+    return this.scoped('approval', 'sessionId', sessionId, 50).reverse()
+  }
+  checksForRun(runId: string): Entities['verification'][] {
+    return this.scoped('verification', 'runId', runId, 500).reverse()
+  }
+  listChecks(sessionId: string): Entities['verification'][] {
+    return this.scoped('verification', 'sessionId', sessionId, 20).reverse()
+  }
+  changesForRun(runId: string): Entities['change'][] {
+    return this.scoped('change', 'runId', runId, 500).reverse()
+  }
+  changeHeaders(
+    sessionId: string,
+    before?: string,
+    limit = 100,
+  ): (Entities['change'] & { contentLoaded: false })[] {
+    return this.scoped('change', 'sessionId', sessionId, limit, before, true)
+      .reverse()
+      .map((item) => ({
+        ...item,
+        before: item.before === null ? null : '',
+        after: '',
+        contentLoaded: false,
+      }))
+  }
+  changeDetail(id: string): Entities['change'] & { contentLoaded: true } {
+    const item = this.get('change', id)
+    const first = this.db
+      .prepare(
+        `SELECT value FROM entities INDEXED BY entities_session_path WHERE kind='change'
+      AND json_extract(value,'$.sessionId')=? AND json_extract(value,'$.path')=?
+      AND json_extract(value,'$.restored')=0 ORDER BY rowid LIMIT 1`,
+      )
+      .get(item.sessionId, item.path)
+    const baseline = first ? (JSON.parse(String(first.value)) as Entities['change']) : item
+    return { ...item, before: baseline.before, contentLoaded: true }
+  }
+  pendingApprovals(runId: string): Entities['approval'][] {
+    return this.scoped('approval', 'runId', runId, 500).filter((item) => item.status === 'pending')
+  }
+  findSubmission(sessionId: string, submissionId: string): Run | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT value FROM entities INDEXED BY entities_submission WHERE kind='run'
+      AND json_extract(value,'$.sessionId')=? AND json_extract(value,'$.submissionId')=? LIMIT 1`,
+      )
+      .get(sessionId, submissionId)
+    return row ? (JSON.parse(String(row.value)) as Run) : undefined
+  }
+  findProject(path: string): Entities['project'] | undefined {
+    return this.scoped('project', 'path', path, 1)[0]
   }
   list<K extends keyof Entities>(kind: K): Entities[K][] {
     return this.db
@@ -45,6 +150,7 @@ export class Repository {
     text = '',
   ): Entities[K] {
     this.db.exec('BEGIN IMMEDIATE')
+    this.writing = true
     try {
       this.db
         .prepare(
@@ -63,7 +169,10 @@ export class Repository {
     } catch (error) {
       this.db.exec('ROLLBACK')
       throw error
+    } finally {
+      this.writing = false
     }
+    this.notify()
     return item
   }
   append(
@@ -76,6 +185,23 @@ export class Repository {
     this.db
       .prepare('INSERT INTO events(sessionId,runId,type,text,data) VALUES(?,?,?,?,?)')
       .run(sessionId, runId, type, text.slice(0, 65536), JSON.stringify(data))
+    if (!this.writing) this.notify()
+  }
+  private notify(): void {
+    for (const listener of [...this.listeners]) listener()
+  }
+  waitEvents(after: number): Promise<{ events: Event[]; watermark: number }> {
+    const events = this.events(after)
+    if (events.length) return Promise.resolve({ events, watermark: this.watermark() })
+    return new Promise((resolve) => {
+      const finish = (): void => {
+        clearTimeout(timer)
+        this.listeners.delete(finish)
+        resolve({ events: this.events(after), watermark: this.watermark() })
+      }
+      const timer = setTimeout(finish, 20000)
+      this.listeners.add(finish)
+    })
   }
   events(after: number, sessionId?: string): Event[] {
     const rows = sessionId
@@ -103,16 +229,31 @@ export class Repository {
     this.db.prepare('DELETE FROM entities WHERE kind=? AND id=?').run(kind, id)
   }
   deleteSession(id: string): void {
-    for (const kind of ['run', 'approval', 'change', 'verification'] as const) {
-      for (const item of this.list(kind)) if (item.sessionId === id) this.delete(kind, item.id)
+    this.db.exec('BEGIN IMMEDIATE')
+    try {
+      for (const kind of ['run', 'approval', 'change', 'verification'] as const) {
+        this.db
+          .prepare("DELETE FROM entities WHERE kind=? AND json_extract(value,'$.sessionId')=?")
+          .run(kind, id)
+      }
+      this.db.prepare('DELETE FROM events WHERE sessionId=?').run(id)
+      this.delete('session', id)
+      this.db.exec('COMMIT')
+    } catch (error) {
+      this.db.exec('ROLLBACK')
+      throw error
     }
-    this.db.prepare('DELETE FROM events WHERE sessionId=?').run(id)
-    this.delete('session', id)
   }
-  active(): Run | undefined {
-    return this.list('run').find(
-      (run) => !['completed', 'failed', 'cancelled', 'interrupted'].includes(run.status),
-    )
+
+  active(sessionId?: string): Run | undefined {
+    const row = this.db
+      .prepare(
+        `SELECT value FROM entities INDEXED BY entities_active_session WHERE kind='run'
+      AND json_extract(value,'$.status') IN ('queued','starting','running','awaiting_approval','cancelling')
+      ${sessionId ? "AND json_extract(value,'$.sessionId')=?" : ''} ORDER BY rowid LIMIT 1`,
+      )
+      .get(...(sessionId ? [sessionId] : []))
+    return row ? (JSON.parse(String(row.value)) as Run) : undefined
   }
   close(): void {
     this.db.close()
@@ -120,23 +261,14 @@ export class Repository {
 }
 
 function eventProjection<K extends keyof Entities>(kind: K, item: Entities[K]): unknown {
-  if (kind === 'run' && 'status' in item)
+  if (kind === 'run' || kind === 'verification') return { version: 1, kind, value: item }
+  if (kind === 'approval' && 'status' in item)
     return {
-      id: item.id,
-      status: item.status,
-      phase: 'phase' in item ? item.phase : '',
-      verification: 'verification' in item ? item.verification : '',
+      version: 1,
+      kind,
+      value: { ...item, parameters: item.status === 'pending' ? item.parameters : {} },
     }
-  if (kind === 'approval' && 'command' in item)
-    return {
-      id: item.id,
-      action: 'action' in item ? item.action : '',
-      command: item.command,
-      status: 'status' in item ? item.status : '',
-    }
-  if (kind === 'change' && 'path' in item)
-    return { id: item.id, path: item.path, state: 'state' in item ? item.state : '' }
-  if (kind === 'verification' && 'exitCode' in item)
-    return { id: item.id, exitCode: item.exitCode, fingerprint: item.fingerprint }
-  return { id: item.id }
+  if (kind === 'change' && 'path' in item && 'state' in item)
+    return { version: 1, kind, value: { id: item.id, path: item.path, state: item.state } }
+  return { version: 1, kind, value: { id: item.id } }
 }

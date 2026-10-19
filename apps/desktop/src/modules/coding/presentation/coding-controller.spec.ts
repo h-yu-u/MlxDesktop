@@ -203,3 +203,102 @@ describe('Coding workspace', () => {
     expect(controller.error.value).toBeNull()
   })
 })
+
+function deferred<T>() {
+  let resolve!: (value: T) => void
+  let reject!: (error: Error) => void
+  const promise = new Promise<T>((done, fail) => {
+    resolve = done
+    reject = fail
+  })
+  return { promise, resolve, reject }
+}
+describe('Coding request ownership', () => {
+  it.each([false, true])(
+    'keeps the latest project query when the same project is reopened: %s',
+    async (same) => {
+      const { controller, gateway } = fixture()
+      const first = deferred<(typeof session)[]>()
+      vi.mocked(gateway.sessions).mockReturnValueOnce(first.promise)
+      const loading = controller.selectProject('p')
+      const signal = vi.mocked(gateway.sessions).mock.calls[0]?.[1]
+      const target = same ? 'p' : 'other'
+      const next = { ...session, id: 'new', projectId: target }
+      vi.mocked(gateway.sessions).mockResolvedValueOnce([next])
+      await controller.selectProject(target)
+      expect(signal?.aborted).toBe(true)
+      expect(controller.pending.value).toBe(true)
+      first.resolve([session])
+      await loading
+      expect(controller.projectId.value).toBe(target)
+      expect(controller.sessions.value).toEqual([next])
+      expect(controller.pending.value).toBe(false)
+    },
+  )
+  it('ignores a project response and error after disposal', async () => {
+    const { controller, gateway } = fixture()
+    const first = deferred<(typeof session)[]>()
+    vi.mocked(gateway.sessions).mockReturnValueOnce(first.promise)
+    const loading = controller.selectProject('p')
+    controller.dispose()
+    first.reject(new Error('late failure'))
+    await loading
+    expect(controller.sessions.value).toEqual([])
+    expect(controller.error.value).toBeNull()
+    expect(controller.pending.value).toBe(false)
+  })
+  it.each(['reopen', 'dispose'])('does not subscribe a stale snapshot after %s', async (action) => {
+    const { controller, gateway, observe } = fixture()
+    const first = deferred<CodingSnapshot>()
+    vi.mocked(gateway.snapshot).mockReturnValueOnce(first.promise)
+    const opening = controller.openSession('s')
+    if (action === 'reopen') await controller.openSession('s')
+    else controller.dispose()
+    first.resolve(snapshot())
+    await opening
+    expect(observe).toHaveBeenCalledTimes(action === 'reopen' ? 1 : 0)
+  })
+})
+
+it('keeps pending true when an earlier request finishes before the current request', async () => {
+  const { controller, gateway } = fixture()
+  const first = deferred<(typeof session)[]>(),
+    second = deferred<(typeof session)[]>()
+  vi.mocked(gateway.sessions).mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise)
+  const a = controller.selectProject('a'),
+    b = controller.selectProject('b')
+  first.resolve([session])
+  await a
+  expect(controller.pending.value).toBe(true)
+  expect(controller.sessions.value).toEqual([])
+  second.resolve([{ ...session, projectId: 'b' }])
+  await b
+  expect(controller.pending.value).toBe(false)
+})
+it('cannot reopen a routed session after leaving during project loading', async () => {
+  const { controller, gateway, observe } = fixture()
+  const first = deferred<(typeof session)[]>()
+  vi.mocked(gateway.sessions).mockReturnValueOnce(first.promise)
+  const loading = controller.loadWorkspace('p', 's')
+  await vi.waitFor(() => expect(gateway.sessions).toHaveBeenCalled())
+  controller.dispose()
+  first.resolve([session])
+  await loading
+  expect(controller.sessions.value).toEqual([])
+  expect(gateway.snapshot).not.toHaveBeenCalled()
+  expect(observe).not.toHaveBeenCalled()
+})
+
+it('keeps the oldest page cursor after creating a new session', async () => {
+  const { controller, gateway } = fixture()
+  const page = Array.from({ length: 100 }, (_, index) => ({ ...session, id: `page-${index}` }))
+  vi.mocked(gateway.sessions).mockResolvedValueOnce(page)
+  await controller.loadWorkspace('p')
+  vi.mocked(gateway.create).mockResolvedValueOnce({ ...session, id: 'new' })
+  await controller.newSession()
+  vi.mocked(gateway.sessions).mockResolvedValueOnce([{ ...session, id: 'older' }])
+  await controller.loadMoreSessions()
+  expect(vi.mocked(gateway.sessions).mock.calls.at(-1)?.[2]).toBe('page-99')
+  expect(controller.sessions.value[0]?.id).toBe('new')
+  expect(controller.sessions.value.at(-1)?.id).toBe('older')
+})

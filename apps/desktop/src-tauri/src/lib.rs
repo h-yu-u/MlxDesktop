@@ -1,5 +1,6 @@
 mod commands;
 mod runtime;
+use commands::export::export_blob;
 use commands::runtime::{restart_runtime_process, runtime_connection};
 use runtime::state::RuntimeProcess;
 use runtime::supervisor::{launch_runtime, stop_runtime};
@@ -21,6 +22,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            export_blob,
             runtime_connection,
             restart_runtime_process,
         ])

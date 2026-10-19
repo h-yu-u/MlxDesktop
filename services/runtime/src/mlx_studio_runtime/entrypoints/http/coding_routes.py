@@ -1,15 +1,14 @@
 """Thin authenticated Coding gateway; business state stays in the Node Host."""
 
-import asyncio
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Protocol
 
 from fastapi import Depends, FastAPI, Query, Request
 from fastapi.responses import StreamingResponse
 
-from mlx_studio_runtime.composition_root import RuntimeApplication
-from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.application.coding_gateway import CodingGateway
+from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
 from mlx_studio_runtime.entrypoints.http.coding_contracts import (
     CodingApprovalRequest,
     CodingCapability,
@@ -31,28 +30,18 @@ from mlx_studio_runtime.entrypoints.http.coding_contracts import (
 )
 
 
+class CodingRouteServices(Protocol):
+    coding: CodingGateway
+    coding_requests: CodingModelRequests
+
+
 def register_coding_routes(
-    app: FastAPI, service: RuntimeApplication, authenticate: Callable[..., Awaitable[None]]
+    app: FastAPI, service: CodingRouteServices, authenticate: Callable[..., Awaitable[None]]
 ) -> None:
     from fastapi import APIRouter
 
     router = APIRouter(prefix="/internal/v1/coding", dependencies=[Depends(authenticate)])
     call = service.coding.call
-
-    async def model_call(
-        method: str, params: dict[str, object], request: Request, model_id: str
-    ) -> Any:
-        model = service.catalog.models.get(model_id)
-        if model is None or "text" not in model.output_modalities:
-            raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "请选择本地文本模型"))
-        return await service.coding.model_call(
-            method,
-            params,
-            str(request.base_url),
-            model.id,
-            min(model.context_length or 32768, 32768),
-            service.coding_identity(model),
-        )
 
     @router.get("/settings", response_model=CodingSettings)
     async def settings():
@@ -83,8 +72,12 @@ def register_coding_routes(
         return await call("projects.remove", {"id": project_id})
 
     @router.get("/projects/{project_id}/sessions", response_model=list[CodingSessionView])
-    async def sessions(project_id: str):
-        return await call("sessions.list", {"projectId": project_id})
+    async def sessions(
+        project_id: str, before: str | None = None, limit: int = Query(default=100, ge=1, le=500)
+    ):
+        return await call(
+            "sessions.list", {"projectId": project_id, "before": before, "limit": limit}
+        )
 
     @router.post("/projects/{project_id}/sessions", response_model=CodingSessionView)
     async def create_session(project_id: str, body: CodingSessionRequest):
@@ -109,8 +102,8 @@ def register_coding_routes(
         return await call("sessions.snapshot", {"id": session_id})
 
     @router.get("/sessions/{session_id}/changes", response_model=CodingChanges)
-    async def changes(session_id: str, diff: bool = False):
-        return await call("sessions.changes", {"id": session_id, "diff": diff})
+    async def changes(session_id: str, diff: bool = False, before: str | None = None):
+        return await call("sessions.changes", {"id": session_id, "diff": diff, "before": before})
 
     @router.get("/sessions/{session_id}/files", response_model=CodingFileList)
     async def files(session_id: str):
@@ -130,19 +123,19 @@ def register_coding_routes(
 
     @router.post("/sessions/{session_id}/runs", response_model=CodingRunView)
     async def submit(session_id: str, body: CodingRunRequest, request: Request):
-        return await model_call(
+        return await service.coding_requests.call(
             "runs.submit",
             {"sessionId": session_id, **body.model_dump(exclude={"modelId"})},
-            request,
+            str(request.base_url),
             body.modelId,
         )
 
     @router.post("/sessions/{session_id}/verify", response_model=CodingRunView)
     async def verify_session(session_id: str, body: CodingRunRequest, request: Request):
-        return await model_call(
+        return await service.coding_requests.call(
             "sessions.verify",
             {"sessionId": session_id, "submissionId": body.submissionId},
-            request,
+            str(request.base_url),
             body.modelId,
         )
 
@@ -168,19 +161,20 @@ def register_coding_routes(
 
     @router.post("/capabilities/{model_id}/verify", response_model=CodingCapability)
     async def verify_model(model_id: str, request: Request):
-        return await model_call("capabilities.verify", {}, request, model_id)
+        return await service.coding_requests.call(
+            "capabilities.verify", {}, str(request.base_url), model_id
+        )
 
     @router.get("/events")
     async def events(request: Request, after_seq: int = Query(default=0, ge=0)):
         async def stream():
             sequence = after_seq
             while not await request.is_disconnected():
-                batch = await call("events.list", {"after": sequence})
+                batch = await call("events.wait", {"after": sequence})
                 for event in batch["events"]:
                     sequence = event["seq"]
                     yield f"id: {sequence}\ndata: {json.dumps(event, ensure_ascii=False)}\n\n"
                 yield ": heartbeat\n\n"
-                await asyncio.sleep(0.5)
 
         return StreamingResponse(stream(), media_type="text/event-stream")
 

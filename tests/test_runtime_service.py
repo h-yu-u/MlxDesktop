@@ -99,7 +99,7 @@ class RuntimeServiceTests(unittest.TestCase):
             service = create_test_runtime(
                 SQLiteRepositories(Path(directory) / "app.db"), RUNTIME_SOURCE
             )
-            service.lifecycle.items["done"] = Job("done", "chat", JobState.SUCCEEDED)
+            service.lifecycle._items["done"] = Job("done", "chat", JobState.SUCCEEDED)
             first = await service.scheduler.cancel("done")
             second = await service.scheduler.cancel("done")
             self.assertEqual(first, {"jobId": "done", "state": "succeeded"})

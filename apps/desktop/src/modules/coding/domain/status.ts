@@ -23,6 +23,7 @@ export function statusLabel(status: string): string {
     exploring: '读取与分析',
     editing: '修改文件',
     verifying: '执行验证',
+    executing: '执行命令',
     reviewing: '收集结果',
   }
   return labels[status] ?? status

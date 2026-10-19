@@ -222,3 +222,76 @@ Chrome 手工回归通过初始书目、添加、实时搜索、借出后库存�
 当前开发版模型库的 3 个 Fake 条目已清理，5 个真实模型（含两款 Qwen3-TTS）完整保留，在线模型列表已验证。`pnpm check` 和 `pnpm test` 通过（127 前端 + 118 Runtime + 8 Coding，共 253 项）；新增空库启动/重启、旧库迁移保留真实权重与历史的回归测试。
 
 本次修改 `application/model_catalog.py`、`adapters/persistence/model_migrations.py` / `sqlite_repositories.py`，并将模拟登记移到 `tests/runtime_fixtures.py` 与 `scripts/verification_models.py`。相关测试、隔离验证脚本及使用说明同步更新；没有新增依赖，没有重新构建或替换安装包，没有提交或推送代码。
+
+## 架构评审路线落实（2026-10-17）
+
+本次按评审的六个阶段推进，保留桌面、Python Supervisor、单活 Worker 与独立 Pi Host 的进程边界，没有引入新依赖，没有提交、推送或替换 `/Applications` 中的安装版。
+
+| 阶段 | 主要改动位置 | 已落实行为 |
+|---|---|---|
+| PR1 对应门禁 | `scripts/check-boundaries.mjs` 及 fixtures | TypeScript ESM 源码、引用 tsconfig 与别名解析；未解析内部引用显式失败；反向依赖及循环检查 |
+| PR2 对应正确性 | Coding project/session controller、JobPoller、Coding Repository | 查询按身份/代际归属，重叠 pending 正确计数；迟到回调不恢复订阅；语音可重试故障退避；会话关联数据整体事务删除 |
+| PR3 对应状态语义 | `domain/verification.ts`、Runs、Snapshot、Coding DTO | 普通命令只保存执行证据；显式检查冻结列表，按当前指纹和每步最新尝试汇总；旧无归属记录不追认为验证通过 |
+| PR4 对应职责收口 | 前端提交/能力准备及 AudioHistory 用例；Node ProjectSessions、ChangeService、CapabilityVerifier；Runtime 模态端口 | Controller/RPC 组合用例；业务服务不停止 Worker、不访问任务内部字典；Job 及任务映射对消费者只读 |
+| PR5 对应数据与事件 | Coding migrations、Repository、Observer/projection；`packages/coding-protocol` | 增量索引迁移、按会话/任务筛选和游标分页、SQL 内剥离大文件内容；提交唤醒 `events.wait`、持久化回放及连续事件投影；共享方法/请求/结果契约与两端一致 fixtures |
+| PR6 对应驱动与交付 | `adapters/worker_runtime/`、打包脚本、验收脚本、手动 release workflow | 中性 WorkerContext 与独立模态驱动，静态注册扩展；打包限定 Qwen3-TTS 且阻止模型隐式下载；验证真正包内 Runtime/Node；原生媒体策略与原生文件保存修复 |
+
+源码检查：`pnpm check`、`pnpm test`（150 前端 + 123 Runtime + 39 Coding，共 312 项）、13 项边界 fixtures，以及 `pnpm check:rust` / `pnpm test:rust`（5 项）通过。Unicode 协议边界、新建会话后的分页游标、乱序响应、轮询恢复、删除回滚、旧库升级、提交身份、事件缺口与模态隔离均有回归用例。
+
+实际 release 引擎 Sidecar 与 `.app` / DMG 已本机构建。包内自动化证据为忽略目录 `.build/release-acceptance/report.json`，包含 Sidecar 摘要及各项实际结果；同时保存 `coding-fake.json`、`coding-real.json`、`speech/report.json` 与生成样本。它检查 Fake 闭环、退出清理、选定 Qwen 文本上下文/取消、MFLUX 图片进度/取消、两款 Qwen3-TTS 预设/合成参考克隆/取消后恢复/重启历史及真实 Pi 工具闭环。包内程序通过明确资源路径启动，不借用开发目录的 Node 或 Python 引擎。
+
+原生 UI 使用相同代码及引擎资源、独立标识 `local.mlxstudio.acceptance` 的 QA 应用，保留用户安装版数据。已实际观察播放进入 Pause 状态且进度非零、应用重启与切页后恢复作品、原生保存对话框、连续两次导出后界面继续响应。两份 WAV 均为 24 kHz、单声道、65280 帧，摘要一致；证据 `.build/release-acceptance/native-qa.json` 及 `native-export*.wav`。桌面导出通过现有 Dialog 插件和受限二进制 IPC，Rust 原子写入用户选择的目标；没有引入文件系统插件或开放前端任意路径写入。
+
+交付边界：以上为本机临时签名产物及选定模型验收，不代表正式 Developer ID 签名、公证、干净机器、所有模型或长期压力验收。手动 release workflow 已提供但未在远端运行。取消强制结束上游语音进程时曾出现 resource_tracker 清理警告，后续生成、卸载与进程退出已复验，长期资源稳定性仍需专项测试。现有 Web 主包超过 500 kB 的构建提示保留。
+
+## 本机隔离与稳定性验收（2026-10-17）
+
+用户选择继续使用临时签名分发，先完成本机隔离测试和可携带验收工具；暂时没有独立测试 Mac。正式 Developer ID/公证不作为此次测试的前置门禁，独立干净机器验收仍未完成。
+
+新增 `scripts/run-bundle-acceptance.sh`、`verify-bundle-stability.mjs` 与 `acceptance-{system,runtime,media,workloads}.mjs`，直接使用发布包的 Node，冻结整份应用后以独立 HOME/数据/缓存和系统 PATH 启动包内 Runtime。没有新依赖，不借用源码 Python 引擎，没有重新打包或替换用户安装版。`acceptance.spec.mjs` 的八项工具回归纳入 `pnpm test`；`package-acceptance-kit.sh` 提供可携带 ZIP，完整步骤和人工检查单见[安装与稳定性验收](./release-acceptance.md)。
+
+已完成的隔离证据：
+
+- `.build/isolation-smoke-20261017/report.json`：两轮空库/认证/包内 Coding Host 检查，以及异常退出清理、会话重启恢复和正常退出通过。
+- `.build/isolation-real-qualification-20261017/report.json`：225 秒内完成两轮固定真实文本、图片、预设/克隆语音、Coding 工具闭环与各模态取消恢复。两个卸载检查点分别为 RSS 220561408 / 184156160 字节，均为 3 个进程、38 个数字文件句柄、Worker 内存 0、活跃任务 0。强制父进程退出后观察到的测试进程全部消失；重启校验八个媒体摘要及聊天、音色、Coding 会话通过。
+- 两轮语音强制取消各出现一次 semaphore 清理警告，因此资格测试状态为 `passed_with_warnings_requiring_review`，不能据此宣布无泄漏或长期稳定。两轮样本不足以进行资源趋势判定。
+- `.build/isolation-kit-smoke-20261017/report.json`：最终可携带工具实际运行通过，两次退出均无残留，正常退出码 0。
+
+这些测试绑定同一应用清单摘要 `4430cce9451a99d2ed91ec3ca85d12c5ba7f1ee87cc800d64e4dd4463a285300`。可携带工具为 `.build/acceptance-kit-20261017.zip`，SHA-256 `7636488680bf3d5821086dd779cd3178e6dd13deaadd82251d8b1be0f2b25647`。本轮 `pnpm check`、`pnpm test`（150 前端 + 123 Runtime + 39 Coding + 8 验收工具，共 320 项）通过；最终退出管道处理调整后补跑工具测试、格式检查与可携带包端到端验证，`git diff --check` 通过。本轮未修改 Rust 或应用生产逻辑，未新增依赖、提交或推送。
+
+八小时真实模型长测已于北京时间 2026-10-17 11:26 启动，最少八轮，Supervisor/Node 在循环期间不重启，以观察累积。使用冻结的可携带工具和应用副本，接入仅测试期间有效的空闲防睡眠；证据持续写入 `.build/isolation-soak-8h-20261017/report.json` / `resources.ndjson`，启动日志与 PID 在相邻 `.launch.*` 文件。已配置本聊天跟进，仅在结束、失败、中断或需要处理时报告。
+
+**当前长测状态：提前失败，未完成八小时验收。** 2026-10-17 12:51 结束，报告耗时 5121 秒（包含宿主机休眠），完成 58 轮；第 59 轮图片取消已成功，随后的 12 步正常图片生成触发 600 秒终态期限，原始错误为 `Task terminal-state deadline exceeded`。失败后的 Runtime 关闭将该任务记录为 `failed / RUNTIME_SHUTDOWN`。
+
+此次失败存在明确的环境中断：本机电源日志显示 12:41:44 电量 1%，进入 `Low Power Sleep`，12:51:19 从休眠唤醒；资源采样在 12:41:45–12:51:20 中断约 574 秒，对应 Runtime uptime 仅增加约 26 秒。低电量休眠跨越了验收超时窗口，不能把此次超时直接归因为模型推理自身死锁，也不能据此认定睡眠唤醒恢复通过。未重启长测、重新构建或替换安装版。
+
+已完成轮次的卸载检查点均为 3 个进程、38 个数字文件句柄。去掉前两轮预热后，最初三点与最后三点的 RSS 中位数增长 13860864 字节（约 13.2 MiB），文件句柄/进程数增长均为 0，在初始门槛内；这仅覆盖已执行区间，不代表八小时稳定性。累计记录 59 次 semaphore/resource_tracker 清理警告，仍需专项查清。
+
+失败清理正常退出码为 0；审查采样中记录的 555 个 PID/出生时间身份，没有发现仍存活的测试进程。因循环提前失败，计划中的最终强制退出及重启后媒体/历史恢复检查没有执行，不能追认为通过。原始结果和采样保留，补充审查记录为 `.build/isolation-soak-8h-20261017/failure-audit.json`。本次跟进在记录结果后停止；重新验收应接通电源，保留此次失败证据并使用新的输出目录。
+
+独立干净机器、原生安装、系统断网与睡眠唤醒仍保留未验证；不能用本机环境隔离替代这些结果。正式签名/公证继续按用户选择排除在此次临时签名验收门禁之外。
+
+### 续验准备（2026-10-19）
+
+用户要求继续并表示已接通电源。已只读核对候选应用完整清单与临时签名完整性，应用摘要仍为 `4430cce9451a99d2ed91ec3ca85d12c5ba7f1ee87cc800d64e4dd4463a285300`（15877 个文件/链接条目），冻结工具包摘要也与上次一致。四个本地模型经静态扫描确认引擎和登记身份均未变化；图片模型使用 MFLUX 导出目录，按其索引和 manifest 识别，不要求根目录存在 config.json。预检证据为 `.build/acceptance-preflight-20261019.json`。
+
+本次使用独立输出目录 `.build/isolation-soak-8h-20261019`，保留 2026-10-17 的全部失败证据。独立电源守卫 `.build/acceptance-power-gate-20261019.py` 已启动，每十秒检查实际供电状态，只有识别到 AC Power 后才启动唯一一轮八小时测试；使用上次已冻结且未经修改的应用副本和同一工具包。运行中持续断电三十秒会向本次验收进程发送中断请求，要求清理并保留记录，不自动把中断追认为通过。
+
+**续验当前状态：用户要求暂不执行，已在启动前取消。** 等待程序已退出，`.build/isolation-soak-8h-20261019.power.json` 的状态为 `cancelled_before_start`；本次没有启动真实模型长测，也没有生成长测结果。原本恢复的自动跟进已经重新暂停，后续接通电源不会自动启动测试。2026-10-17 的失败证据完整保留。
+
+本轮未重建、替换安装版、修改应用生产逻辑或新增依赖，未提交或推送。执行了包清单/签名/工具摘要核对、四模型静态扫描、电源与进程检查，以及一次性守卫的语法编译检查；没有重复运行整套源码测试，也未把本次准备工作描述为验收通过。原有独立干净机器及其他未验证边界继续保留。
+
+### 其他待补充的验收证据
+
+按最终安装包的现有证据核对，常规聊天、文生图、预设/克隆语音、Coding 工具闭环与原生 WAV 播放/重复导出已有通过记录。以下是建议补充的专项证据，不表示相关实现或源码测试全部缺失；不在此次清单中重启长期压力测试。
+
+| 优先级 | 专项 | 需要补充的实际证据 |
+|---|---|---|
+| P1 | 旧数据升级与保留 | 使用隔离的旧版数据库和媒体副本，由最终包执行迁移，核对模型引用、聊天、Coding、音色和作品；源码迁移回归已有覆盖 |
+| P1 | 短时异常恢复 | 安装包中的 Host/Runtime 异常退出、取消与写入交错、未决审批失效、无重复命令、后台无残留及后续任务恢复；已有单次退出清理不能覆盖全部组合 |
+| P1 | 图片编辑与局部重绘的打包后流程 | 完整编辑模型的双参考图、蒙版顺序、取消再生成、历史复用与原生导出；现有证据以源码 Runtime/浏览器为主，最终包自动化只覆盖文生图 |
+| P2 | 大量历史下的查询与界面 | 批量隔离会话/事件/作品，核对分页、增量恢复、查询扫描和按需文件读取；不能只依据索引存在或小数据测试宣布性能验收完成 |
+| P2 | 内容展示与诊断隐私 | 抽检最终包诊断 ZIP、日志和错误详情的脱敏，结合 Markdown/附件边界检查；当前 ZIP 可下载验证不等于已审查其全部内容 |
+| P2 | 语音长文本与主观质量 | 在已支持长度内验证较长中文、停顿、音色连续性与参考相似度，并人工试听；当前数秒样本不能代表长文本质量 |
+
+未开放的外部兼容 API、其他候选模型及设计后续能力不自动列为本版发布阻塞项。独立干净机器仍需对应设备，正式签名/公证按用户当前选择暂不要求。

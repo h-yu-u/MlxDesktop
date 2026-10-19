@@ -1,6 +1,22 @@
 import type { Entities, Event, Project, Run, Session } from '../domain/types.js'
 export interface RepositoryPort {
   readonly directory: string
+  find<K extends keyof Entities>(kind: K, id: string): Entities[K] | undefined
+  listSessions(projectId: string, before?: string, limit?: number): Entities['session'][]
+  listRuns(sessionId: string, before?: string, limit?: number): Run[]
+  listApprovals(sessionId: string): Entities['approval'][]
+  checksForRun(runId: string): Entities['verification'][]
+  listChecks(sessionId: string): Entities['verification'][]
+  changesForRun(runId: string): Entities['change'][]
+  changeHeaders(
+    sessionId: string,
+    before?: string,
+    limit?: number,
+  ): (Entities['change'] & { contentLoaded: false })[]
+  changeDetail(id: string): Entities['change'] & { contentLoaded: true }
+  pendingApprovals(runId: string): Entities['approval'][]
+  findSubmission(sessionId: string, submissionId: string): Run | undefined
+  findProject(path: string): Project | undefined
   get<K extends keyof Entities>(kind: K, id: string): Entities[K]
   list<K extends keyof Entities>(kind: K): Entities[K][]
   save<K extends keyof Entities>(
@@ -11,10 +27,11 @@ export interface RepositoryPort {
   ): Entities[K]
   append(sessionId: string, runId: string | null, type: string, text: string, data?: unknown): void
   events(after: number, sessionId?: string): Event[]
+  waitEvents(after: number): Promise<{ events: Event[]; watermark: number }>
   watermark(): number
   delete(kind: keyof Entities, id: string): void
   deleteSession(id: string): void
-  active(): Run | undefined
+  active(sessionId?: string): Run | undefined
 }
 export interface Provider {
   modelId: string

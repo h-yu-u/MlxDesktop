@@ -7,7 +7,7 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, Protocol
 
-from mlx_studio_runtime.application.ports import ImageRepository, InferenceSession, JobAdmission
+from mlx_studio_runtime.application.ports import ImageInference, ImageRepository, JobAdmission
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.image_generation import ImageParameters
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState
@@ -27,7 +27,7 @@ class ImageGenerationService:
         self,
         models: dict[str, ModelManifest],
         scheduler: JobAdmission,
-        runtime: InferenceSession,
+        runtime: ImageInference,
         repository: ImageRepository,
         files: ImageStorage,
         attachment_paths: Callable[[list[str]], list[str]] | None = None,
@@ -108,15 +108,12 @@ class ImageGenerationService:
         if self._cancelled(job.id):
             await self.lifecycle.finish(job.id, JobEvent.CANCEL_COMPLETE)
             return
-        worker = self.model_runtime.worker
-        if worker is None:
-            raise RuntimeError("IMAGE_WORKER_UNAVAILABLE")
         await self.lifecycle.transition(job.id, JobEvent.START)
         completed = False
         worker_parameters = parameters.to_dict()
         if parameters.reference_ids:
             worker_parameters["input_files"] = self._input_files(parameters)
-        async for event in worker.generate_image(job.id, worker_parameters, output):
+        async for event in self.model_runtime.generate_image(job.id, worker_parameters, output):
             kind, payload = event["type"], event["payload"]
             if kind == "image.progress":
                 self.progress[job.id] = min(
@@ -164,7 +161,7 @@ class ImageGenerationService:
         )
 
     def _cancelled(self, job_id: str) -> bool:
-        return self.lifecycle.items[job_id].state is JobState.CANCELLING
+        return self.lifecycle.cancellation_requested(job_id)
 
     def _validate_edit(self, model: ModelManifest, parameters: ImageParameters) -> None:
         if (

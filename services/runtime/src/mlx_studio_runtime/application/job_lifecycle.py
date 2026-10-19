@@ -1,6 +1,7 @@
 """Job state transitions with persistence and event publication."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from types import MappingProxyType
 
 from mlx_studio_runtime.application.ports import EventPublisher, JobRepository, Transaction
 from mlx_studio_runtime.domain.jobs import (
@@ -19,8 +20,29 @@ class JobLifecycle:
         self.store = store
         self.events = events
         self.transaction = transaction
-        self.items: dict[str, Job] = {}
-        self.output: dict[str, str] = {}
+        self._items: dict[str, Job] = {}
+        self._output: dict[str, str] = {}
+
+    @property
+    def items(self) -> Mapping[str, Job]:
+        return MappingProxyType(self._items)
+
+    def get(self, job_id: str) -> Job:
+        return self._items[job_id]
+
+    def cancellation_requested(self, job_id: str) -> bool:
+        return self.get(job_id).state is JobState.CANCELLING
+
+    def output_text(self, job_id: str) -> str:
+        return self._output.get(job_id, "")
+
+    def prune(self, retained: set[str], limit: int = 200) -> None:
+        for job in tuple(self._items.values()):
+            if len(self._items) <= limit:
+                break
+            if job.id not in retained and terminal_state(job.state):
+                self._items.pop(job.id)
+                self._output.pop(job.id, None)
 
     async def register(
         self, job: Job, request: dict[str, object], persist: Callable[[], None] | None = None
@@ -37,16 +59,16 @@ class JobLifecycle:
                     "request": request,
                 }
             )
-        self.items[job.id] = job
+        self._items[job.id] = job
         await self.events.publish(
             "job.updated",
             {"job_id": job.id, "state": job.state.value},
         )
 
     async def transition(self, job_id: str, event: JobEvent) -> Job:
-        updated = transition_job(self.items[job_id], event)
+        updated = transition_job(self._items[job_id], event)
         self.store.update(job_id, updated.state.value)
-        self.items[job_id] = updated
+        self._items[job_id] = updated
         await self.events.publish(
             "job.updated",
             {"job_id": job_id, "state": updated.state.value},
@@ -61,7 +83,7 @@ class JobLifecycle:
         persist: Callable[[], None] | None = None,
         finish_reason: str | None = None,
     ) -> Job:
-        current = self.items[job_id]
+        current = self._items[job_id]
         if terminal_state(current.state):
             return current
         updated = transition_job(current, event, error_code)
@@ -69,7 +91,7 @@ class JobLifecycle:
             if persist:
                 persist()
             self.store.update(job_id, updated.state.value, updated.error_code)
-        self.items[job_id] = updated
+        self._items[job_id] = updated
         await self.events.publish(
             f"job.{updated.state.value}",
             {
@@ -82,7 +104,7 @@ class JobLifecycle:
         return updated
 
     async def finish_failed_or_cancelled(self, job_id: str, error_code: str) -> Job:
-        current = self.items[job_id]
+        current = self._items[job_id]
         if terminal_state(current.state):
             return current
         if current.state is JobState.CANCELLING:
@@ -90,4 +112,4 @@ class JobLifecycle:
         return await self.finish(job_id, JobEvent.FAIL, error_code)
 
     def append_output(self, job_id: str, text: str) -> None:
-        self.output[job_id] = self.output.get(job_id, "") + text
+        self._output[job_id] = self._output.get(job_id, "") + text

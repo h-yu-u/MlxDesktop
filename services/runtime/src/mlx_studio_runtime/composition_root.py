@@ -20,6 +20,7 @@ from mlx_studio_runtime.adapters.worker_host import WorkerHost
 from mlx_studio_runtime.application.attachments import Attachments
 from mlx_studio_runtime.application.chat_service import ChatService
 from mlx_studio_runtime.application.coding_gateway import CodingGateway
+from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
 from mlx_studio_runtime.application.downloads import Downloads
 from mlx_studio_runtime.application.image_generation_service import ImageGenerationService
 from mlx_studio_runtime.application.inference_service import InferenceService
@@ -61,7 +62,12 @@ class RuntimeApplication:
         self.agent_host = AgentHost(store.database_path.parent / "coding")
         self.coding_identity = coding_model_identity
         self.coding = CodingGateway(self.agent_host.request)
-        self.provider_inference = InferenceService(self.scheduler)
+        self.coding_requests = CodingModelRequests(
+            self.coding, self.catalog.models.get, coding_model_identity
+        )
+        self.provider_inference = InferenceService(
+            self.catalog.models, self.scheduler, self.inference
+        )
         self.controls = RuntimeControl(self.scheduler, self.inference)
         self.queries = Queries(
             store.conversations,

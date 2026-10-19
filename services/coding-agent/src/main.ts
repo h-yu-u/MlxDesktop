@@ -1,3 +1,5 @@
+import { rpcMethod, validateRpc, rpcErrorCode } from './protocol/validation.js'
+import type { RpcParamsMap } from './protocol/generated/types.js'
 import { createInterface } from 'node:readline'
 import { randomUUID } from 'node:crypto'
 import { Repository } from './adapters/repository.js'
@@ -28,9 +30,10 @@ async function handle(line: string): Promise<void> {
     if (frame.protocolVersion !== 1 || frame.hostEpoch !== epoch)
       throw new Error('PROTOCOL_MISMATCH')
     if (closing) throw new Error('HOST_SHUTTING_DOWN')
-    const method = string(frame.method)
+    const method = rpcMethod(string(frame.method))
+    validateRpc(method, 'params', frame.params)
     if (method === 'shutdown') closing = true
-    const result = await service.dispatch(method, frame.params)
+    const result = await service.dispatch(method, frame.params as RpcParamsMap[typeof method])
     send({ protocolVersion: 1, hostEpoch: epoch, requestId, result })
     if (method === 'shutdown') input.close()
   } catch (error) {
@@ -38,7 +41,7 @@ async function handle(line: string): Promise<void> {
       protocolVersion: 1,
       hostEpoch: epoch,
       requestId,
-      error: error instanceof Error ? error.message.slice(0, 200) : 'HOST_FAILED',
+      error: rpcErrorCode(error),
     })
   }
 }

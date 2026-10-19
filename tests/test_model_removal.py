@@ -57,7 +57,7 @@ class ModelRemovalTests(unittest.TestCase):
             ]:
                 for action in ["files", "registration"]:
                     with self.subTest(kind=kind, state=state, action=action):
-                        self.service.lifecycle.items["reference"] = Job(
+                        self.service.lifecycle._items["reference"] = Job(
                             "reference", kind, state, self.model.id
                         )
                         response = self.delete(action)

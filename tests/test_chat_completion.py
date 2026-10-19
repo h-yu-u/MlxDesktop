@@ -25,13 +25,13 @@ class CompletionTests(unittest.TestCase):
 
         def chunks(*_args):
             yield "partial"
-            session._record_completion(
+            session.record_completion(
                 SimpleNamespace(finish_reason="length", generation_tokens=8)
             )
             yield " tail"
 
         session._chunks = chunks
-        session._generate({"job_id": "job", "max_tokens": 8})
+        session.generate({"job_id": "job", "max_tokens": 8})
         self.assertEqual(
             events[-1],
             (
@@ -44,7 +44,7 @@ class CompletionTests(unittest.TestCase):
             ),
         )
         session._chunks = lambda *_args: iter(["done"])
-        session._generate({"job_id": "next"})
+        session.generate({"job_id": "next"})
         self.assertEqual(events[-1][1]["finish_reason"], "stop")
 
 

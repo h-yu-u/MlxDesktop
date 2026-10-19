@@ -107,13 +107,13 @@ async def verify_restart(client: Any, result: dict[str, Any]) -> None:
 async def run(args: argparse.Namespace) -> None:
     args.output.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="mlx-edit-api-") as directory:
-        process, client = await start_runtime(directory)
+        process, client = await start_runtime(directory, args.sidecar)
         try:
             async with client:
                 result = await verify(client, args)
         finally:
             await stop_runtime(process)
-        process, client = await start_runtime(directory)
+        process, client = await start_runtime(directory, args.sidecar)
         try:
             async with client:
                 await verify_restart(client, result)
@@ -128,4 +128,5 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     for name in ("model-path", "source", "reference", "mask", "output"):
         parser.add_argument(f"--{name}", type=Path, required=True)
+    parser.add_argument("--sidecar", help="Exercise the packaged Runtime instead of source")
     asyncio.run(run(parser.parse_args()))

@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 RUNTIME_SOURCE = Path(__file__).parents[1] / "services" / "runtime" / "src"
 sys.path.insert(0, str(RUNTIME_SOURCE))
 
+from mlx_studio_runtime.adapters.text_engines.session import EngineSession
 from mlx_studio_runtime.adapters.worker_host import WorkerHost
 from mlx_studio_runtime.domain.models import fake_text_manifest
 from mlx_studio_runtime.entrypoints.worker.main import Worker
@@ -17,7 +18,7 @@ from mlx_studio_runtime.entrypoints.worker.main import Worker
 
 class WorkerHostTests(unittest.TestCase):
     def test_text_prompt_uses_sampler_and_persisted_history(self) -> None:
-        worker = Worker().session
+        worker = EngineSession()
         captured_messages: list[dict[str, str]] = []
         captured_sampler: list[object] = []
 
@@ -57,7 +58,7 @@ class WorkerHostTests(unittest.TestCase):
         self.assertEqual(chunks, ["answer"])
 
     def test_vlm_uses_streaming_api(self) -> None:
-        worker = Worker().session
+        worker = EngineSession()
         worker.model = object()
         worker.processor = object()
         worker.model_config = object()
@@ -76,7 +77,7 @@ class WorkerHostTests(unittest.TestCase):
         self.assertEqual(chunks, ["image ", "answer"])
 
     def test_vlm_keeps_history_and_disables_thinking_for_chat(self) -> None:
-        worker = Worker().session
+        worker = EngineSession()
         worker.engine = "mlx-vlm"
         worker.model = object()
         worker.processor = object()

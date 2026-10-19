@@ -1,7 +1,4 @@
 import { RuntimeError } from '@mlx-studio/api-client'
-export function modelNeedsVerification(cause: unknown): boolean {
-  return cause instanceof RuntimeError && cause.code === 'MODEL_TOOLS_UNVERIFIED'
-}
 const labels: Record<string, string> = {
   MODEL_TOOLS_UNVERIFIED: '模型或模板发生变化，请重新验证工具能力。',
   RESTORE_CONFLICT: '文件已被人工或外部程序修改，无法撤销。当前内容已保留。',

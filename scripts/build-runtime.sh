@@ -13,7 +13,10 @@ if [[ "$profile" == "release" ]]; then
   engine_flags=(--extra mlx-lm --extra mlx-vlm --extra mflux --extra audio)
   collect_flags=(--collect-all mlx --collect-all mlx_lm --collect-all mlx_vlm --collect-all mflux
     --collect-all transformers --collect-all tokenizers --collect-all huggingface_hub
-    --collect-all scipy --collect-all mlx_audio --collect-all miniaudio
+    --collect-all scipy --copy-metadata mlx-audio --collect-data mlx_audio
+    --hidden-import mlx_audio.tts.models.qwen3_tts --exclude-module mlx_audio.stt
+    --exclude-module mlx_audio.sts --exclude-module mlx_audio.vad --exclude-module mlx_audio.lid
+    --collect-all miniaudio
     --collect-all sounddevice --collect-all numpy)
 elif [[ "$profile" == "fake" ]]; then
   collect_flags=(--exclude-module mlx --exclude-module mlx_lm --exclude-module mlx_vlm --exclude-module mflux --exclude-module mlx_audio)
@@ -22,6 +25,9 @@ elif [[ "$profile" != "fake" ]]; then
   exit 2
 fi
 export UV_PROJECT_ENVIRONMENT="$build_directory/venv-$profile"
+# Collecting unrelated upstream models can execute download code at import time.
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
 export PYINSTALLER_CONFIG_DIR="$build_directory/pyinstaller-$profile"
 export PYTHONPATH="$runtime_project/src${PYTHONPATH:+:$PYTHONPATH}"
 

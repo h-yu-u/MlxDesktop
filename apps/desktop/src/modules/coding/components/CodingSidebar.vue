@@ -9,10 +9,12 @@ const props = defineProps<{
   sessionId: string
   activeSession?: string
   pending: boolean
+  hasMore?: boolean
 }>()
 const emit = defineEmits<{
   project: [id: string]
   open: []
+  more: []
   create: []
   session: [id: string]
   rename: [item: CodingSession]
@@ -82,6 +84,7 @@ const visible = computed(() =>
           >
         </div>
       </article>
+      <NButton v-if="hasMore" :disabled="pending" @click="emit('more')">加载更多会话</NButton>
       <p v-if="!visible.length">{{ projectId ? '暂无匹配会话' : '先打开本地项目' }}</p>
     </div>
   </aside>

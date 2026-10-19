@@ -221,7 +221,7 @@ def _generate_native(session: Any, rendered: str, payload: dict[str, Any]) -> st
     for response in responses:
         if session.cancel.is_set() or session.shutdown.is_set():
             break
-        session._record_completion(response)
+        session.record_completion(response)
         parts.append(str(response.text))
     if session.generation_tokens >= payload["max_tokens"]:
         session.finish_reason = "length"

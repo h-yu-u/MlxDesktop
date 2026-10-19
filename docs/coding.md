@@ -14,9 +14,11 @@ Coding 是独立的本地项目开发工作区。第一版接入 Pi 1.2.0 SDK，
 
 设置 → Coding 保存独立默认模型及 4K–32K 上下文预算。模型工具能力证据绑定引擎、模板/配置内容和权重文件版本；变化后发送时自动重新准备。普通开发任务由模型按需调用命令并逐次请求审批，不再执行旧项目设置中的收尾检查命令，也不展示独立的“运行验证、项目设置、验证”入口。内部能力探针和兼容 API 仍保留检查机制。
 
+普通命令记录标记为 `purpose=command`，成功不改变任务的 `verification=not_run`。仅显式验证或内部能力探针在提交时冻结检查命令列表，其记录标记为 `purpose=verification`；每一步只采用当前文件指纹下的最新尝试，缺步骤或过期返回 partial，全部步骤成功才返回 passed。这里的 passed 只证明该列表执行成功，不证明全部需求已满足。旧记录缺少检查归属时保留输出，但不追认为验证证据。
+
 查看器复用已有 Naive UI 文件树，新增 [CodeMirror](https://github.com/codemirror/dev) / Lezer 与 [Diff2Html](https://github.com/rtfpessoa/diff2html)、[jsdiff](https://github.com/kpdecker/jsdiff)；查看器及语法模块按需加载，不增加远程服务。所引入组件为 MIT 许可，包含其完整依赖许可的 `apps/desktop/public/third-party-notices.txt` 随前端构建进入应用包。布局参考 [Codex 官方的文件差异审阅流程](https://developers.openai.com/blog/mastering-codex-remote-for-engineering)，未复制 Codex 专有界面代码。
 
-会话可搜索、重命名、置顶、归档或删除。切换页面和会话仅改变观察对象，不停止任务；删除或归档有活动任务的会话会被拒绝。删除记录不删除用户项目目录。
+会话可搜索、重命名、置顶、归档或删除。切换页面和会话仅改变观察对象，不停止任务；删除或归档有活动任务的会话会被拒绝。删除记录不删除用户项目目录。会话及关联任务、审批、变更、命令记录与事件在 Coding SQLite 中整体事务删除，任一步失败全部回滚；Pi JSONL 与项目文件不属于此事务。Pi JSONL 保留为独立的本地上下文审计数据，本次删除不清理它，不承诺跨文件事务。
 
 ## 架构与数据
 
@@ -31,7 +33,11 @@ Vue Coding → 认证 Runtime HTTP / Coding SSE
 
 Python 网关转发产品操作，不保存另一份 Coding 状态。Node 单独写入应用数据目录下的 `coding/coding.db`；Pi JSONL 是最终模型上下文的权威来源。应用不会继承全局 Pi 配置、项目可执行扩展、MCP、自动安装或隐式 setup。
 
-状态更新及产品事件在同一 SQLite 事务内提交，事件序号跨重启保持递增。快照展示最近 100 个事件、50 个任务和 20 条验证，较早记录仍保存在 Coding 数据库/Pi 会话中。文件内容按需读取，事件只保留有限预览，避免大文件进入重连快照。Coding 观察器使用独立的 SSE 序号及快照 watermark，不把开发任务当作推理 Job。进程重启将未完成任务标记为 interrupted，并拒绝未决审批；不自动重放不确定是否执行过的命令。
+状态更新及产品事件在同一 SQLite 事务内提交，事件序号跨重启保持递增。快照展示最近 100 个事件、50 个任务和 20 条命令执行记录，较早记录仍保存在 Coding 数据库/Pi 会话中。文件内容按需读取，事件只保留有限预览，避免大文件进入重连快照。Coding 观察器使用独立的 SSE 序号及快照 watermark，不把开发任务当作推理 Job。进程重启将未完成任务标记为 interrupted，并拒绝未决审批；不自动重放不确定是否执行过的命令。
+
+Coding 数据库通过 `user_version` 增量迁移增加会话、项目、任务、提交编号、状态及事件游标索引，旧 JSON 载荷与会话 ID 保留。高频查询在 SQLite 内筛选，快照只读取当前会话的有限窗口。会话与变更列表各按 100 条游标分页，界面可继续加载；文件详情单独读取，差异基线仍来自该文件最早未撤销记录。`events.wait` 由已提交写入唤醒，空闲最多等待 20 秒后发送心跳。持久化事件负责重连回放，通知不替代历史。前端增量投影任务、审批、命令与时间线，缺口或未知协议代际触发快照恢复。
+
+内部 RPC 方法、请求/结果和稳定错误码由 `packages/coding-protocol/schema.json` 定义。修改后执行 `pnpm rpc:generate`，`pnpm check` 检查生成漂移；Python/Node 运行相同协议 fixtures。模型准备归属应用用例，Node RPC 入口组合 ProjectSessions、ChangeService、CapabilityVerifier 与 Runs。Host 保留组件、操作、请求 ID、耗时和错误码等结构化诊断；stderr 仅计数后丢弃，不默认输出 SDK 内容。
 
 内部推理入口 `/internal/v1/inference` 支持文本与工具的 Chat Completions 子集：完整消息历史、工具 ID/结果、工具 JSON Schema、自动/禁止工具选择、非流式及 SSE 响应。工具参数完成并通过校验后才交给执行器；输出截断、非法 JSON/XML、未知工具和缺失工具结果明确失败。工具响应目前在单次模型结果完整解析后发送，尚不逐 Token 展示正文。外部 `/v1` 兼容接口不因此开放。
 

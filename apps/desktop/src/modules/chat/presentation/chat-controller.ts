@@ -21,7 +21,7 @@ interface ChatDependencies {
   gateway: ChatGateway
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
-  exportText(content: string, filename: string): void
+  exportText(content: string, filename: string): Promise<void> | void
   observe(
     id: string,
     after: number,
@@ -280,10 +280,19 @@ export function createChatController(deps: ChatDependencies) {
       temperature.value = 0.7
     }
   }
-  function exportConversation(): void {
+  async function exportConversation(): Promise<void> {
     const title =
       conversations.value.find((item) => item.id === conversationId.value)?.title ?? '本地对话'
-    deps.exportText(formatConversation(title, state.value.messages), 'mlx-studio-conversation.md')
+    const owner = viewEpoch
+    try {
+      await deps.exportText(
+        formatConversation(title, state.value.messages),
+        'mlx-studio-conversation.md',
+      )
+    } catch (cause) {
+      if (owner === viewEpoch && viewActive)
+        state.value = { ...state.value, error: errorText(cause) }
+    }
   }
   function dispose(): void {
     deltas.flush()

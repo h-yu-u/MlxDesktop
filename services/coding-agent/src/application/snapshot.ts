@@ -1,3 +1,4 @@
+import { verificationStatus } from '../domain/verification.js'
 import type { RepositoryPort } from './ports.js'
 export async function buildSnapshot(
   repo: RepositoryPort,
@@ -8,25 +9,20 @@ export async function buildSnapshot(
   const project = repo.get('project', session.projectId)
   const version = repo.active() ? null : await fingerprint(project.path)
   const checks = repo
-    .list('verification')
-    .filter((item) => item.sessionId === session.id)
+    .listChecks(session.id)
     .map((item) => ({ ...item, stale: item.stale || item.fingerprint !== version }))
   return {
     session,
     project,
-    runs: repo
-      .list('run')
-      .filter((item) => item.sessionId === session.id)
-      .slice(-50)
-      .map((run) =>
-        run.verification === 'passed' && run.fingerprint !== version
-          ? { ...run, verification: 'partial' as const }
-          : run,
-      ),
+    runs: repo.listRuns(session.id).map((run) => ({
+      ...run,
+      verification:
+        run.verification === 'not_run'
+          ? ('not_run' as const)
+          : verificationStatus(run, repo.checksForRun(run.id), version ?? ''),
+    })),
     approvals: repo
-      .list('approval')
-      .filter((item) => item.sessionId === session.id)
-      .slice(-50)
+      .listApprovals(session.id)
       .map((item) => (item.status === 'pending' ? item : { ...item, parameters: {} })),
     verifications: checks.slice(-20),
     events: repo.events(0, session.id).slice(-100),

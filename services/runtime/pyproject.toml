@@ -35,6 +35,7 @@ dev = [
 ]
 
 [tool.ruff]
+extend-exclude = ["src/mlx_studio_runtime/domain/generated"]
 line-length = 100
 target-version = "py312"
 src = ["src"]

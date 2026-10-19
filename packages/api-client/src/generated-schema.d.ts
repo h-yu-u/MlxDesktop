@@ -1592,6 +1592,12 @@ export interface components {
         };
         /** CodingVerificationView */
         CodingVerificationView: {
+            /**
+             * Purpose
+             * @default command
+             * @enum {string}
+             */
+            purpose: "command" | "verification";
             /** Id */
             id: string;
             /** Runid */
@@ -7723,7 +7729,10 @@ export interface operations {
     };
     sessions_internal_v1_coding_projects__project_id__sessions_get: {
         parameters: {
-            query?: never;
+            query?: {
+                before?: string | null;
+                limit?: number;
+            };
             header?: {
                 authorization?: string | null;
             };
@@ -8309,6 +8318,7 @@ export interface operations {
         parameters: {
             query?: {
                 diff?: boolean;
+                before?: string | null;
             };
             header?: {
                 authorization?: string | null;

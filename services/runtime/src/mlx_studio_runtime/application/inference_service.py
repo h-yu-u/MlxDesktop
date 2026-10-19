@@ -4,15 +4,21 @@ import asyncio
 import uuid
 from typing import Any
 
-from mlx_studio_runtime.application.job_scheduler import JobScheduler
+from mlx_studio_runtime.application.ports import JobAdmission, StructuredInference
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.inference import validate_context
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState
+from mlx_studio_runtime.domain.models import ModelManifest
 
 
 class InferenceService:
-    def __init__(self, scheduler: JobScheduler) -> None:
-        self.scheduler = scheduler
+    def __init__(
+        self,
+        models: dict[str, ModelManifest],
+        scheduler: JobAdmission,
+        inference: StructuredInference,
+    ) -> None:
+        self.models, self.scheduler, self.inference = models, scheduler, inference
 
     async def complete(self, request: dict[str, Any]) -> dict[str, Any]:
         model_id = str(request["model"])
@@ -20,7 +26,7 @@ class InferenceService:
             validate_context(request["messages"], request["tools"])
         except (ValueError, KeyError, TypeError) as error:
             raise RuntimeFault(RuntimeErrorInfo("INFERENCE_CONTEXT_INVALID", str(error))) from error
-        model = self.scheduler.runtime.models.get(model_id)
+        model = self.models.get(model_id)
         if model is None or "text" not in model.output_modalities:
             raise RuntimeFault(RuntimeErrorInfo("MODEL_NOT_FOUND", "请选择文本模型"))
         self.scheduler.check_admission(model_id)
@@ -30,10 +36,7 @@ class InferenceService:
 
         async def execute() -> None:
             await self.scheduler.lifecycle.transition(job.id, JobEvent.START)
-            worker = self.scheduler.runtime.worker
-            if worker is None:
-                raise RuntimeFault(RuntimeErrorInfo("WORKER_NOT_AVAILABLE", "Worker 不可用"))
-            async for event in worker.infer(job.id, request):
+            async for event in self.inference.infer(job.id, request):
                 if event["type"] == "generation.result" and not future.done():
                     future.set_result(event["payload"])
                 if event["type"] == "generation.failed":
@@ -48,12 +51,11 @@ class InferenceService:
                     return
             await self.scheduler.lifecycle.finish(job.id, JobEvent.COMPLETE)
 
-        self.scheduler.schedule(job, execute)
-        task = self.scheduler.tasks[job.id]
+        task = self.scheduler.schedule(job, execute)
 
         def settled(_: asyncio.Task[None]) -> None:
             if not future.done():
-                code = self.scheduler.lifecycle.items[job.id].error_code or "INFERENCE_CANCELLED"
+                code = self.scheduler.lifecycle.get(job.id).error_code or "INFERENCE_CANCELLED"
                 future.set_exception(RuntimeFault(RuntimeErrorInfo(code, "结构化推理未完成")))
 
         task.add_done_callback(settled)

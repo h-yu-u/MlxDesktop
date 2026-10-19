@@ -20,16 +20,73 @@ const exists = async (path) => {
     return false
   }
 }
+const configs = new Map()
+function compilerOptions(source) {
+  const config = ts.findConfigFile(dirname(source), ts.sys.fileExists)
+  if (!config) return { moduleResolution: ts.ModuleResolutionKind.NodeNext }
+  if (!configs.has(config)) {
+    const parse = (path) => {
+      const loaded = ts.readConfigFile(path, ts.sys.readFile)
+      const parsed = ts.parseJsonConfigFileContent(loaded.config, ts.sys, dirname(path))
+      if (loaded.error || parsed.errors.length)
+        violations.push(`${rel(path)}: invalid TypeScript configuration`)
+      return parsed
+    }
+    const parsed = parse(config)
+    const references = (parsed.projectReferences ?? []).map((ref) => {
+      const path = ref.path.endsWith('.json') ? ref.path : join(ref.path, 'tsconfig.json')
+      return { path, parsed: parse(path) }
+    })
+    const selected = references.find(
+      ({ path, parsed }) =>
+        parsed.fileNames.includes(source) ||
+        (source.endsWith('.vue') &&
+          ts.sys
+            .readDirectory(dirname(path), ['.vue'], parsed.raw.exclude, parsed.raw.include)
+            .includes(source)),
+    )
+    configs.set(config, { options: parsed.options, references })
+    if (selected) return selected.parsed.options
+  }
+  const cached = configs.get(config)
+  const selected = cached.references.find(
+    ({ path, parsed }) =>
+      parsed.fileNames.includes(source) ||
+      (source.endsWith('.vue') &&
+        ts.sys
+          .readDirectory(dirname(path), ['.vue'], parsed.raw.exclude, parsed.raw.include)
+          .includes(source)),
+  )
+  return selected?.parsed.options ?? cached.options
+}
 async function sourceTarget(source, specifier) {
+  const options = compilerOptions(source)
+  const resolved = ts.resolveModuleName(specifier, source, options, ts.sys).resolvedModule
+  const aliases = Object.keys(options.paths ?? {})
+  const internal =
+    specifier.startsWith('.') ||
+    specifier.startsWith('@/') ||
+    specifier.startsWith('@mlx-studio/') ||
+    aliases.some((key) => {
+      const [prefix, suffix] = key.split('*')
+      return suffix === undefined
+        ? specifier === key
+        : specifier.startsWith(prefix) && specifier.endsWith(suffix)
+    })
+  if (!internal) return undefined
+  if (resolved) return resolve(resolved.resolvedFileName)
+  // Vue SFCs and workspace source entries are not resolved by TypeScript alone.
   let path
   if (specifier.startsWith('.')) path = resolve(dirname(source), specifier)
   else if (specifier.startsWith('@/')) path = join(root, 'apps/desktop/src', specifier.slice(2))
   else if (specifier === '@mlx-studio/api-client')
     path = join(root, 'packages/api-client/src/index')
-  else return undefined
-  for (const candidate of [path, `${path}.ts`, `${path}.vue`, join(path, 'index.ts')]) {
-    if (await exists(candidate)) return candidate
+  if (path) {
+    for (const candidate of [path, `${path}.ts`, `${path}.vue`, join(path, 'index.ts')]) {
+      if (await exists(candidate)) return candidate
+    }
   }
+  violations.push(`${rel(source)}: unresolved internal dependency (${specifier})`)
   return undefined
 }
 function imports(source, path) {
@@ -90,7 +147,9 @@ async function inspect(path) {
       (/@mlx-studio\/api-client|^(?:node:|@earendil-works|vue|pinia|naive-ui|@tauri-apps)/.test(
         specifier,
       ) ||
-        /\/(?:stores|infrastructure|presentation|platform|app)\//.test(targetName))
+        /\/(?:application|adapters|stores|infrastructure|presentation|platform|app)\//.test(
+          targetName,
+        ))
     )
       fail('domain imports UI or infrastructure')
     if (name.includes('/application/') && /\/(?:infrastructure|adapters)\//.test(targetName))
