@@ -84,7 +84,7 @@ it('copies only the selected code block, with original whitespace and decoded ch
   wrapper.unmount()
 })
 
-it('keeps feedback across stream updates and copies the latest visible code', async () => {
+it('clears obsolete feedback when code changes and copies the latest visible code', async () => {
   vi.useFakeTimers()
   const message = {
     id: 'job',
@@ -97,7 +97,7 @@ it('keeps feedback across stream updates and copies the latest visible code', as
   await Promise.resolve()
   await wrapper.setProps({ message: { ...message, content: '```ts\nconst x = 2;\n```' } })
   await vi.advanceTimersByTimeAsync(100)
-  expect(wrapper.get('button.code-copy').text()).toBe('已复制')
+  expect(wrapper.get('button.code-copy').text()).toBe('复制')
   await wrapper.get('button.code-copy').trigger('click')
   expect(copyText).toHaveBeenLastCalledWith('const x = 2;\n')
   await vi.advanceTimersByTimeAsync(1800)
@@ -117,5 +117,31 @@ it('shows failures and permits retrying without reporting a false success', asyn
   await wrapper.get('button.code-copy').trigger('click')
   await flushPromises()
   expect(wrapper.get('button.code-copy').text()).toBe('已复制')
+  wrapper.unmount()
+})
+
+it('keeps unresolved citation feedback when only some sources exist', () => {
+  const wrapper = mount(MessageBubble, {
+    props: {
+      message: {
+        id: 'partial',
+        role: 'assistant',
+        state: 'complete',
+        content: '[[cite:known]] and [[cite:missing]]',
+        sources: [
+          {
+            id: 'known',
+            title: 'Known',
+            url: 'https://example.com',
+            kind: 'web',
+            representation: 'snippet_only',
+            contentHash: '',
+            retrievedAt: '',
+          },
+        ],
+      },
+    },
+  })
+  expect(wrapper.text()).toContain('部分引用无法定位')
   wrapper.unmount()
 })

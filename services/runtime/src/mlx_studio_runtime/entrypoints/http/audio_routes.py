@@ -131,6 +131,14 @@ def register_audio_routes(
             for item in service.store.audio.artifacts(limit, offset)
         ]
 
+    @app.get(
+        "/internal/v1/audio-artifacts/{artifact_id}",
+        dependencies=dependencies,
+        response_model=AudioArtifactView,
+    )
+    async def artifact_detail(artifact_id: str) -> AudioArtifactView:
+        return AudioArtifactView.model_validate(service.speech.get_artifact(artifact_id))
+
     @app.get("/internal/v1/audio-artifacts/{artifact_id}/content", dependencies=dependencies)
     async def artifact_content(artifact_id: str) -> FileResponse:
         return FileResponse(

@@ -9,7 +9,7 @@
 }
 
 .message-role {
-  color: #999;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
@@ -21,13 +21,13 @@
 }
 
 .message.user .message-body {
-  background: #303030;
-  color: #eee;
+  background: var(--surface-card);
+  color: var(--text-primary);
 }
 
 .message.assistant .message-body {
   background: transparent;
-  color: #ddd;
+  color: var(--text-secondary);
   border: 0;
 }
 .message-limit {

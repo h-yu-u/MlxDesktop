@@ -1,3 +1,6 @@
+import { createDraftRestorer } from '../../../shared/lib/draft-restorer'
+import { restoreImage } from '../domain/restore-image'
+import type { FileExportResult } from '../../../shared/lib/file-export'
 import { SubmitImage } from '../application/submit-image'
 import { imageJobError, validationMessages } from './image-feedback'
 import { computed, ref } from 'vue'
@@ -10,7 +13,7 @@ import {
 } from '../domain/image-state'
 import type { ImageGateway } from '../application/ports'
 import type { useModelDirectory } from '../../../capabilities/models'
-import { MediaCache } from '../../../capabilities/media'
+import { createArtifactHistory } from '../../../capabilities/media'
 import { JobPoller } from '../../../capabilities/jobs'
 import { createImageInputs } from './image-inputs'
 import { createImageDraft } from '../domain/image-draft'
@@ -18,7 +21,7 @@ interface ImageDependencies {
   directory: ReturnType<typeof useModelDirectory>
   refreshModels(): Promise<void>
   gateway: ImageGateway
-  exportImage(blob: Blob, id: string): Promise<void> | void
+  exportImage(blob: Blob, id: string): Promise<FileExportResult>
 }
 
 export function createImageController(deps: ImageDependencies) {
@@ -26,51 +29,57 @@ export function createImageController(deps: ImageDependencies) {
   const submission = new SubmitImage(deps.gateway)
   const form = ref<ImageDraft>(createImageDraft())
   const inputs = createImageInputs(form, deps.gateway)
-  const artifacts = ref<ImageArtifact[]>([])
-  const jobs = ref<ImageJob[]>([])
-  const activeJob = ref<ImageJob | null>(null)
-  const selectedId = ref<string | null>(null)
-  const urls = ref<Record<string, string>>({})
-  const imageErrors = ref<Record<string, string>>({})
-  const loading = ref(false)
-  const historyLoading = ref(false)
-  const submitting = ref(false)
-  const preparingEdit = ref(false)
-  const cancelling = ref(false)
-  const savingId = ref<string | null>(null)
-  const error = ref<string | null>(null)
-  const historyError = ref<string | null>(null)
-  const syncError = ref<string | null>(null)
-  const hasMore = ref(false)
+  const restorer = createDraftRestorer(form)
+  const history = createArtifactHistory({
+    ...deps.gateway,
+    content: deps.gateway.image,
+    export: deps.exportImage,
+  })
+  const {
+    artifacts,
+    selectedId,
+    selectedArtifact,
+    urls,
+    historyLoading,
+    historyError,
+    hasMore,
+    savingId,
+    loadHistory,
+    save: saveArtifact,
+    loadMedia: loadImage,
+  } = history
+  const imageErrors = history.mediaErrors
+  const jobs = ref<ImageJob[]>([]),
+    activeJob = ref<ImageJob | null>(null)
+  const loading = ref(false),
+    submitting = ref(false),
+    preparingEdit = ref(false),
+    cancelling = ref(false)
+  const error = ref<string | null>(null),
+    syncError = ref<string | null>(null)
+  let submittedSelection = 0
   const imageModels = computed(() =>
     models.items.filter((model) => model.task === 'image-generation'),
   )
   const modelError = computed(() => models.error)
-  const selectedArtifact = computed(
-    () => artifacts.value.find((item) => item.id === selectedId.value) ?? null,
-  )
   const hasActiveJob = computed(() => !!activeJob.value && !isTerminal(activeJob.value))
   const poller = new JobPoller()
   let epoch = 0
   let scope = new AbortController()
   let disposed = false
-  const media = new MediaCache(deps.gateway.image, () => {
-    urls.value = media.snapshot()
-  })
-  let historyTask: Promise<void> | undefined
   let polling = false
-  const loadingImages = new Set<string>()
-
   async function loadWorkspace(): Promise<void> {
     scope.abort()
     scope = new AbortController()
     const owner = ++epoch
     disposed = false
+    history.activate()
+    restorer.activate()
     loading.value = true
     error.value = null
     try {
       await deps.refreshModels()
-      if (!imageModels.value.some((item) => item.id === form.value.modelId)) {
+      if (!form.value.modelId) {
         form.value.modelId =
           imageModels.value.find(
             (item) => item.source !== 'builtin' && item.capabilities.imageEditing,
@@ -85,70 +94,28 @@ export function createImageController(deps: ImageDependencies) {
       activeJob.value =
         jobs.value.find((item) => !isTerminal(item)) ?? activeJob.value ?? jobs.value[0] ?? null
       await loadHistory(true)
+      await Promise.all(artifacts.value.map((item) => loadImage(item.id)))
       if (hasActiveJob.value) schedulePoll()
       await inputs.restoreInputs()
     } catch (cause) {
       error.value = errorText(cause)
     } finally {
-      loading.value = false
-    }
-  }
-
-  async function loadHistory(reset = true): Promise<void> {
-    const owner = epoch
-    if (historyTask) await historyTask
-    if (owner !== epoch || disposed) return
-    const task = fetchHistoryPage(reset)
-    historyTask = task
-    try {
-      await task
-    } finally {
-      if (historyTask === task) historyTask = undefined
-    }
-  }
-
-  async function fetchHistoryPage(reset: boolean): Promise<void> {
-    const owner = epoch
-    historyLoading.value = true
-    historyError.value = null
-    try {
-      const offset = reset ? 0 : artifacts.value.length
-      const next = await deps.gateway.history(offset, scope.signal)
-      if (owner !== epoch || disposed) return
-      artifacts.value = reset ? next : [...artifacts.value, ...next]
-      hasMore.value = next.length === 24
-      if (!artifacts.value.some((item) => item.id === selectedId.value))
-        selectedId.value = artifacts.value[0]?.id ?? null
-      await Promise.all(next.map((item) => loadImage(item.id)))
-      const source = selectedArtifact.value?.reference_ids?.[0]
-      if (source) await inputs.restoreInputs([source])
-    } catch (cause) {
-      if (owner === epoch && !disposed) historyError.value = errorText(cause)
-    } finally {
-      if (owner === epoch && !disposed) historyLoading.value = false
-    }
-  }
-
-  async function loadImage(id: string): Promise<void> {
-    const owner = epoch
-    if (urls.value[id] || loadingImages.has(id)) return
-    loadingImages.add(id)
-    try {
-      await media.get(id)
-      if (owner !== epoch || disposed) return
-      delete imageErrors.value[id]
-    } catch (cause) {
-      if (owner === epoch && !disposed) imageErrors.value[id] = errorText(cause)
-    } finally {
-      loadingImages.delete(id)
+      if (owner === epoch) loading.value = false
     }
   }
 
   async function generate(): Promise<boolean> {
     const owner = epoch
-    if (submitting.value || hasActiveJob.value || inputs.uploading.value || preparingEdit.value)
+    if (
+      submitting.value ||
+      hasActiveJob.value ||
+      inputs.uploading.value ||
+      preparingEdit.value ||
+      form.value.referenceIds?.some((id) => inputs.inputErrors.value[id])
+    )
       return false
     error.value = null
+    submittedSelection = history.getSelectionRevision()
     submitting.value = true
     try {
       const next = await submission.run(form.value)
@@ -166,7 +133,7 @@ export function createImageController(deps: ImageDependencies) {
       error.value = errorText(cause)
       return false
     } finally {
-      submitting.value = false
+      if (owner === epoch) submitting.value = false
     }
   }
 
@@ -184,13 +151,14 @@ export function createImageController(deps: ImageDependencies) {
       jobs.value = [next, ...jobs.value.filter((item) => item.id !== id)]
       if (next.state === 'succeeded') {
         await loadHistory(true)
-        selectedId.value = next.artifact_id
+        if (next.artifact_id && submittedSelection === history.getSelectionRevision())
+          await history.select(next.artifact_id, false)
       } else if (next.state === 'failed') error.value = imageJobError(next.error_code)
       if (!isTerminal(next)) schedulePoll()
     } catch (cause) {
       if (owner === epoch && !disposed) syncError.value = `任务状态同步中断：${errorText(cause)}`
     } finally {
-      polling = false
+      if (owner === epoch) polling = false
     }
   }
 
@@ -199,49 +167,52 @@ export function createImageController(deps: ImageDependencies) {
   }
 
   async function cancel(): Promise<void> {
-    if (!activeJob.value || !hasActiveJob.value || cancelling.value) return
+    if (
+      !activeJob.value ||
+      !hasActiveJob.value ||
+      activeJob.value.state === 'cancelling' ||
+      cancelling.value
+    )
+      return
     cancelling.value = true
     try {
       await deps.gateway.cancel(activeJob.value.id)
       await refreshJob()
     } catch (cause) {
       error.value = errorText(cause)
+      await refreshJob()
     } finally {
       cancelling.value = false
     }
   }
 
-  function selectArtifact(id: string): void {
-    selectedId.value = id
-    void loadImage(id)
+  async function selectArtifact(id: string): Promise<void> {
+    await history.select(id)
     const source = selectedArtifact.value?.reference_ids?.[0]
-    if (source) void inputs.restoreInputs([source])
+    if (source) await inputs.restoreInputs([source])
   }
 
-  function reuse(item: ImageArtifact | ImageJob): void {
+  async function reuse(item: ImageArtifact | ImageJob): Promise<void> {
     if (hasActiveJob.value || submitting.value) return
-    form.value = createImageDraft(
-      item,
-      imageModels.value.map((model) => model.id),
-    )
-    void inputs.restoreInputs()
-    error.value = form.value.modelId ? null : '历史作品使用的模型已移除，请重新选择模型。'
-  }
-
-  async function saveArtifact(id: string): Promise<void> {
-    const owner = epoch
-    savingId.value = id
     try {
-      const blob = await deps.gateway.image(id, scope.signal)
-      if (owner === epoch && !disposed) await deps.exportImage(blob, id)
+      await restorer.restore(async () => {
+        const ids = [...(item.reference_ids ?? []), ...(item.mask_id ? [item.mask_id] : [])]
+        const available = await Promise.allSettled(ids.map((id) => deps.gateway.metadata(id)))
+        return restoreImage(
+          item,
+          imageModels.value.map((model) => ({
+            id: model.id,
+            imageEditing: model.capabilities.imageEditing === true,
+            inpainting: model.capabilities.inpainting === true,
+          })),
+          new Set(ids.filter((_, index) => available[index]?.status === 'fulfilled')),
+        )
+      })
+      await inputs.restoreInputs()
     } catch (cause) {
-      if (owner === epoch && !disposed)
-        error.value = cause instanceof Error ? cause.message : 'Image export failed'
-    } finally {
-      savingId.value = null
+      error.value = errorText(cause)
     }
   }
-
   async function editArtifact(): Promise<void> {
     const item = selectedArtifact.value
     if (
@@ -289,23 +260,26 @@ export function createImageController(deps: ImageDependencies) {
   }
 
   function dispose(): void {
+    restorer.dispose()
+    history.dispose()
     disposed = true
     scope.abort()
     submitting.value = false
     preparingEdit.value = false
     cancelling.value = false
-    savingId.value = null
     epoch += 1
     poller.stop()
     polling = false
-    historyTask = undefined
-    loadingImages.clear()
-    media.dispose()
+
     inputs.disposeInputs()
   }
 
   return {
     ...inputs,
+    restorePending: restorer.pending,
+    restoreCandidate: restorer.candidate,
+    restoreAdjustments: restorer.adjustments,
+    applyRestoreCandidate: restorer.applyCandidate,
     editArtifact,
     preparingEdit,
     form,
@@ -320,6 +294,10 @@ export function createImageController(deps: ImageDependencies) {
     submitting,
     cancelling,
     savingId,
+    savingById: history.savingById,
+    detailError: history.detailError,
+    detailLoading: history.detailLoading,
+    historyPhase: history.phase,
     error,
     historyError,
     syncError,

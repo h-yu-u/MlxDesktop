@@ -13,14 +13,11 @@
   flex-shrink: 0;
   gap: 9px;
   height: 32px;
-  color: #a6b8ad;
+  color: var(--text-tertiary);
   font-size: 11px;
 }
 
 .runtime-badge.n-button {
-  --n-text-color: #f2b4b4 !important;
-  --n-color: #442b2c55 !important;
-  --n-border: 1px solid #604044 !important;
   width: auto;
   padding: 0 10px;
 }
@@ -31,7 +28,7 @@
 }
 
 .runtime-badge.runtime-starting {
-  color: #e9c67b;
+  color: var(--status-warning);
 }
 
 .runtime-memory {
@@ -42,11 +39,11 @@
 }
 
 .status-starting {
-  background: #e3bb66;
+  background: var(--status-warning);
 }
 
 .status-failed {
-  background: #e78d90;
+  background: var(--status-error);
 }
 
 @media (max-width: 420px) {

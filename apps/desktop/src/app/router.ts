@@ -25,10 +25,31 @@ export const router = createRouter({
       component: () => import('../modules/image-studio/pages/ImageStudioPage.vue'),
     },
     {
-      path: '/settings/extensions/:tab(skills|mcp|builtin)',
-      component: () => import('../capabilities/extensions/presentation/ExtensionsSettings.vue'),
+      path: '/settings',
+      meta: { navKey: 'settings' },
+      component: () => import('../modules/settings/pages/SettingsLayout.vue'),
+      children: [
+        { path: '', component: () => import('../modules/settings/pages/SettingsPage.vue') },
+        {
+          path: 'coding',
+          component: () =>
+            import('../capabilities/coding-settings/presentation/CodingSettingsPanel.vue'),
+        },
+        ...(['skills', 'mcp', 'builtin'] as const).map((tab) => ({
+          path: `extensions/${tab}`,
+          props: { tab },
+          component: () => import('../capabilities/extensions/presentation/ExtensionsSettings.vue'),
+        })),
+        {
+          path: 'runtime',
+          component: () => import('../modules/settings/pages/RuntimeSettingsPage.vue'),
+        },
+        {
+          path: 'privacy',
+          component: () => import('../modules/settings/pages/PrivacySettingsPage.vue'),
+        },
+      ],
     },
-    { path: '/settings', component: () => import('../modules/settings/pages/SettingsPage.vue') },
     {
       path: '/audio-studio',
       component: () => import('../modules/audio-studio/pages/AudioStudioPage.vue'),

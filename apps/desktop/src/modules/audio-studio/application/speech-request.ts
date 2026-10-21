@@ -36,3 +36,19 @@ export function buildSpeechRequest(
     output: { format: 'wav' },
   }
 }
+
+export function deriveSpeechReadiness(
+  draft: SpeechDraft,
+  models: readonly SpeechModel[],
+  voices: readonly { id: string }[],
+) {
+  const fields: Record<string, string> = {}
+  try {
+    buildSpeechRequest(draft, models)
+  } catch (cause) {
+    fields.form = cause instanceof Error ? cause.message : '请检查语音参数'
+  }
+  if (draft.mode === 'clone' && !voices.some((voice) => voice.id === draft.voiceId))
+    fields.voiceId = '请选择参考音色'
+  return { canSubmit: !Object.keys(fields).length, fields }
+}

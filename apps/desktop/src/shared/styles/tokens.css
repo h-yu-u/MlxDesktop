@@ -1,13 +1,9 @@
+@import './tokens.generated.css';
 :root {
-  --text-primary: #ececec;
-  --surface-shell: #262626;
-  --surface-body: #181818;
-  --surface-sidebar: #202020;
-  --surface-card: #252525;
-  --surface-hover: #303030;
-  --radius-panel: 14px;
-  --muted: #999999;
-  --line: #343434;
-  --accent: #d5d5d5;
-  --space-panel: 16px;
+  --muted: var(--text-tertiary);
+  --text-muted: var(--text-tertiary);
+  --line: var(--border-subtle);
+  --accent: var(--action-primary);
+  --space-panel: var(--space-4);
+  --radius-button: var(--radius-control);
 }

@@ -71,7 +71,7 @@ const labels = {
   align-items: center;
   gap: 12px;
   padding: 12px 0;
-  border-top: 1px solid #2a3a51;
+  border-top: 1px solid var(--surface-hover);
 }
 .task-description {
   flex: 1;
@@ -87,8 +87,8 @@ const labels = {
   white-space: nowrap;
 }
 .task-description span {
-  color: #8197b9;
-  font-size: 10px;
+  color: var(--text-tertiary);
+  font-size: 12px;
   line-height: 1.5;
 }
 .image-task-row > .n-button,

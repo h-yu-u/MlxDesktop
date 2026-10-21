@@ -97,6 +97,7 @@ const api = {
   job: vi.fn(),
   cancel: vi.fn(),
   history: vi.fn(),
+  artifact: vi.fn(),
   deleteArtifact: vi.fn(),
   audio: vi.fn(),
   reference: vi.fn(),
@@ -129,6 +130,7 @@ beforeEach(() => {
   api.references.mockResolvedValue([])
   api.jobs.mockResolvedValue([])
   api.history.mockResolvedValue([])
+  api.artifact.mockImplementation(async (id: string) => ({ ...artifact, id }))
   api.audio.mockResolvedValue(new Blob(['wav']))
   api.reference.mockResolvedValue(new Blob(['wav']))
   store = createStore()
@@ -333,4 +335,23 @@ it('preserves the newer submission identity when an old workspace response arriv
   await store.generate()
   expect(api.generate.mock.calls[2]?.[0].clientRequestId).toBe(request)
   expect(store.activeJob?.id).toBe('second')
+})
+
+it('deletes A without disturbing B, even when the post-delete refresh fails', async () => {
+  api.history.mockResolvedValueOnce([artifact])
+  await store.loadWorkspace()
+  let complete!: (value: unknown) => void
+  api.deleteArtifact.mockReturnValueOnce(
+    new Promise((resolve) => {
+      complete = resolve
+    }),
+  )
+  const deleting = store.remove(artifact.id)
+  await store.select('B')
+  api.history.mockRejectedValueOnce(new Error('refresh failed'))
+  complete({})
+  expect(await deleting).toBe(true)
+  expect(store.selectedArtifact?.id).toBe('B')
+  expect(store.artifacts.some((item) => item.id === artifact.id)).toBe(false)
+  expect(store.historyError).toBe('refresh failed')
 })

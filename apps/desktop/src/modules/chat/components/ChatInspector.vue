@@ -9,9 +9,9 @@ interface SelectedModel {
   contextLength?: number | null
 }
 defineProps<{
-  clearing: boolean
+  clearing?: boolean
   busy: boolean
-  messageCount: number
+  messageCount?: number
   selectedModel?: SelectedModel
   runtime: { error: string | null; info: Record<string, unknown>; uptime: string; diskFree: string }
 }>()
@@ -122,19 +122,6 @@ function reset(): void {
           <dd>{{ runtime.diskFree }}</dd>
         </div>
       </dl>
-    </section>
-    <section class="panel inspector-actions">
-      <NButton
-        secondary
-        :loading="clearing"
-        :disabled="busy || !messageCount"
-        @click="$emit('clear')"
-      >
-        <StudioIcon name="trash" :size="17" />清空对话
-      </NButton>
-      <NButton secondary :disabled="busy || !messageCount" @click="$emit('export')">
-        <StudioIcon name="download" :size="17" />导出对话
-      </NButton>
     </section>
   </aside>
 </template>

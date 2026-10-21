@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
 import { NButton, NInput, NSelect, NSwitch } from 'naive-ui'
+import SessionListItem from '../../../shared/ui/SessionListItem.vue'
+import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import type { CodingProject, CodingSession } from '../application/ports'
 const props = defineProps<{
   projects: CodingProject[]
@@ -36,6 +38,11 @@ const visible = computed(() =>
     )
     .sort((a, b) => Number(b.pinned) - Number(a.pinned)),
 )
+function sessionAction(key: string, item: CodingSession): void {
+  if (key === 'rename') emit('rename', item)
+  if (key === 'archive') emit('archive', item)
+  if (key === 'delete') emit('remove', item)
+}
 </script>
 <template>
   <aside class="coding-sidebar" aria-label="Coding 项目与会话">
@@ -52,38 +59,38 @@ const visible = computed(() =>
     <NInput v-model:value="query" placeholder="搜索会话" aria-label="搜索开发会话" clearable />
     <label class="archive-switch"><NSwitch v-model:value="archived" size="small" /> 查看归档</label>
     <div class="session-list">
-      <article v-for="item in visible" :key="item.id" :class="{ selected: item.id === sessionId }">
-        <button
-          class="session-title"
-          :aria-current="item.id === sessionId"
-          @click="emit('session', item.id)"
-        >
-          <span v-if="item.pinned">⌖ </span><span v-if="item.id === activeSession">● </span
-          >{{ item.title }}
-        </button>
-        <div class="session-actions">
-          <NButton text size="tiny" :disabled="pending" @click="emit('rename', item)"
-            >重命名</NButton
-          >
-          <NButton text size="tiny" :disabled="pending" @click="emit('pin', item)">{{
-            item.pinned ? '取消置顶' : '置顶'
-          }}</NButton>
-          <NButton
-            text
-            size="tiny"
-            :disabled="pending || item.id === activeSession"
-            @click="emit('archive', item)"
-            >{{ item.archived ? '恢复' : '归档' }}</NButton
-          >
-          <NButton
-            text
-            size="tiny"
-            :disabled="pending || item.id === activeSession"
-            @click="emit('remove', item)"
-            >删除</NButton
-          >
-        </div>
-      </article>
+      <SessionListItem
+        v-for="item in visible"
+        :id="item.id"
+        :key="item.id"
+        :title="item.title"
+        :selected="item.id === sessionId"
+        :pending="pending"
+        :status="item.id === activeSession ? 'running' : item.archived ? 'archived' : undefined"
+        :actions="[
+          { key: 'rename', label: '重命名' },
+          {
+            key: 'archive',
+            label: item.archived ? '恢复' : '归档',
+            disabled: item.id === activeSession,
+          },
+          { key: 'delete', label: '删除', disabled: item.id === activeSession, danger: true },
+        ]"
+        @select="emit('session', item.id)"
+        @action="({ key }) => sessionAction(key, item)"
+      >
+        <template #trailing
+          ><NButton
+            quaternary
+            circle
+            size="small"
+            :aria-label="`${item.pinned ? '取消置顶' : '置顶'}：${item.title}`"
+            :aria-pressed="item.pinned"
+            :disabled="pending"
+            @click="emit('pin', item)"
+            ><StudioIcon name="pin" :size="17" /></NButton
+        ></template>
+      </SessionListItem>
       <NButton v-if="hasMore" :disabled="pending" @click="emit('more')">加载更多会话</NButton>
       <p v-if="!visible.length">{{ projectId ? '暂无匹配会话' : '先打开本地项目' }}</p>
     </div>
@@ -108,29 +115,6 @@ h2 {
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-}
-.session-list article {
-  padding: 10px 8px;
-  border-radius: 8px;
-}
-.selected {
-  background: var(--surface-hover);
-}
-.session-title {
-  border: 0;
-  padding: 0;
-  background: none;
-  color: inherit;
-  text-align: left;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.session-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 8px;
-  opacity: 0.7;
 }
 .archive-switch,
 p {

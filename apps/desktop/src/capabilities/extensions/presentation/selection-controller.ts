@@ -6,6 +6,7 @@ import type {
   ExtensionResolution,
 } from '@mlx-studio/api-client'
 import type { ExtensionsGateway } from '../application/ports'
+import { SubmissionIdentity } from '../../requests'
 import { extensionError } from './errors'
 export function createSelectionController(gateway: ExtensionsGateway) {
   const catalog = ref<ExtensionCatalog | null>(null),
@@ -13,6 +14,15 @@ export function createSelectionController(gateway: ExtensionsGateway) {
     preview = ref<ExtensionResolution | null>(null),
     error = ref(''),
     pending = ref(false)
+  const identity = new SubmissionIdentity()
+  const loaded = ref(false)
+  const defaultLabel = computed(() =>
+    scope.kind === 'project'
+      ? '保存为当前项目默认'
+      : scope.kind === 'session' && scope.scopeId === 'agent-default'
+        ? '保存为工具助手默认'
+        : '保存为此工作区默认',
+  )
   let scope: ExtensionScope = { workspace: 'coding', kind: 'workspace', scopeId: 'default' },
     revision = 0,
     epoch = 0
@@ -39,7 +49,9 @@ export function createSelectionController(gateway: ExtensionsGateway) {
   )
   async function load(value: ExtensionScope): Promise<void> {
     const owner = ++epoch
-    scope = value
+    scope = { ...value }
+    loaded.value = false
+    identity.clear()
     selection.value = { skillIds: [], toolIds: [], mediaBindings: {} }
     catalog.value = null
     preview.value = null
@@ -64,6 +76,7 @@ export function createSelectionController(gateway: ExtensionsGateway) {
         selection.value = fallback.selection
       }
       selection.value.mediaBindings ??= {}
+      loaded.value = true
     } catch (cause) {
       if (owner === epoch) error.value = extensionError(cause)
     } finally {
@@ -91,6 +104,8 @@ export function createSelectionController(gateway: ExtensionsGateway) {
   }
   return {
     catalog,
+    defaultLabel,
+    loaded,
     selection,
     skills,
     tools,
@@ -100,16 +115,26 @@ export function createSelectionController(gateway: ExtensionsGateway) {
     load,
     resolve,
     async saveDefault() {
+      if (!loaded.value || pending.value) return false
+      pending.value = true
+      const owner = epoch
       try {
-        const owner = epoch,
-          scopeAtSubmit = scope
-        const result = await gateway.saveBinding(scopeAtSubmit, revision, selection.value)
+        const scopeAtSubmit = { ...scope }
+        const result = await gateway.saveBinding(
+          scopeAtSubmit,
+          revision,
+          selection.value,
+          identity.for({ scopeAtSubmit, revision, selection: selection.value }),
+        )
         if (owner !== epoch) return false
         revision = result.revision
+        identity.clear()
         return true
       } catch (cause) {
-        error.value = extensionError(cause)
+        if (owner === epoch) error.value = extensionError(cause)
         return false
+      } finally {
+        if (owner === epoch) pending.value = false
       }
     },
     dispose() {

@@ -97,8 +97,11 @@ class Queries:
     def history(self, limit: int, offset: int) -> list[dict[str, Any]]:
         return self.images.list_artifacts(limit, offset)
 
-    def image_content(self, artifact_id: str) -> Path:
+    def image_artifact(self, artifact_id: str) -> dict[str, Any]:
         item = self.images.get(artifact_id)
         if item is None:
             raise RuntimeFault(RuntimeErrorInfo("IMAGE_ARTIFACT_NOT_FOUND", "找不到此作品"))
-        return self.image_path(str(item["relative_path"]))
+        return item
+
+    def image_content(self, artifact_id: str) -> Path:
+        return self.image_path(str(self.image_artifact(artifact_id)["relative_path"]))

@@ -8,6 +8,7 @@ defineProps<{
   names: Record<string, string>
   locked: boolean
   uploading: boolean
+  errors?: Record<string, string>
 }>()
 const emit = defineEmits<{
   upload: [files: File[]]
@@ -56,7 +57,10 @@ function changed({ file }: { file: UploadFileInfo }): void {
           object-fit="contain"
           :img-props="{ style: 'width:100%;height:100px;object-fit:contain' }"
         />
-        <div v-else class="reference-loading"><NSpin size="small" /></div>
+        <div v-else class="reference-loading">
+          <span v-if="errors?.[id]" role="alert">{{ errors[id] }}</span
+          ><NSpin v-else size="small" />
+        </div>
         <div class="reference-caption">
           <strong>图 {{ index + 1 }}{{ index === 0 ? ' · 原图' : '' }}</strong
           ><span :title="names[id]">{{ names[id] || '已保存的参考图' }}</span>
@@ -101,8 +105,8 @@ function changed({ file }: { file: UploadFileInfo }): void {
 }
 .reference-heading span,
 .reference-help {
-  color: #95a7c2;
-  font-size: 11px;
+  color: var(--text-secondary);
+  font-size: 12px;
   line-height: 1.7;
 }
 .reference-help {
@@ -119,8 +123,8 @@ function changed({ file }: { file: UploadFileInfo }): void {
   font-weight: 500;
 }
 .reference-input :deep(.n-upload-dragger span) {
-  font-size: 10px;
-  color: #95a7c2;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .reference-grid {
   display: grid;
@@ -131,9 +135,9 @@ function changed({ file }: { file: UploadFileInfo }): void {
 .reference-card {
   min-width: 0;
   overflow: hidden;
-  border: 1px solid #34435c;
+  border: 1px solid var(--border-strong);
   border-radius: 9px;
-  background: #172235;
+  background: var(--surface-card);
 }
 .reference-card .n-image {
   display: block;
@@ -145,15 +149,15 @@ function changed({ file }: { file: UploadFileInfo }): void {
   padding: 7px 8px 3px;
 }
 .reference-caption strong {
-  font-size: 11px;
-  color: #bfcaff;
+  font-size: 12px;
+  color: var(--text-primary);
 }
 .reference-caption span {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 10px;
-  color: #91a3bd;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 .reference-actions {
   display: flex;

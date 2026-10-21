@@ -87,7 +87,8 @@ export function createVoiceController(gateway: AudioGateway, voices: Ref<Voice[]
       await media.get(asset.id)
     })
   }
-  async function save(): Promise<void> {
+  async function save(): Promise<Voice | undefined> {
+    let created: Voice | undefined
     const owner = epoch
     await perform(async () => {
       if (
@@ -109,20 +110,25 @@ export function createVoiceController(gateway: AudioGateway, voices: Ref<Voice[]
         if (saving === asset) saving = undefined
       }
       if (pending === asset) pending = undefined
+      created = voice
+      voices.value = [voice, ...voices.value.filter((item) => item.id !== voice.id)]
       if (owner !== epoch) return
-      voices.value = [voice, ...voices.value]
       reference.value = null
       form.value = empty()
       consent.value = false
     })
+    return created
   }
-  async function update(id: string, patch: VoicePatch): Promise<void> {
+  async function update(id: string, patch: VoicePatch): Promise<boolean> {
+    let saved = false
     const owner = epoch
     await perform(async () => {
-      const next = await gateway.updateVoice(id, patch)
+      const next = await gateway.updateVoice(id, { ...patch })
+      saved = true
       if (owner === epoch)
         voices.value = voices.value.map((voice) => (voice.id === id ? next : voice))
     })
+    return saved
   }
   async function remove(id: string, complete: boolean): Promise<void> {
     const owner = epoch

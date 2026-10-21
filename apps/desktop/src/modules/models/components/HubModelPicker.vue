@@ -175,7 +175,7 @@ function renderLabel(option: SelectOption): ReturnType<typeof h> {
   white-space: nowrap;
 }
 .hub-option small {
-  color: #8999b5;
+  color: var(--text-secondary);
   font-size: 11px;
   flex-shrink: 0;
 }

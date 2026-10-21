@@ -63,14 +63,14 @@ function removeSession(item: CodingSession): void {
     onPositiveClick: () => coding.removeSession(item.id),
   })
 }
-async function submit(text: string, clear: () => void): Promise<void> {
-  if (await coding.send(text, false, selection.value)) clear()
+async function submit(): Promise<void> {
+  await coding.send(coding.draftText, false, selection.value)
 }
-async function queue(text: string, clear: () => void): Promise<void> {
-  if (await coding.send(text, true, selection.value)) clear()
+async function queue(): Promise<void> {
+  await coding.send(coding.draftText, true, selection.value)
 }
-async function steer(text: string, clear: () => void): Promise<void> {
-  if (await coding.steer(text)) clear()
+async function steer(): Promise<void> {
+  await coding.steer(coding.draftText)
 }
 function routeText(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
@@ -175,6 +175,8 @@ onUnmounted(() => coding.dispose())
               />
             </div>
             <CodingComposer
+              v-model="coding.draftText"
+              :active-status="coding.active?.status"
               :models="coding.models"
               :model-id="coding.selectedModelId"
               :mode="coding.mode"

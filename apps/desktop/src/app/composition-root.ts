@@ -1,3 +1,6 @@
+import { configureMediaAssets } from '../capabilities/media'
+import { createAssetCatalog } from '../capabilities/media/infrastructure/asset-catalog'
+import { createAgentDraftMemory } from '../capabilities/extensions/presentation/agent-draft-memory'
 import { createAgentController } from '../capabilities/extensions/presentation/agent-controller'
 import { agentChatEndpoints } from '@mlx-studio/api-client'
 import { createAssistantController } from '../capabilities/extensions/presentation/assistant-controller'
@@ -111,10 +114,14 @@ export function createCodingWorkspace() {
 }
 
 export function installWorkspaces(): void {
+  configureMediaAssets(() => createAssetCatalog(runtimeClient))
   const extensionGateway = createExtensionsGateway(runtimeClient)
+  const agentMemory = createAgentDraftMemory()
+  const extensionSettings = createExtensionsController(extensionGateway, pickSkillDirectory)
   configureExtensions({
     agent: () =>
       createAgentController({
+        memory: agentMemory,
         models: toRef(useModelDirectory(), 'items'),
         refreshModels: directoryDependencies().refreshModels,
         verifyModel: async (id) => {
@@ -142,7 +149,7 @@ export function installWorkspaces(): void {
           cancel: async (id) => textAssistantEndpoints(await runtimeClient()).cancel(id),
         },
       }),
-    settings: () => createExtensionsController(extensionGateway, pickSkillDirectory),
+    settings: () => extensionSettings,
     picker: () => createSelectionController(extensionGateway),
   })
   configureWebSearch(() => createWebSearchController(createWebSearchGateway(runtimeClient)))

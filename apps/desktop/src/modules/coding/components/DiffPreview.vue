@@ -56,18 +56,18 @@ function navigate(event: MouseEvent): void {
   border-color: var(--line);
 }
 .diff-preview :deep(.d2h-ins) {
-  background: #22c55e20;
-  border-color: #22c55e35;
+  background: color-mix(in srgb, var(--status-success) 13%, transparent);
+  border-color: color-mix(in srgb, var(--status-success) 21%, transparent);
 }
 .diff-preview :deep(.d2h-del) {
-  background: #ef444420;
-  border-color: #ef444435;
+  background: color-mix(in srgb, var(--status-error) 13%, transparent);
+  border-color: color-mix(in srgb, var(--status-error) 21%, transparent);
 }
 .diff-preview :deep(ins) {
-  background: #22c55e35;
+  background: color-mix(in srgb, var(--status-success) 21%, transparent);
 }
 .diff-preview :deep(del) {
-  background: #ef444435;
+  background: color-mix(in srgb, var(--status-error) 21%, transparent);
 }
 .diff-preview :deep(.d2h-file-name),
 .diff-preview :deep(.d2h-file-list-title) {

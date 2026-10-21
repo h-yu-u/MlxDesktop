@@ -114,7 +114,7 @@ describe('Coding workspace', () => {
   it('prepares an unverified model automatically before the first task', async () => {
     const { controller, gateway } = fixture()
     await controller.loadWorkspace('p', 's')
-    expect(await controller.send('task')).toBe(true)
+    expect(await controller.send('task')).toMatchObject({ kind: 'accepted', runId: 'r' })
     expect(gateway.verifyModel).toHaveBeenCalledOnce()
     expect(gateway.submit).toHaveBeenCalledWith(
       's',
@@ -133,7 +133,10 @@ describe('Coding workspace', () => {
       modelFingerprint: '',
       detail: '模型未能完成工具调用',
     })
-    expect(await controller.send('task')).toBe(false)
+    expect(await controller.send('task')).toMatchObject({
+      kind: 'failed',
+      acceptance: 'not-accepted',
+    })
     expect(gateway.submit).not.toHaveBeenCalled()
     expect(controller.preparingModel.value).toBe(false)
     expect(controller.error.value).toContain('模型未能完成工具调用')
@@ -145,7 +148,7 @@ describe('Coding workspace', () => {
     vi.mocked(gateway.submit).mockRejectedValueOnce(
       new RuntimeError('reverify', 'MODEL_TOOLS_UNVERIFIED'),
     )
-    expect(await controller.send('task')).toBe(true)
+    expect(await controller.send('task')).toMatchObject({ kind: 'accepted', runId: 'r' })
     expect(gateway.verifyModel).toHaveBeenCalledTimes(2)
     const calls = vi.mocked(gateway.submit).mock.calls
     expect(calls).toHaveLength(2)
@@ -167,7 +170,7 @@ describe('Coding workspace', () => {
     await controller.loadWorkspace('p', 's')
     await controller.verifyModel()
     controller.snapshot.value = { ...snapshot(), activeRun: run }
-    expect(await controller.send('next', true)).toBe(true)
+    expect(await controller.send('next', true)).toMatchObject({ kind: 'accepted' })
     expect(gateway.submit).toHaveBeenCalledWith(
       's',
       expect.objectContaining({ queue: true, text: 'next' }),
@@ -301,4 +304,48 @@ it('keeps the oldest page cursor after creating a new session', async () => {
   expect(vi.mocked(gateway.sessions).mock.calls.at(-1)?.[2]).toBe('page-99')
   expect(controller.sessions.value[0]?.id).toBe('new')
   expect(controller.sessions.value.at(-1)?.id).toBe('older')
+})
+
+it('consumes only the submitted draft and reports acceptance even if the refresh fails', async () => {
+  const { controller, gateway } = fixture()
+  await controller.loadWorkspace('p', 's')
+  controller.draftText.value = 'accepted task'
+  vi.mocked(gateway.snapshot).mockRejectedValueOnce(new Error('snapshot offline'))
+  expect(await controller.send()).toMatchObject({
+    kind: 'accepted',
+    syncWarning: expect.stringContaining('同步失败'),
+  })
+  expect(controller.draftText.value).toBe('')
+})
+it('does not clear new edits or a different session when an old submission completes', async () => {
+  const { controller, gateway } = fixture()
+  await controller.loadWorkspace('p', 's')
+  controller.draftText.value = 'X'
+  const submission = deferred<typeof run>()
+  vi.mocked(gateway.submit).mockReturnValueOnce(submission.promise)
+  const sending = controller.send()
+  await vi.waitFor(() => expect(gateway.submit).toHaveBeenCalled())
+  controller.draftText.value = 'Y'
+  controller.draftText.value = 'X'
+  await controller.openSession('other')
+  controller.draftText.value = 'B'
+  submission.resolve(run)
+  expect((await sending).kind).toBe('accepted')
+  expect(controller.draftText.value).toBe('B')
+  await controller.openSession('s')
+  expect(controller.draftText.value).toBe('X')
+})
+
+it('synchronizes an ambiguous steer without replaying it or consuming the draft', async () => {
+  const { controller, gateway } = fixture()
+  await controller.loadWorkspace('p', 's')
+  controller.snapshot.value = { ...snapshot(), activeRun: run }
+  controller.draftText.value = 'keep this extra instruction'
+  vi.mocked(gateway.steer).mockRejectedValueOnce(new Error('lost response'))
+  const reads = vi.mocked(gateway.snapshot).mock.calls.length
+  expect(await controller.steer()).toBe(false)
+  expect(gateway.steer).toHaveBeenCalledOnce()
+  expect(gateway.snapshot).toHaveBeenCalledTimes(reads + 1)
+  expect(controller.draftText.value).toBe('keep this extra instruction')
+  expect(controller.error.value).toContain('追加结果未知')
 })

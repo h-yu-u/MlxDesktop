@@ -1,9 +1,15 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
-import { NAlert, NButton, NDrawer, NDrawerContent, NInput, NSelect, NSpace, NCard } from 'naive-ui'
+import { computed, ref, onUnmounted } from 'vue'
+import { NAlert, NButton, NDrawer, NDrawerContent, NSelect, NSpace, NCard } from 'naive-ui'
 import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { createAgentChat } from '../configuration'
 import CapabilityPicker from './CapabilityPicker.vue'
+import TaskStatusPanel from '../../../shared/ui/TaskStatusPanel.vue'
+import ComposerShell from '../../../shared/ui/ComposerShell.vue'
+import MarkdownContent from '../../../shared/ui/MarkdownContent.vue'
+import { useMarkdownCopy } from '../../../shared/ui/markdown-copy'
+import { copyText } from '../../../platform/clipboard'
+import { agentTaskStatus, agentEventLabel } from './agent-task-status'
 import ArtifactLinks from './ArtifactLinks.vue'
 const props = defineProps<{ text?: string; disabled?: boolean }>()
 const state = createAgentChat(),
@@ -11,9 +17,21 @@ const state = createAgentChat(),
   selection = ref<ExtensionSelection>({ skillIds: [], toolIds: [] })
 async function show() {
   open.value = true
-  if (!state.text.value) state.text.value = props.text ?? ''
   await state.load()
+  if (!state.text.value) state.text.value = props.text ?? ''
 }
+const { copyState, copyCode } = useMarkdownCopy(copyText)
+const primary = computed(() => ({
+  action: 'submit' as const,
+  label: '使用所选工具执行',
+  enabled:
+    !state.pending.value &&
+    !state.active.value &&
+    !!state.modelId.value &&
+    !!state.text.value.trim() &&
+    !!selection.value.toolIds.length,
+  pending: state.pending.value,
+}))
 onUnmounted(state.dispose)
 </script>
 <template>
@@ -51,9 +69,32 @@ onUnmounted(state.dispose)
           :disabled="!!state.active.value || state.pending.value"
           @change="selection = $event"
         />
+        <NAlert v-if="state.creationUncertain.value" type="warning"
+          >会话创建结果未知，未自动重试。<NButton
+            :disabled="state.pending.value"
+            @click="state.reviewCreation"
+            >重新读取会话列表</NButton
+          ></NAlert
+        >
         <NAlert v-if="state.error.value" type="error">{{ state.error.value }}</NAlert>
-        <NAlert v-if="state.active.value" type="info"
-          >任务状态：{{ state.active.value.status }}</NAlert
+        <TaskStatusPanel
+          v-for="run in state.snapshot.value?.runs"
+          :key="run.id"
+          :status="
+            agentTaskStatus(run, state.pending.value, state.error.value.startsWith('状态同步'))
+          "
+          @cancel="state.cancel"
+          @reconnect="state.load"
+        />
+        <NAlert
+          v-for="ticket in state.recovery.value"
+          :key="ticket.request.submissionId"
+          type="warning"
+          >提交结果未知，草稿已保留。<NButton
+            :disabled="state.pending.value"
+            @click="state.recover(ticket.request.submissionId)"
+            >恢复这次提交</NButton
+          ></NAlert
         >
         <NCard
           v-for="event in state.snapshot.value?.events.filter((event) =>
@@ -68,9 +109,14 @@ onUnmounted(state.dispose)
           )"
           :key="event.seq"
           size="small"
-          :title="event.type"
+          :title="agentEventLabel(event.type)"
         >
-          <pre style="white-space: pre-wrap; margin: 0">{{ event.text }}</pre>
+          <MarkdownContent
+            :content-id="`${event.sessionId}:${event.runId}:${event.seq}`"
+            :source="event.text"
+            :copy-state="copyState"
+            @copy-code="copyCode"
+          />
           <ArtifactLinks :data="event.data" />
         </NCard>
         <NCard
@@ -95,28 +141,13 @@ onUnmounted(state.dispose)
             ></NSpace
           ></NCard
         >
-        <NInput
-          v-model:value="state.text.value"
-          type="textarea"
-          :autosize="{ minRows: 3, maxRows: 8 }"
+        <ComposerShell
+          v-model="state.text.value"
+          :primary="primary"
+          label="工具助手任务"
           placeholder="描述需要工具完成的任务"
-          :disabled="state.pending.value"
-          aria-label="工具助手任务"
+          @action="state.send(selection)"
         />
-        <NSpace
-          ><NButton v-if="state.active.value" @click="state.cancel">停止任务</NButton
-          ><NButton
-            v-else
-            type="primary"
-            :loading="state.pending.value"
-            :disabled="
-              !state.modelId.value || !state.text.value.trim() || !selection.toolIds.length
-            "
-            @click="state.send(selection)"
-            >使用所选工具执行</NButton
-          ></NSpace
-        >
-      </NSpace>
-    </NDrawerContent></NDrawer
-  >
+      </NSpace> </NDrawerContent
+  ></NDrawer>
 </template>

@@ -193,6 +193,7 @@ export function createEndpoints(transport: Transport) {
         ),
       list: async (signal?: AbortSignal) =>
         list(await transport.get(`${root}/models`, signal), decodeModel),
+      unload: (id: string) => transport.post(`${root}/models/${idPath(id)}/unload`),
       load: (id: string) => transport.post(`${root}/models/${idPath(id)}/load`),
       unregister: (id: string) => transport.delete(`${root}/models/${idPath(id)}/registration`),
       deleteFiles: (id: string) =>

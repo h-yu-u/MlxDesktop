@@ -1,7 +1,8 @@
 <script setup lang="ts">
-import { NAlert, NButton, NInput, NRadioButton, NRadioGroup, NSelect } from 'naive-ui'
+import { NAlert, NButton, NInput, NRadioButton, NRadioGroup } from 'naive-ui'
 import { computed } from 'vue'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
+import { ModelSelect, type ModelOptionView } from '../../../capabilities/models'
 import type { ModelSummary } from '../../../capabilities/models'
 import type { ImageDraft, ImageMode } from '../domain/image-state'
 import ImageReferences from './ImageReferences.vue'
@@ -15,6 +16,7 @@ const props = defineProps<{
   inputNames: Record<string, string>
   uploading: boolean
   inputError: string | null
+  inputErrors?: Record<string, string>
 }>()
 const emit = defineEmits<{
   'update:form': [value: ImageDraft]
@@ -36,21 +38,34 @@ const supported = computed(
       : selected.value?.capabilities.imageEditing === true),
 )
 const options = computed(() =>
-  props.models.map((model) => ({
-    label: model.source === 'builtin' ? '开发测试模型 · 模拟图片' : model.displayName,
-    value: model.id,
-    disabled:
-      editing.value &&
-      (mode.value === 'inpaint'
-        ? model.capabilities.inpainting !== true
-        : model.capabilities.imageEditing !== true),
-  })),
+  props.models.map(
+    (model): ModelOptionView => ({
+      label: model.source === 'builtin' ? '开发测试模型 · 模拟图片' : model.displayName,
+      id: model.id,
+      capabilityLabel: model.state === 'loaded' ? '已加载' : '任务按需准备',
+      availability:
+        editing.value &&
+        (mode.value === 'inpaint'
+          ? model.capabilities.inpainting !== true
+          : model.capabilities.imageEditing !== true)
+          ? 'unavailable'
+          : 'available',
+      disabledReason:
+        editing.value &&
+        (mode.value === 'inpaint'
+          ? model.capabilities.inpainting !== true
+          : model.capabilities.imageEditing !== true)
+          ? '不支持此编辑模式'
+          : undefined,
+    }),
+  ),
 )
 const canGenerate = computed(
   () =>
     !!props.form.modelId &&
     !!props.form.prompt.trim() &&
     supported.value &&
+    !props.form.referenceIds?.some((id) => props.inputErrors?.[id]) &&
     (!editing.value || !!props.form.referenceIds?.length) &&
     (mode.value !== 'inpaint' || !!props.form.maskId),
 )
@@ -102,13 +117,12 @@ function changeMode(value: ImageMode): void {
       }}
     </p>
     <label for="image-model">{{ editing ? '编辑模型' : '生图模型' }}</label>
-    <NSelect
-      :value="form.modelId"
+    <ModelSelect
+      :model-value="form.modelId"
       :options="options"
       :disabled="locked"
-      :input-props="{ id: 'image-model', 'aria-label': '创作模型' }"
-      placeholder="选择本地模型"
-      @update:value="update('modelId', $event)"
+      label="创作模型"
+      @update:model-value="update('modelId', $event)"
     />
     <RouterLink to="/models" class="model-library-link"
       >前往模型库下载或导入 <StudioIcon name="arrow" :size="14"
@@ -124,6 +138,7 @@ function changeMode(value: ImageMode): void {
       :ids="form.referenceIds ?? []"
       :urls="inputUrls"
       :names="inputNames"
+      :errors="inputErrors"
       :locked="locked"
       :uploading="uploading"
       @upload="emit('upload', $event)"
@@ -201,25 +216,25 @@ function changeMode(value: ImageMode): void {
 .image-save-hint,
 .mask-hint {
   margin: 0;
-  color: #91a3bd;
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: 12px;
   line-height: 1.7;
 }
 .image-controls > label {
   font-size: 12px;
-  color: #b7c6dd;
+  color: var(--text-secondary);
   margin-top: 3px;
 }
 .model-library-link {
   display: flex;
   gap: 7px;
   align-items: center;
-  font-size: 11px;
-  color: #a4b5ff;
+  font-size: 12px;
+  color: var(--text-primary);
   text-decoration: none;
 }
 .image-controls .n-alert {
-  font-size: 11px;
+  font-size: 12px;
 }
 .generate-image-button {
   height: 44px;

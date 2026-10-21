@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { useRoute } from 'vue-router'
+const route = useRoute()
 import StudioIcon from '../shared/components/StudioIcon.vue'
 const links = [
   { to: '/chat', icon: 'chat', label: '聊天' },
@@ -16,6 +18,7 @@ const links = [
       v-for="link in links"
       :key="link.to"
       class="rail-link"
+      :class="{ selected: route.meta.navKey === link.to.slice(1) }"
       :to="link.to"
       :title="link.label"
       :aria-label="link.label"
@@ -30,7 +33,7 @@ const links = [
   align-items: center;
   gap: 14px;
   padding: 16px 6px;
-  color: #9d9d9d;
+  color: var(--text-tertiary);
 }
 .rail-brand,
 .rail-link {
@@ -42,15 +45,16 @@ const links = [
   text-decoration: none;
 }
 .rail-brand {
-  color: #eee;
+  color: var(--text-primary);
   font-size: 22px;
   font-weight: 650;
   margin-bottom: 10px;
 }
 .rail-link:hover,
-.rail-link.router-link-active {
-  background: #3a3a3a;
-  color: #fff;
+.rail-link.router-link-active,
+.rail-link.selected {
+  background: var(--surface-card);
+  color: var(--text-primary);
 }
 @media (max-width: 680px) {
   .icon-rail {

@@ -11,6 +11,7 @@ const store = useModelsStore()
 const message = useMessage()
 const dialog = useDialog()
 const activeAction = ref<string | null>(null)
+const discover = ref(false)
 onMounted(() => {
   void store.refresh()
 })
@@ -26,11 +27,13 @@ async function importModel(): Promise<void> {
   }
 }
 
-async function actOnModel(action: 'load' | 'unregister', id: string): Promise<void> {
+async function actOnModel(action: 'load' | 'unload' | 'unregister', id: string): Promise<void> {
   activeAction.value = `${action}:${id}`
   try {
     await store[action](id)
-    message.success(action === 'load' ? '模型已加载' : '已移除模型注册')
+    message.success(
+      action === 'load' ? '模型已加载' : action === 'unload' ? '模型已卸载' : '已移除模型注册',
+    )
   } catch (error) {
     message.error(error instanceof Error ? error.message : '操作失败')
   } finally {
@@ -74,7 +77,6 @@ function deleteFiles(modelId: string, name: string): void {
         </NButton>
       </template>
     </PageHeader>
-    <HubModelPicker />
     <div class="local-models-heading">
       <h2>
         本地模型 <span>{{ store.items.length }}</span>
@@ -94,6 +96,7 @@ function deleteFiles(modelId: string, name: string): void {
           :model="model"
           :active-action="activeAction"
           @load="actOnModel('load', $event)"
+          @unload="actOnModel('unload', $event)"
           @unregister="actOnModel('unregister', $event)"
           @delete-files="deleteFiles"
         />
@@ -101,15 +104,22 @@ function deleteFiles(modelId: string, name: string): void {
       <div v-else-if="!store.loading && !store.error" class="panel empty-state">
         <NEmpty description="还没有本地模型">
           <template #extra>
-            <span class="empty-model-hint">从上方下拉列表选择 MLX 模型，开始第一次下载</span>
+            <span class="empty-model-hint">点击“发现模型”选择 MLX 模型，开始第一次下载</span>
           </template>
         </NEmpty>
       </div>
     </NSpin>
+    <NButton class="discover-toggle" :aria-expanded="discover" @click="discover = !discover">{{
+      discover ? '收起模型发现' : '发现模型'
+    }}</NButton>
+    <HubModelPicker v-if="discover" />
   </section>
 </template>
 
 <style scoped>
+.discover-toggle {
+  margin-top: 24px;
+}
 .local-models-heading {
   display: flex;
   justify-content: space-between;
@@ -129,9 +139,9 @@ function deleteFiles(modelId: string, name: string): void {
   min-width: 24px;
   height: 22px;
   padding: 0 6px;
-  background: #29354a;
+  background: var(--surface-hover);
   border-radius: 7px;
-  color: #a2b2cb;
+  color: var(--text-secondary);
   font-size: 11px;
 }
 .local-model-grid {
@@ -142,12 +152,12 @@ function deleteFiles(modelId: string, name: string): void {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #f6a6ae;
+  color: var(--status-error);
   font-size: 13px;
   padding: 12px 0;
 }
 .empty-model-hint {
-  color: #91a2be;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 @media (max-width: 680px) {

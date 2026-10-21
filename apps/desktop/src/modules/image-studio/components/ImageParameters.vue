@@ -112,12 +112,12 @@ function update<K extends keyof ImageDraft>(key: K, value: ImageDraft[K]): void 
   align-items: center;
   justify-content: space-between;
   gap: 8px;
-  color: #b7c6dd;
+  color: var(--text-secondary);
   font-size: 12px;
 }
 .parameter-label > :last-child {
-  color: #8e9fbe;
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 .image-size-presets {
   display: grid;
@@ -143,11 +143,11 @@ function update<K extends keyof ImageDraft>(key: K, value: ImageDraft[K]): void 
 }
 .advanced-settings label {
   font-size: 12px;
-  color: #b7c6dd;
+  color: var(--text-secondary);
 }
 .edit-strength p {
-  font-size: 10px;
-  color: #91a3bd;
+  font-size: 12px;
+  color: var(--text-tertiary);
   margin: 6px 0 0;
   line-height: 1.6;
 }

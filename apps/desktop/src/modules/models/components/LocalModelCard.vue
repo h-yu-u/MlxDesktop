@@ -5,6 +5,7 @@ import StudioIcon from '../../../shared/components/StudioIcon.vue'
 defineProps<{ model: ModelSummary; activeAction: string | null }>()
 defineEmits<{
   load: [id: string]
+  unload: [id: string]
   unregister: [id: string]
   deleteFiles: [id: string, name: string]
 }>()
@@ -47,6 +48,15 @@ defineEmits<{
     <template #footer>
       <div class="local-model-actions">
         <NButton
+          v-if="model.state === 'loaded'"
+          size="small"
+          :disabled="!!activeAction"
+          :loading="activeAction === `unload:${model.id}`"
+          @click="$emit('unload', model.id)"
+          >卸载模型</NButton
+        >
+        <NButton
+          v-else
           size="small"
           type="primary"
           :loading="activeAction === `load:${model.id}`"
@@ -81,7 +91,7 @@ defineEmits<{
 </template>
 <style scoped>
 .local-model-card {
-  background: linear-gradient(135deg, #202a3c, #192331);
+  background: linear-gradient(135deg, var(--surface-hover), var(--surface-card));
   border-radius: 12px;
 }
 .local-model-title {
@@ -96,8 +106,8 @@ defineEmits<{
   width: 40px;
   height: 40px;
   border-radius: 11px;
-  color: #9bb1ff;
-  background: #34496c55;
+  color: var(--text-primary);
+  background: var(--border-strong);
 }
 .local-model-card h3 {
   font-size: 15px;
@@ -111,15 +121,15 @@ defineEmits<{
   gap: 7px;
 }
 .local-model-meta span {
-  font-size: 10px;
-  color: #a2b4d0;
+  font-size: 12px;
+  color: var(--text-secondary);
   padding: 3px 7px;
   border-radius: 5px;
-  background: #2a3549;
+  background: var(--surface-hover);
 }
 .local-model-source {
-  font-size: 11px;
-  color: #7e90ae;
+  font-size: 12px;
+  color: var(--text-tertiary);
   margin: 13px 0 0;
 }
 .local-model-actions {

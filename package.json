@@ -7,7 +7,7 @@
     "dev": "pnpm build:coding && pnpm --filter @mlx-studio/desktop tauri dev --config src-tauri/tauri.dev.conf.json",
     "dev:web": "pnpm build:coding && pnpm --filter @mlx-studio/desktop dev",
     "api:generate": "pnpm --filter @mlx-studio/api-client generate",
-    "check": "pnpm check:format && pnpm check:frontend && pnpm check:runtime && pnpm check:coding && pnpm check:boundaries",
+    "check": "pnpm tokens:check && pnpm check:format && pnpm check:frontend && pnpm check:runtime && pnpm check:coding && pnpm check:boundaries",
     "check:frontend": "pnpm --filter @mlx-studio/desktop typecheck && pnpm --filter @mlx-studio/desktop lint",
     "check:runtime": "uv run --project services/runtime --python 3.12 ruff check services/runtime/src tests scripts/generate_coding_rpc.py scripts/verify_local_speech.py scripts/verify_release_bundle.py scripts/seed_acceptance_database.py scripts/verify_speech_quality.py scripts/verify_local_edit.py && uv run --project services/runtime --python 3.12 pyright --pythonpath services/runtime/.venv/bin/python services/runtime/src",
     "check:boundaries": "uv run --project services/runtime --python 3.12 python scripts/generate_coding_rpc.py --check && node --test scripts/check-boundaries.spec.mjs && node scripts/check-boundaries.mjs && node scripts/check-source-quality.mjs",
@@ -30,7 +30,9 @@
     "test:coding": "pnpm --filter @mlx-studio/coding-agent test",
     "build:coding:bundle": "bash scripts/build-coding-host.sh",
     "rpc:generate": "uv run --project services/runtime --python 3.12 python scripts/generate_coding_rpc.py",
-    "test:acceptance": "node --test scripts/acceptance.spec.mjs"
+    "test:acceptance": "node --test scripts/acceptance.spec.mjs",
+    "tokens:generate": "node scripts/generate-design-tokens.mjs",
+    "tokens:check": "node scripts/generate-design-tokens.mjs --check"
   },
   "devDependencies": {
     "dependency-cruiser": "^16.10.4",

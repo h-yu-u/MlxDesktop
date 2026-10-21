@@ -1,10 +1,10 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
-import { refThrottled } from '@vueuse/core'
+import { computed } from 'vue'
 import { NButton } from 'naive-ui'
-import { renderMarkdown } from '../../../shared/lib/render-markdown'
+import MarkdownContent from '../../../shared/ui/MarkdownContent.vue'
+import { useMarkdownCopy } from '../../../shared/ui/markdown-copy'
+import { copyText } from '../../../platform/clipboard'
 import type { ChatMessage } from '../domain/chat-state'
-import { useCodeCopy } from '../presentation/use-code-copy'
 import MessageSources from './MessageSources.vue'
 import type { MessageSource } from '../domain/message-source'
 
@@ -15,9 +15,6 @@ defineEmits<{
   regenerate: []
   attachment: [file: NonNullable<ChatMessage['attachments']>[number]]
 }>()
-const source = computed(() => props.message.content)
-const streaming = computed(() => props.message.state === 'streaming')
-const streamingSource = refThrottled(source, 100)
 const prefix = computed(() => `source-${encodeURIComponent(props.message.id)}-`)
 const sourceMap = computed(() => props.message.sources)
 const citations = computed(() =>
@@ -25,12 +22,7 @@ const citations = computed(() =>
     (sourceMap.value ?? []).map((source) => [source.id, `#${prefix.value}${source.id}`]),
   ),
 )
-const html = computed(() =>
-  renderMarkdown(streaming.value ? streamingSource.value : source.value, citations.value),
-)
-const body = ref<HTMLElement | null>(null)
-const hasUnresolved = computed(() => html.value.includes('<span class="citation-unresolved">'))
-const { handleCopy } = useCodeCopy(body, html)
+const { copyState, copyCode } = useMarkdownCopy(copyText)
 </script>
 
 <template>
@@ -45,11 +37,15 @@ const { handleCopy } = useCodeCopy(body, html)
         >
       </li>
     </ul>
-    <!-- Sanitized with DOMPurify before insertion; raw scripts and active embeds are removed. -->
-    <!-- eslint-disable vue/no-v-html -->
-    <div ref="body" class="message-body markdown-body" @click="handleCopy" v-html="html" />
-    <!-- eslint-enable vue/no-v-html -->
-    <p v-if="hasUnresolved" role="status">部分引用无法定位。</p>
+    <MarkdownContent
+      class="message-body markdown-body"
+      :content-id="message.id"
+      :source="message.content"
+      :streaming="message.state === 'streaming'"
+      :citations="citations"
+      :copy-state="copyState"
+      @copy-code="copyCode"
+    />
     <p v-if="message.parameters?.attemptMode === 'local_only'" class="message-limit">
       未进行新的联网检索。
     </p>
@@ -75,60 +71,6 @@ const { handleCopy } = useCodeCopy(body, html)
 </template>
 
 <style scoped>
-.markdown-body :deep(.code-block) {
-  margin: 1em 0;
-  overflow: hidden;
-  border-radius: 8px;
-  border: 1px solid var(--line);
-  background: var(--surface-sidebar);
-  color: var(--text-primary);
-}
-.markdown-body :deep(.code-toolbar) {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 6px 12px;
-  border-bottom: 1px solid var(--line);
-  font-size: 11px;
-  color: var(--muted);
-}
-.markdown-body :deep(.code-copy) {
-  flex-shrink: 0;
-  padding: 4px 8px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-.markdown-body :deep(.code-copy:hover) {
-  background: var(--surface-hover);
-  color: var(--text-primary);
-}
-.markdown-body :deep(.code-copy:focus-visible) {
-  outline: 2px solid var(--accent);
-  outline-offset: 2px;
-}
-.markdown-body :deep(.code-copy:disabled) {
-  cursor: wait;
-}
-.markdown-body :deep(pre) {
-  overflow: auto;
-  margin: 0;
-  padding: 12px;
-}
-.markdown-body :deep(code) {
-  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 0.9em;
-}
-.markdown-body :deep(p:first-child) {
-  margin-top: 0;
-}
-.markdown-body :deep(p:last-child) {
-  margin-bottom: 0;
-}
 .message-attachments {
   display: flex;
   gap: 8px;

@@ -4,6 +4,7 @@ export function createImageGateway(provider: () => Promise<RuntimeClient>) {
   const endpoints = async () => createEndpoints(await provider()).images
   return {
     listJobs: async (signal?: AbortSignal) => (await endpoints()).listJobs(signal),
+    artifact: async (id: string, signal?: AbortSignal) => (await endpoints()).artifact(id, signal),
     history: async (offset: number, signal?: AbortSignal) =>
       (await endpoints()).history(offset, signal),
     generate: async (request: ImageRequest) =>
@@ -17,6 +18,8 @@ export function createImageGateway(provider: () => Promise<RuntimeClient>) {
     image: async (id: string, signal?: AbortSignal) =>
       (await provider()).downloadImageArtifact(id, signal),
     upload: async (file: File) => (await provider()).uploadImage(file),
+    metadata: async (id: string, signal?: AbortSignal) =>
+      createEndpoints(await provider()).attachments.metadata(id, signal),
     attachment: async (id: string, signal?: AbortSignal) =>
       (await provider()).downloadAttachment(id, signal),
   }

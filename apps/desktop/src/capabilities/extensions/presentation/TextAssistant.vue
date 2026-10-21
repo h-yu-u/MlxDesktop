@@ -1,19 +1,45 @@
 <script setup lang="ts">
-import { ref, onUnmounted } from 'vue'
+import { ref, watch, onUnmounted } from 'vue'
 import { NButton, NDrawer, NDrawerContent, NSelect, NInput, NSpace, NAlert } from 'naive-ui'
 import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { createTextAssistant } from '../configuration'
+import { copyText } from '../../../platform/clipboard'
 import CapabilityPicker from './CapabilityPicker.vue'
-defineProps<{ workspace: 'image' | 'audio'; text: string; disabled?: boolean }>()
+const props = defineProps<{
+  workspace: 'image' | 'audio'
+  text: string
+  disabled?: boolean
+  targetKey?: string
+}>()
+let revision = 0,
+  captured: { key?: string; revision: number } | undefined
+const conflict = ref(false)
+watch(
+  () => [props.text, props.targetKey],
+  () => {
+    revision++
+  },
+  { flush: 'sync' },
+)
 const emit = defineEmits<{ apply: [text: string] }>()
 const state = createTextAssistant(),
   open = ref(false),
   selection = ref<ExtensionSelection | undefined>()
 async function show() {
+  captured = { key: props.targetKey, revision }
+  conflict.value = false
   open.value = true
   await state.load()
 }
-function applyDraft(): void {
+function applyDraft(force = false): void {
+  if (captured?.key !== props.targetKey) {
+    conflict.value = true
+    return
+  }
+  if (!force && captured?.revision !== revision) {
+    conflict.value = true
+    return
+  }
   emit('apply', state.draft.value)
   open.value = false
 }
@@ -53,11 +79,20 @@ onUnmounted(state.dispose)
           :autosize="{ minRows: 12, maxRows: 22 }"
           placeholder="助手结果可在这里编辑"
           aria-label="可编辑草稿"
+          :disabled="state.pending.value"
         />
+        <NAlert v-if="conflict" type="warning"
+          >目标输入已改变，候选结果已保留。<NButton
+            :disabled="captured?.key !== targetKey"
+            @click="applyDraft(true)"
+            >替换当前内容</NButton
+          ><NButton @click="copyText(state.draft.value)">复制结果</NButton
+          ><NButton @click="conflict = false">取消</NButton></NAlert
+        >
         <NButton
           type="primary"
           :disabled="disabled || state.pending.value || !state.draft.value.trim()"
-          @click="applyDraft"
+          @click="applyDraft()"
           >应用草稿</NButton
         >
       </NSpace>

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { exportFeedback } from '../../../shared/lib/file-export'
 import { TextAssistant } from '../../../capabilities/extensions'
 import { NAlert, NButton, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
@@ -30,6 +31,8 @@ const {
 const historySection = ref<HTMLElement | null>(null)
 const controlsSection = ref<HTMLElement | null>(null)
 const showMask = ref(false)
+const tab = ref<'create' | 'works'>('create')
+let alive = true
 const maskSource = computed(() => store.inputUrls[form.value.referenceIds?.[0] ?? ''])
 const previewSource = computed(
   () => store.inputUrls[selectedArtifact.value?.reference_ids?.[0] ?? ''],
@@ -51,25 +54,36 @@ watch(
   { immediate: true },
 )
 onMounted(() => {
-  void store.loadWorkspace().then(() => {
-    const id = route.query.artifactId
-    if (typeof id === 'string') store.selectArtifact(id)
-  })
+  void store.loadWorkspace()
+  const id = route.query.artifactId
+  if (typeof id === 'string') void store.selectArtifact(id)
 })
-onBeforeUnmount(() => store.dispose())
+watch(
+  () => route.query.artifactId,
+  (id) => {
+    if (typeof id === 'string' && id !== store.selectedId) void store.selectArtifact(id)
+  },
+)
+onBeforeUnmount(() => {
+  alive = false
+  store.dispose()
+})
 
 async function save(): Promise<void> {
   if (!selectedArtifact.value) return
   try {
-    await store.saveArtifact(selectedArtifact.value.id)
-    message.success('图片已导出为 PNG')
+    const id = selectedArtifact.value.id
+    const feedback = exportFeedback(await store.saveArtifact(id))
+    if (feedback && alive && selectedArtifact.value?.id === id)
+      message[feedback.type](feedback.message)
   } catch (cause) {
     message.error(cause instanceof Error ? cause.message : '保存图片失败')
   }
 }
 function reuse(item: ImageArtifact | ImageJob | null): void {
   if (!item || locked.value) return
-  store.reuse(item)
+  tab.value = 'create'
+  void store.reuse(item)
   controlsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 function select(id: string): void {
@@ -90,16 +104,33 @@ async function editSelected(): Promise<void> {
   <section class="page-content image-studio-page">
     <PageHeader title="图片创作" subtitle="从文字开始，或让已有画面焕发新的灵感">
       <template #actions>
-        <NButton
-          secondary
-          @click="historySection?.scrollIntoView({ behavior: 'smooth', block: 'start' })"
-        >
+        <NButton secondary @click="tab = 'works'">
           <StudioIcon name="image" :size="18" />作品历史
         </NButton>
       </template>
     </PageHeader>
+    <NAlert v-if="store.detailError" type="error"
+      >{{ store.detailError
+      }}<NButton @click="store.selectedId && store.selectArtifact(store.selectedId)"
+        >重试详情</NButton
+      ></NAlert
+    >
+    <NAlert v-if="store.restoreCandidate" type="warning"
+      >恢复期间输入已改变，作品参数已保留为候选。<NButton @click="store.applyRestoreCandidate"
+        >应用这份作品参数</NButton
+      ></NAlert
+    >
+    <NAlert v-for="(notice, index) in store.restoreAdjustments" :key="index" type="warning">{{
+      notice.message
+    }}</NAlert>
+    <div class="media-tabs" role="tablist" aria-label="图片创作导航">
+      <NButton :aria-selected="tab === 'create'" role="tab" @click="tab = 'create'">创作</NButton
+      ><NButton :aria-selected="tab === 'works'" role="tab" @click="tab = 'works'">作品</NButton>
+    </div>
     <TextAssistant
+      v-if="tab === 'create'"
       workspace="image"
+      target-key="image:current:prompt"
       :text="form.prompt"
       :disabled="locked"
       @apply="form = { ...form, prompt: $event }"
@@ -133,8 +164,24 @@ async function editSelected(): Promise<void> {
     >
       正在读取模型与作品历史…
     </NAlert>
-    <div ref="controlsSection" class="image-creation-layout">
+    <NAlert
+      v-if="
+        activeJob?.state === 'succeeded' &&
+        activeJob.artifact_id &&
+        activeJob.artifact_id !== selectedId
+      "
+      type="info"
+      >新作品已生成。<NButton @click="store.selectArtifact(activeJob!.artifact_id!)"
+        >查看新作品</NButton
+      ></NAlert
+    >
+    <div
+      ref="controlsSection"
+      class="image-creation-layout"
+      :class="{ 'viewing-works': tab === 'works' }"
+    >
       <ImageControls
+        v-show="tab === 'create'"
         v-model:form="form"
         :models="imageModels"
         :locked="locked"
@@ -142,6 +189,7 @@ async function editSelected(): Promise<void> {
         :input-urls="store.inputUrls"
         :input-names="store.inputNames"
         :input-error="store.inputError"
+        :input-errors="store.inputErrors"
         :uploading="store.uploading"
         @generate="store.generate"
         @upload="store.uploadReferences"
@@ -177,8 +225,14 @@ async function editSelected(): Promise<void> {
       @close="showMask = false"
       @save="saveMask"
     />
-    <ImageTasks :jobs="jobs" :locked="locked" @reuse="reuse" @select="select" />
-    <div ref="historySection">
+    <ImageTasks
+      v-if="tab === 'works'"
+      :jobs="jobs"
+      :locked="locked"
+      @reuse="reuse"
+      @select="select"
+    />
+    <div v-show="tab === 'works'" ref="historySection">
       <ImageHistory
         :artifacts="artifacts"
         :urls="store.urls"
@@ -196,18 +250,13 @@ async function editSelected(): Promise<void> {
 </template>
 
 <style scoped>
-.image-page-heading {
+.media-tabs {
   display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 18px;
-  margin-bottom: 22px;
-}
-.image-page-heading .page-subtitle {
-  margin-bottom: 0;
-}
-.image-page-heading .n-button :deep(.n-button__content) {
   gap: 8px;
+  margin-bottom: 16px;
+}
+.image-creation-layout.viewing-works {
+  grid-template-columns: minmax(0, 1fr);
 }
 .image-creation-layout {
   display: grid;
@@ -237,23 +286,6 @@ async function editSelected(): Promise<void> {
   }
   .image-creation-layout > :last-child {
     order: 2;
-  }
-}
-@media (max-width: 680px) {
-  .image-page-heading {
-    align-items: start;
-  }
-  .image-page-heading .n-button {
-    flex-shrink: 0;
-    font-size: 12px;
-    padding: 0 12px;
-  }
-  .page-title {
-    font-size: 23px;
-  }
-  .page-subtitle {
-    font-size: 12px;
-    line-height: 1.6;
   }
 }
 </style>

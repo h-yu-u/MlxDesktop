@@ -1,4 +1,4 @@
-import { ref, type Ref } from 'vue'
+import { ref, watch, type Ref } from 'vue'
 import { MediaCache } from '../../../capabilities/media'
 import type { ImageGateway } from '../application/ports'
 import type { ImageDraft } from '../domain/image-state'
@@ -8,7 +8,18 @@ export function createImageInputs(form: Ref<ImageDraft>, gateway: ImageGateway) 
   const inputNames = ref<Record<string, string>>({})
   const uploading = ref(false)
   const inputError = ref<string | null>(null)
+  const inputErrors = ref<Record<string, string>>({})
   let epoch = 0
+  watch(
+    () => [form.value.referenceIds?.[0], form.value.maskId] as const,
+    ([current, mask], [previous, previousMask]) => {
+      if (previous && current !== previous && mask && mask === previousMask) {
+        form.value.maskId = null
+        inputError.value = '原图已改变，请重新涂抹修改区域'
+      }
+    },
+    { flush: 'sync' },
+  )
   const media = new MediaCache(
     gateway.attachment,
     () => {
@@ -18,18 +29,30 @@ export function createImageInputs(form: Ref<ImageDraft>, gateway: ImageGateway) 
   )
 
   async function restoreInputs(extra: string[] = []): Promise<void> {
-    inputError.value = null
-    try {
-      await Promise.all(
-        [
-          ...extra,
-          ...(form.value.referenceIds ?? []),
-          ...(form.value.maskId ? [form.value.maskId] : []),
-        ].map((id) => media.get(id)),
-      )
-    } catch {
-      inputError.value = '部分参考图片读取失败，请重新上传或重试。'
-    }
+    const owner = epoch
+    const ids = [
+      ...new Set([
+        ...extra,
+        ...(form.value.referenceIds ?? []),
+        ...(form.value.maskId ? [form.value.maskId] : []),
+      ]),
+    ]
+    await Promise.allSettled(
+      ids.map(async (id) => {
+        try {
+          const [metadata] = await Promise.all([gateway.metadata(id), media.get(id)])
+          if (owner !== epoch) return
+          inputNames.value[id] = metadata.originalName
+          delete inputErrors.value[id]
+        } catch {
+          if (owner === epoch) inputErrors.value[id] = '引用读取失败，请重试或替换'
+        }
+      }),
+    )
+    if (owner === epoch)
+      inputError.value = Object.keys(inputErrors.value).some((id) => ids.includes(id))
+        ? '部分参考图片读取失败，图号已保留。'
+        : null
   }
   async function uploadReferences(files: File[]): Promise<void> {
     if (uploading.value) return
@@ -65,12 +88,17 @@ export function createImageInputs(form: Ref<ImageDraft>, gateway: ImageGateway) 
       form.value = { ...form.value, maskId: null }
       return
     }
-    const owner = epoch
+    const owner = epoch,
+      source = form.value.referenceIds?.[0]
     uploading.value = true
     inputError.value = null
     try {
       const item = await gateway.upload(new File([blob], 'edit-mask.png', { type: 'image/png' }))
       if (owner !== epoch) return
+      if (source !== form.value.referenceIds?.[0]) {
+        inputError.value = '原图已改变，请重新涂抹'
+        return
+      }
       form.value = { ...form.value, maskId: item.id }
       await media.get(item.id)
     } catch {
@@ -110,6 +138,7 @@ export function createImageInputs(form: Ref<ImageDraft>, gateway: ImageGateway) 
   }
   return {
     inputUrls,
+    inputErrors,
     inputNames,
     inputError,
     uploading,

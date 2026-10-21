@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NInput, NTooltip } from 'naive-ui'
 import { computed, ref } from 'vue'
+import { composerShortcut } from '../../../shared/ui/composer-policy'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import AttachmentCard from './AttachmentCard.vue'
 import type { DraftAttachment } from '../domain/chat-draft'
@@ -52,18 +53,12 @@ const canSend = computed(
 function submit(): void {
   if (canSend.value) emit('submit')
 }
+const composing = ref(false)
 function handleKeydown(event: KeyboardEvent): void {
-  if (
-    event.key !== 'Enter' ||
-    event.isComposing ||
-    event.shiftKey ||
-    event.ctrlKey ||
-    event.metaKey ||
-    event.altKey
-  )
-    return
+  const intent = composerShortcut(event, 'enter', composing.value)
+  if (intent === 'ignore') return
   event.preventDefault()
-  submit()
+  if (intent === 'trigger') submit()
 }
 function selected(event: Event): void {
   const input = event.target as HTMLInputElement
@@ -115,6 +110,8 @@ function dragover(event: DragEvent): void {
       aria-label="消息内容"
       :bordered="false"
       @keydown="handleKeydown"
+      @compositionstart="composing = true"
+      @compositionend="composing = false"
     />
     <p
       v-if="disabledReason && (draft.trim() || attachments.length || historyImageCount)"

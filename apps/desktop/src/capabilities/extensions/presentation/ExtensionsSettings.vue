@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRouter } from 'vue-router'
 import {
   NAlert,
   NButton,
@@ -20,9 +20,8 @@ import { createExtensionsSettings } from '../configuration'
 import { WebSearchSettings } from '../../web-search'
 import McpServerForm from './McpServerForm.vue'
 const state = createExtensionsSettings(),
-  route = useRoute(),
   router = useRouter()
-const tab = computed(() => (typeof route.params.tab === 'string' ? route.params.tab : 'skills'))
+defineProps<{ tab: 'skills' | 'mcp' | 'builtin' }>()
 const workspaces = ref<('coding' | 'chat' | 'image' | 'audio')[]>(['coding']),
   server = ref<ExtensionServer | null>(null),
   formOpen = ref(false),
@@ -33,12 +32,22 @@ const inventory = computed(() =>
   ),
 )
 function edit(value: ExtensionServer | null): void {
+  if (state.editor.locked.value || state.editor.savePending.value) {
+    formOpen.value = true
+    return
+  }
+  state.editor.reset()
   server.value = value
   formOpen.value = true
 }
-async function save(body: McpWriteRequest): Promise<boolean> {
+async function save(
+  body: McpWriteRequest,
+): Promise<import('../../../shared/lib/save-outcome').SaveOutcome<ExtensionServer>> {
   const saved = await state.saveServer(body)
-  if (saved) formOpen.value = false
+  if (saved.kind === 'saved') {
+    formOpen.value = false
+    if (saved.refreshWarning) state.error.value = saved.refreshWarning
+  }
   return saved
 }
 async function inspect(id: string): Promise<void> {
@@ -117,17 +126,6 @@ onUnmounted(state.dispose)
           <p>
             支持本地 stdio 与 Streamable HTTP；OAuth、Prompts、Apps、资源读取和媒体结果尚未开放。
           </p>
-          <NAlert
-            v-if="state.operation.value"
-            :type="state.operation.value.state === 'succeeded' ? 'success' : 'info'"
-            >测试状态：{{ state.operation.value.state
-            }}<NButton
-              v-if="state.operation.value.state === 'running'"
-              text
-              @click="state.cancelTest"
-              >取消本次测试</NButton
-            ></NAlert
-          >
           <NEmpty v-if="!state.catalog.value?.servers.length" description="尚未配置 MCP 服务" />
           <NCard
             v-for="item in state.catalog.value?.servers"
@@ -151,8 +149,36 @@ onUnmounted(state.dispose)
                   : '当前版本待测试'
               }}
             </p>
+            <NAlert
+              v-if="state.operationRevisions.value[item.id] === item.revision"
+              :type="
+                state.operations.value[item.id]?.state === 'failed'
+                  ? 'error'
+                  : state.operations.value[item.id]?.state === 'succeeded'
+                    ? 'success'
+                    : 'info'
+              "
+              >{{
+                {
+                  running: '正在测试此版本',
+                  succeeded: '当前版本已发现工具',
+                  failed: '此版本测试失败',
+                  cancelled: '本次测试已取消',
+                  interrupted: '测试已中断',
+                }[state.operations.value[item.id]!.state]
+              }}<NButton
+                v-if="state.operations.value[item.id]?.state === 'running'"
+                text
+                @click="state.cancelTest"
+                >取消本次测试</NButton
+              ></NAlert
+            >
             <NSpace
-              ><NButton size="small" @click="edit(item)">配置与工具授权</NButton
+              ><NButton
+                size="small"
+                :disabled="state.operations.value[item.id]?.state === 'running'"
+                @click="edit(item)"
+                >配置与工具授权</NButton
               ><NButton
                 size="small"
                 :disabled="state.operation.value?.state === 'running'"
@@ -200,12 +226,15 @@ onUnmounted(state.dispose)
         ></NDrawerContent
       ></NDrawer
     >
-    <NDrawer v-model:show="formOpen" width="min(560px, 100vw)"
+    <NDrawer v-model:show="formOpen" display-directive="show" width="min(560px, 100vw)"
       ><NDrawerContent title="MCP 服务配置" closable
+        ><NAlert v-if="state.editor.error.value" type="error">{{ state.editor.error.value }}</NAlert
         ><McpServerForm
           :server="server"
           :inventory="inventory"
-          :pending="state.pending.value"
+          :pending="state.editor.savePending.value"
+          :memory="state.editor.drafts"
+          :locked="state.editor.locked.value"
           :save-request="save" /></NDrawerContent
     ></NDrawer>
     <NDrawer v-model:show="skillOpen" width="min(680px, 100vw)"

@@ -57,24 +57,16 @@
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #7fb396;
+  background: var(--status-success);
 }
 .model-status-dot.model-status-offline {
-  background: #c18484;
+  background: var(--status-error);
 }
 .model-select {
   min-width: 130px;
   width: 265px;
 }
 .model-select :deep(.n-base-selection) {
-  --n-height: 32px;
-  --n-font-size: 12px;
-  --n-color: transparent !important;
-  --n-color-active: transparent !important;
-  --n-border: none !important;
-  --n-border-active: none !important;
-  --n-border-hover: none !important;
-  --n-box-shadow-active: none !important;
 }
 @media (max-width: 680px) {
   .chat-workspace {

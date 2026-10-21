@@ -23,6 +23,8 @@ const props = defineProps<{
   looseReferences: AudioAsset[]
   urls: Record<string, string>
   busy: boolean
+  saveLabel?: string
+  updateRequest: (id: string, patch: VoicePatch) => Promise<boolean>
   error: string | null
   cleanupError: string | null
 }>()
@@ -32,7 +34,6 @@ const emit = defineEmits<{
   upload: [file: File]
   save: []
   preview: [id: string]
-  update: [id: string, patch: VoicePatch]
   remove: [id: string, complete: boolean]
   cleanup: []
   removeReference: [id: string]
@@ -127,7 +128,7 @@ function fileChanged({ file }: { file: UploadFileInfo }): void {
           :loading="busy"
           :disabled="!reference || !consent || !form.name.trim() || !form.reference_text.trim()"
           @click="emit('save')"
-          >保存音色</NButton
+          >{{ saveLabel ?? '保存音色' }}</NButton
         >
       </NSpace>
     </NCard>
@@ -139,8 +140,9 @@ function fileChanged({ file }: { file: UploadFileInfo }): void {
         :voice="voice"
         :url="urls[voice.reference_asset_id]"
         :busy="busy"
+        :save-request="(patch) => updateRequest(voice.id, patch)"
+        :error="error"
         @preview="emit('preview', voice.reference_asset_id)"
-        @update="emit('update', voice.id, $event)"
         @remove="emit('remove', voice.id, $event)"
       />
       <NCard v-if="looseReferences.length" title="保留的参考录音" size="small">

@@ -69,6 +69,9 @@ beforeEach(() => {
     steps: 20,
     seed: 0,
   }
+  api.get.mockImplementation(async (path: string) =>
+    path.startsWith('/internal/v1/image-artifacts/') ? artifact : undefined,
+  )
   api.downloadImageArtifact.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
 })
 afterEach(() => {
@@ -86,8 +89,8 @@ describe('Image Studio workspace', () => {
         capabilities: { imageEditing: true, inpainting: true, multiImage: true },
       },
     ]
-    store.artifacts = [{ ...artifact, width: 768, height: 576 }]
-    store.selectedId = artifact.id
+    api.get.mockResolvedValueOnce({ ...artifact, width: 768, height: 576 })
+    await store.selectArtifact(artifact.id)
     api.uploadImage.mockResolvedValue({ id: 'continued', originalName: '原作品.png' })
     api.downloadAttachment.mockResolvedValue(new Blob(['image'], { type: 'image/png' }))
     await store.editArtifact()
@@ -176,9 +179,11 @@ describe('Image Studio workspace', () => {
       strength: 1,
     })
     api.get.mockImplementation(async (path: string) =>
-      path.includes('/image-jobs/')
-        ? { ...job, state: 'succeeded', progress: 100, artifact_id: artifact.id }
-        : [artifact],
+      path.startsWith('/internal/v1/image-artifacts/')
+        ? artifact
+        : path.includes('/image-jobs/')
+          ? { ...job, state: 'succeeded', progress: 100, artifact_id: artifact.id }
+          : [artifact],
     )
     await store.refreshJob()
     expect(store.hasActiveJob).toBe(false)
@@ -247,7 +252,9 @@ describe('Image Studio workspace', () => {
         ? [imageModel]
         : path === '/internal/v1/image-jobs'
           ? [{ ...job, state: 'running', progress: 35 }]
-          : [artifact],
+          : path.startsWith('/internal/v1/image-artifacts/')
+            ? artifact
+            : [artifact],
     )
     await store.loadWorkspace()
     expect(store.activeJob?.progress).toBe(35)
@@ -257,14 +264,14 @@ describe('Image Studio workspace', () => {
     expect(store.historyLoading).toBe(false)
   })
 
-  it('reuses stored parameters and requires a new model choice if the original model was removed', () => {
-    store.reuse(artifact)
+  it('reuses stored parameters and requires a new model choice if the original model was removed', async () => {
+    await store.reuse(artifact)
     expect(store.form.seed).toBe(0)
     expect(store.form.modelId).toBe('image-model')
     useModelDirectoryState().items = []
-    store.reuse(artifact)
+    await store.reuse(artifact)
     expect(store.form.modelId).toBeNull()
-    expect(store.error).toContain('模型已移除')
+    expect(store.restoreAdjustments[0]?.code).toBe('model-missing')
   })
 
   it('settles cancellation and keeps successful artifacts unchanged', async () => {

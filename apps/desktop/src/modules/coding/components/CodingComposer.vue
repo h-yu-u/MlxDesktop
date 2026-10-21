@@ -1,8 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { NButton, NInput, NSelect, NSpace } from 'naive-ui'
+import { computed } from 'vue'
+import { NButton, NSelect, NSpace } from 'naive-ui'
+import ComposerShell from '../../../shared/ui/ComposerShell.vue'
+import { codingPrimary, type ComposerAction } from '../../../shared/ui/composer-policy'
 import { modeOptions, type CodingMode } from '../domain/status'
-defineProps<{
+const props = defineProps<{
+  modelValue: string
   models: { label: string; value: string }[]
   modelId: string
   mode: CodingMode
@@ -11,95 +14,88 @@ defineProps<{
   pending: boolean
   enabled: boolean
   currentSessionActive: boolean
+  activeStatus?: string
 }>()
 const emit = defineEmits<{
+  'update:modelValue': [text: string]
   model: [id: string]
   mode: [mode: CodingMode]
-  submit: [text: string, clear: () => void]
-  steer: [text: string, clear: () => void]
-  queue: [text: string, clear: () => void]
+  submit: []
+  steer: []
+  queue: []
   stop: []
 }>()
-const text = ref('')
-function submit(): void {
-  if (text.value.trim())
-    emit('submit', text.value, () => {
-      text.value = ''
-    })
+const primary = computed(() =>
+  codingPrimary({
+    text: props.modelValue,
+    enabled: props.enabled,
+    ready: props.ready,
+    pending: props.pending,
+    busy: props.busy,
+    current: props.currentSessionActive,
+    status: props.activeStatus,
+  }),
+)
+function act(action: ComposerAction): void {
+  if (action === 'cancel') emit('stop')
+  else if (primary.value.enabled) {
+    if (action === 'submit') emit('submit')
+    if (action === 'queue') emit('queue')
+    if (action === 'steer') emit('steer')
+  }
 }
 </script>
 <template>
-  <div class="coding-composer">
-    <NInput
-      v-model:value="text"
-      type="textarea"
-      :autosize="{ minRows: 2, maxRows: 7 }"
-      placeholder="描述需求，或补充当前任务（⌘/Ctrl + Enter 发送）"
-      :input-props="{ 'aria-label': '开发任务' }"
-      :disabled="!enabled || pending"
-      @keydown.meta.enter.prevent="submit"
-      @keydown.ctrl.enter.prevent="submit"
-    />
-    <NSpace align="center" justify="space-between">
-      <NSpace
+  <ComposerShell
+    class="coding-composer"
+    :model-value="modelValue"
+    :primary="primary"
+    shortcut="modifier-enter"
+    label="开发任务"
+    placeholder="描述需求，或补充当前任务（⌘/Ctrl + Enter）"
+    :input-disabled="!enabled"
+    @update:model-value="emit('update:modelValue', $event)"
+    @action="act"
+  >
+    <template #tools
+      ><NSpace
         ><NSelect
           :value="modelId"
           :options="models"
           :disabled="busy || pending"
-          style="width: 220px"
+          style="width: 220px; max-width: 100%"
           aria-label="Coding 模型"
-          @update:value="emit('model', $event)" /><NSelect
+          @update:value="emit('model', $event)"
+        /><NSelect
           :value="mode"
           :options="modeOptions"
           :disabled="busy || pending"
           style="width: 135px"
           aria-label="开发模式"
           @update:value="emit('mode', $event)"
-      /></NSpace>
-      <NSpace
-        ><NButton
-          v-if="currentSessionActive"
-          :disabled="pending || !text.trim()"
-          @click="
-            emit('steer', text, () => {
-              text = ''
-            })
-          "
-          >补充当前任务</NButton
-        ><NButton
+        /><NButton
           v-if="busy"
-          :disabled="pending || !ready || !text.trim()"
-          @click="
-            emit('queue', text, () => {
-              text = ''
-            })
-          "
-          >接下来再做</NButton
-        ><NButton v-if="busy" :disabled="pending" @click="emit('stop')">停止任务</NButton
-        ><NButton
-          v-else
-          type="primary"
-          :disabled="!ready || !enabled || pending || !text.trim()"
-          @click="submit"
-          >发送</NButton
+          :disabled="pending || activeStatus === 'cancelling'"
+          @click="emit('stop')"
+          >停止任务</NButton
         ></NSpace
-      >
-    </NSpace>
-    <slot name="capabilities" />
-    <small>{{
-      mode === 'develop' ? '受管读写；执行命令需逐次审批' : '只读工具；不开放通用命令'
-    }}</small>
-  </div>
+      ></template
+    >
+    <template #context><slot name="capabilities" /></template>
+    <template #hint
+      ><small>{{
+        mode === 'develop' ? '受管读写；执行命令需逐次审批' : '只读工具；不开放通用命令'
+      }}</small></template
+    >
+  </ComposerShell>
 </template>
 <style scoped>
 .coding-composer {
   padding: 16px 24px;
   border-top: 1px solid var(--line);
-  display: grid;
-  gap: 12px;
 }
 small {
   color: var(--muted);
-  font-size: 11px;
+  font-size: 12px;
 }
 </style>

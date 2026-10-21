@@ -4,6 +4,7 @@ const labels: Record<string, string> = {
   RESTORE_CONFLICT: '文件已被人工或外部程序修改，无法撤销。当前内容已保留。',
   FILE_VERSION_CONFLICT: '文件版本发生变化，请重新读取后再修改。',
   CODING_HOST_NOT_AVAILABLE: 'Coding 服务暂不可用，请重试连接。',
+  RUN_NOT_READY: '任务仍在准备，请稍后再补充。输入已保留。',
   CODING_BUSY: '另一个开发任务正在执行，请停止它或等待完成。',
   CODING_QUEUE_FULL: '已有一个下一任务排队，请等待它开始。',
   SESSION_IN_USE: '该会话仍有运行或排队任务，请先停止任务。',

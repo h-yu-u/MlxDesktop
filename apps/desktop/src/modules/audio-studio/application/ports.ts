@@ -29,6 +29,7 @@ export interface AudioGateway {
   jobs(signal?: AbortSignal): Promise<AudioJob[]>
   job(id: string, signal?: AbortSignal): Promise<AudioJob>
   cancel(id: string): Promise<unknown>
+  artifact(id: string, signal?: AbortSignal): Promise<AudioArtifact>
   history(offset: number, signal?: AbortSignal): Promise<AudioArtifact[]>
   deleteArtifact(id: string): Promise<unknown>
   audio(id: string, signal?: AbortSignal): Promise<Blob>

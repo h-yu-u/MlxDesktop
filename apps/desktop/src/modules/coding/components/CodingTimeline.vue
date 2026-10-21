@@ -11,7 +11,10 @@ import {
   timelineEntries,
 } from '../presentation/coding-activity'
 import { statusLabel } from '../domain/status'
-import { renderMarkdown } from '../../../shared/lib/render-markdown'
+import MarkdownContent from '../../../shared/ui/MarkdownContent.vue'
+import { useMarkdownCopy } from '../../../shared/ui/markdown-copy'
+import { copyText } from '../../../platform/clipboard'
+const { copyState, copyCode } = useMarkdownCopy(copyText)
 const props = defineProps<{ events: CodingEvent[]; runs: CodingRun[] }>()
 const entries = computed(() => timelineEntries(props.events))
 </script>
@@ -39,12 +42,12 @@ const entries = computed(() => timelineEntries(props.events))
         <pre v-if="['run.started', 'user.steering'].includes(entry.event.type)">{{
           entry.event.text
         }}</pre>
-        <!-- renderMarkdown sanitizes model output and disables raw HTML. -->
-        <!-- eslint-disable vue/no-v-html -->
-        <div
+        <MarkdownContent
           v-else-if="entry.event.text.trim()"
-          class="coding-markdown"
-          v-html="renderMarkdown(entry.event.text)"
+          :content-id="`${entry.event.sessionId}:${entry.event.runId}:${entry.event.seq}`"
+          :source="entry.event.text"
+          :copy-state="copyState"
+          @copy-code="copyCode"
         />
         <details v-if="eventError(entry.event.data)">
           <summary>错误详情</summary>
@@ -116,39 +119,5 @@ footer {
   gap: 4px;
   color: var(--muted);
   font-size: 12px;
-}
-.coding-markdown {
-  overflow-wrap: anywhere;
-}
-.coding-markdown :deep(p:first-child) {
-  margin-top: 0;
-}
-.coding-markdown :deep(pre) {
-  overflow: auto;
-  padding: 12px;
-  background: var(--surface-sidebar);
-  border-radius: 8px;
-  white-space: pre;
-  font-size: 12px;
-}
-.coding-markdown :deep(.code-toolbar) {
-  display: flex;
-  justify-content: space-between;
-  color: var(--muted);
-  font-size: 11px;
-  padding: 8px 12px 0;
-}
-.coding-markdown :deep(.code-copy) {
-  display: none;
-}
-.coding-markdown :deep(table) {
-  border-collapse: collapse;
-  width: 100%;
-}
-.coding-markdown :deep(th),
-.coding-markdown :deep(td) {
-  border-bottom: 1px solid var(--line);
-  padding: 6px 8px;
-  text-align: left;
 }
 </style>

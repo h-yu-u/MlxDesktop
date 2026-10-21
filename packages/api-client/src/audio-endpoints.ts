@@ -29,6 +29,8 @@ export function audioEndpoints(transport: Transport) {
     job: async (id: string, signal?: AbortSignal) =>
       decodeAudioJob(await transport.get(`${root}/audio-generations/${path(id)}`, signal)),
     cancel: (id: string) => transport.post(`${root}/audio-generations/${path(id)}/cancel`),
+    artifact: async (id: string, signal?: AbortSignal) =>
+      decodeAudioArtifact(await transport.get(`${root}/audio-artifacts/${path(id)}`, signal)),
     history: async (offset: number, signal?: AbortSignal) =>
       list(
         await transport.get(`${root}/audio-artifacts?limit=24&offset=${offset}`, signal),

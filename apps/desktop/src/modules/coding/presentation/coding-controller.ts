@@ -1,14 +1,14 @@
 import type { CodingControllerDependencies } from './coding-controller-ports'
-import { SubmissionIdentity } from '../../../capabilities/requests'
+import { createCodingSubmission } from './coding-submission'
 import { createProjectSessionController } from './project-session-controller'
 import { projectCodingEvent } from './event-projection'
 import { decodeCodingProjection } from '@mlx-studio/api-client'
 import { createCodingInspector } from './coding-inspector-controller'
 import { codingErrorText } from './coding-errors'
-import { modelNeedsVerification, submitCodingRun } from '../application/submit-coding-run'
+import { modelNeedsVerification } from '../application/submit-coding-run'
 import { ensureModelCapability } from '../application/ensure-model-capability'
 import { computed, ref } from 'vue'
-import type { CodingSessionPatch, ExtensionSelection as Selection } from '@mlx-studio/api-client'
+import type { CodingSessionPatch } from '@mlx-studio/api-client'
 import type {
   CodingProject,
   CodingSession,
@@ -55,7 +55,30 @@ export function createCodingController(deps: CodingControllerDependencies) {
     busy,
     onRestored: refresh,
   })
-  const submissionIdentity = new SubmissionIdentity()
+  const submission = createCodingSubmission({
+    gateway: deps.gateway,
+    projectId,
+    sessionId,
+    selectedModelId,
+    mode,
+    pending,
+    busy,
+    canSubmit: () => !snapshot.value?.session.archived,
+    canSteer: () =>
+      !!active.value &&
+      active.value.sessionId === sessionId.value &&
+      ['running', 'awaiting_approval'].includes(active.value.status),
+    error,
+    guard,
+    ensure: prepareModel,
+    refresh,
+    invalidate: (id) => {
+      capabilities.value = capabilities.value.filter((item) => item.id !== id)
+    },
+    owner: () => epoch,
+    owns: (owner) => owner === epoch && !disposed,
+  })
+  submission.setActiveRun(() => active.value?.id ?? '')
   const pendingRequests = new Set<symbol>()
   let disposed = false
   let epoch = 0,
@@ -197,6 +220,7 @@ export function createCodingController(deps: CodingControllerDependencies) {
   async function removeSession(id: string): Promise<void> {
     await guard(async () => {
       await deps.gateway.remove(id)
+      submission.drafts.discard(`coding:project:${projectId.value}:session:${id}`)
       sessions.value = sessions.value.filter((item) => item.id !== id)
       if (sessionId.value === id) {
         epoch++
@@ -207,52 +231,12 @@ export function createCodingController(deps: CodingControllerDependencies) {
       }
     })
   }
-  async function send(text: string, queue = false, selection?: Selection): Promise<boolean> {
-    if (
-      (busy.value && !queue) ||
-      pending.value ||
-      !selectedModelId.value ||
-      !sessionId.value ||
-      !text.trim()
-    )
-      return false
-    const modelId = selectedModelId.value,
-      target = sessionId.value,
-      selectedMode = mode.value
-    return !!(await guard(async () => {
-      await submitCodingRun(
-        { sessionId: target, modelId, text, mode: selectedMode, queue, selection },
-        {
-          gateway: deps.gateway,
-          ensure: prepareModel,
-          invalidate: (id) => {
-            capabilities.value = capabilities.value.filter((item) => item.id !== id)
-          },
-          createId: () =>
-            submissionIdentity.for({ target, modelId, text, selectedMode, queue, selection }),
-        },
-      )
-      await refresh()
-      submissionIdentity.clear()
-      return true
-    }))
-  }
   async function cancel(): Promise<void> {
     if (active.value)
       await guard(async () => {
         await deps.gateway.cancel(active.value!.id)
         await refresh()
       })
-  }
-  async function steer(text: string): Promise<boolean> {
-    return (
-      !!active.value &&
-      !!(await guard(async () => {
-        await deps.gateway.steer(active.value!.id, text)
-        await refresh()
-        return true
-      }))
-    )
   }
   async function resolve(id: string, allowed: boolean): Promise<void> {
     await guard(async () => {
@@ -325,9 +309,10 @@ export function createCodingController(deps: CodingControllerDependencies) {
     newSession,
     updateSession,
     removeSession,
-    send,
+    send: submission.send,
+    draftText: submission.text,
     cancel,
-    steer,
+    steer: submission.steer,
     resolve,
     verifyModel,
     cancelActive,

@@ -105,6 +105,10 @@ export function imageEndpoints(transport: Transport) {
   return {
     listJobs: async (signal?: AbortSignal) =>
       readList(await transport.get('/internal/v1/image-jobs', signal), readJob),
+    artifact: async (id: string, signal?: AbortSignal) =>
+      readArtifact(
+        await transport.get(`/internal/v1/image-artifacts/${encodeURIComponent(id)}`, signal),
+      ),
     history: async (offset: number, signal?: AbortSignal) =>
       readList(
         await transport.get(`/internal/v1/image-artifacts?limit=24&offset=${offset}`, signal),

@@ -33,11 +33,13 @@ export function createAssistantController(deps: AssistantDependencies) {
     pending.value = true
     error.value = ''
     try {
-      job.value = await deps.gateway.create({
+      const first = await deps.gateway.create({
         ...input,
         modelId: modelId.value,
         submissionId: identity.for({ ...input, modelId: modelId.value }),
       })
+      if (owner !== epoch) return
+      job.value = first
       while (['queued', 'preparing', 'running', 'cancelling'].includes(job.value.state)) {
         await new Promise((resolve) => setTimeout(resolve, 250))
         if (owner !== epoch) return

@@ -6,6 +6,7 @@ export interface ModelsGateway {
   import(path: string): Promise<unknown>
   pull(id: string): Promise<unknown>
   deleteFiles(id: string): Promise<unknown>
+  unload(id: string): Promise<unknown>
   load(id: string): Promise<unknown>
   unregister(id: string): Promise<unknown>
 }

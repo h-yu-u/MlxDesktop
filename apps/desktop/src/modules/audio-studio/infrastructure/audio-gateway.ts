@@ -14,6 +14,7 @@ export function createAudioGateway(provider: () => Promise<RuntimeClient>): Audi
     jobs: async (signal) => (await endpoint()).jobs(signal),
     job: async (id, signal) => (await endpoint()).job(id, signal),
     cancel: async (id) => (await endpoint()).cancel(id),
+    artifact: async (id: string, signal?: AbortSignal) => (await endpoint()).artifact(id, signal),
     history: async (offset, signal) => (await endpoint()).history(offset, signal),
     deleteArtifact: async (id) => (await endpoint()).deleteArtifact(id),
     audio: async (id, signal) => (await provider()).downloadAudio(id, 'artifact', signal),

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
+import { ModelSelect, modelOptions } from '../../../capabilities/models'
 import {
   NAlert,
   NButton,
@@ -18,6 +19,7 @@ const props = defineProps<{
   voices: Voice[]
   locked: boolean
   submitting: boolean
+  readiness?: { canSubmit: boolean; fields: Record<string, string> }
 }>()
 const emit = defineEmits<{ 'update:form': [value: SpeechDraft]; generate: []; library: [] }>()
 const operation = computed(() =>
@@ -40,6 +42,22 @@ const languages: Record<string, string> = {
   it: '意大利语',
 }
 function update(patch: Partial<SpeechDraft>): void {
+  if (patch.mode || patch.modelId) {
+    const next =
+      props.models.find((model) => model.id === patch.modelId) ??
+      props.models.find((model) => model.speech?.operations.some((op) => op.mode === patch.mode))
+    const op = next?.speech?.operations.find(
+      (item) => item.mode === (patch.mode ?? props.form.mode),
+    )
+    patch = {
+      ...patch,
+      modelId: next?.id ?? null,
+      speaker: op?.presetSpeakers[0] ?? null,
+      language: op?.languages.includes(props.form.language)
+        ? props.form.language
+        : (op?.languages[0] ?? 'auto'),
+    }
+  }
   emit('update:form', { ...props.form, ...patch })
 }
 </script>
@@ -56,12 +74,12 @@ function update(patch: Partial<SpeechDraft>): void {
         <NRadioButton value="clone">克隆音色</NRadioButton>
       </NRadioGroup>
       <NFormItem label="语音模型">
-        <NSelect
-          :value="form.modelId"
-          :options="models.map((item) => ({ label: item.displayName, value: item.id }))"
+        <ModelSelect
+          :model-value="form.modelId"
+          :options="modelOptions(models, 'audio')"
           :disabled="locked"
-          placeholder="请先在模型库下载或导入语音模型"
-          @update:value="(value) => update({ modelId: value })"
+          label="语音模型"
+          @update:model-value="(value) => update({ modelId: value })"
         />
       </NFormItem>
       <NAlert v-if="model?.source === 'builtin'" type="warning" :show-icon="false"
@@ -116,12 +134,14 @@ function update(patch: Partial<SpeechDraft>): void {
           <NButton text @click="emit('library')">导入参考音频 / 管理音色 →</NButton>
         </NSpace>
       </NFormItem>
+      <p v-if="readiness?.fields.voiceId" role="status">{{ readiness.fields.voiceId }}</p>
+      <p v-else-if="readiness?.fields.form" role="status">{{ readiness.fields.form }}</p>
       <NButton
         type="primary"
         size="large"
         block
         :loading="submitting"
-        :disabled="locked || !operation || !form.text.trim()"
+        :disabled="locked || !operation || !form.text.trim() || readiness?.canSubmit === false"
         @click="emit('generate')"
         >生成语音</NButton
       >

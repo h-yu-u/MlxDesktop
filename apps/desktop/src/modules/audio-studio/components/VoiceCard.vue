@@ -1,11 +1,16 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { NButton, NCard, NInput, NPopconfirm, NSpace, NTag } from 'naive-ui'
+import { NAlert, NButton, NCard, NInput, NPopconfirm, NSpace, NTag } from 'naive-ui'
 import type { Voice, VoicePatch } from '../application/ports'
-const props = defineProps<{ voice: Voice; url?: string; busy: boolean }>()
+const props = defineProps<{
+  voice: Voice
+  url?: string
+  busy: boolean
+  saveRequest: (patch: VoicePatch) => Promise<boolean>
+  error?: string | null
+}>()
 const emit = defineEmits<{
   preview: []
-  update: [patch: VoicePatch]
   remove: [complete: boolean]
 }>()
 const editing = ref(false),
@@ -16,9 +21,9 @@ function edit(): void {
   text.value = props.voice.reference_text
   editing.value = true
 }
-function save(): void {
-  emit('update', { name: name.value, reference_text: text.value })
-  editing.value = false
+async function save(): Promise<void> {
+  if (await props.saveRequest({ name: name.value, reference_text: text.value }))
+    editing.value = false
 }
 </script>
 <template>
@@ -35,11 +40,18 @@ function save(): void {
         · v{{ voice.version }}</NTag
       >
       <template v-if="editing">
-        <NInput v-model:value="name" aria-label="音色名称" :maxlength="80" />
-        <NInput v-model:value="text" type="textarea" aria-label="参考原文" :maxlength="2000" />
+        <NAlert v-if="error" type="error">{{ error }}</NAlert>
+        <NInput v-model:value="name" :disabled="busy" aria-label="音色名称" :maxlength="80" />
+        <NInput
+          v-model:value="text"
+          :disabled="busy"
+          type="textarea"
+          aria-label="参考原文"
+          :maxlength="2000"
+        />
         <NSpace
           ><NButton :disabled="busy || !name.trim() || !text.trim()" @click="save">保存修改</NButton
-          ><NButton @click="editing = false">取消</NButton></NSpace
+          ><NButton :disabled="busy" @click="editing = false">取消</NButton></NSpace
         >
       </template>
       <p v-else class="reference-text">{{ voice.reference_text }}</p>

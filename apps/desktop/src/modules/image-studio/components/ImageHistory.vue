@@ -1,9 +1,11 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NImage, NSpin } from 'naive-ui'
+import { NButton, NImage } from 'naive-ui'
+import { computed } from 'vue'
+import ResourceListState from '../../../shared/ui/ResourceListState.vue'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import type { ImageArtifact } from '../domain/image-state'
 
-defineProps<{
+const props = defineProps<{
   artifacts: ImageArtifact[]
   urls: Record<string, string>
   errors: Record<string, string>
@@ -13,6 +15,19 @@ defineProps<{
   hasMore: boolean
 }>()
 defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
+const phase = computed(() =>
+  props.loading
+    ? props.artifacts.length
+      ? 'refreshing'
+      : 'initial-loading'
+    : props.error
+      ? props.artifacts.length
+        ? 'more-error'
+        : 'initial-error'
+      : props.artifacts.length
+        ? 'ready'
+        : 'empty',
+)
 </script>
 
 <template>
@@ -28,10 +43,14 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
         刷新历史
       </NButton>
     </div>
-    <div v-if="error" role="alert" class="history-error">
-      {{ error }}<NButton text type="primary" @click="$emit('refresh')"> 重试 </NButton>
-    </div>
-    <NSpin :show="loading">
+    <ResourceListState
+      :phase="phase"
+      :error="error"
+      :has-more="hasMore"
+      empty-title="你的第一张作品，正在等待一个灵感"
+      @retry="$emit('refresh')"
+      @load-more="$emit('more')"
+    >
       <div v-if="artifacts.length" class="history-grid">
         <NButton
           v-for="item in artifacts"
@@ -68,23 +87,7 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
           </div>
         </NButton>
       </div>
-      <div v-else-if="!loading && !error" class="panel history-empty">
-        <NEmpty description="你的第一张作品，正在等待一个灵感">
-          <template #extra>
-            <span>生成完成后会自动出现在这里</span>
-          </template>
-        </NEmpty>
-      </div>
-    </NSpin>
-    <NButton
-      v-if="hasMore"
-      secondary
-      class="history-more"
-      :loading="loading"
-      @click="$emit('more')"
-    >
-      加载更多作品
-    </NButton>
+    </ResourceListState>
   </section>
 </template>
 
@@ -108,7 +111,7 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   font-weight: 600;
 }
 .history-heading h2 svg {
-  color: #9fb6ff;
+  color: var(--text-primary);
 }
 .history-heading h2 > span {
   display: grid;
@@ -116,15 +119,15 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   height: 22px;
   min-width: 24px;
   padding: 0 6px;
-  font-size: 11px;
-  color: #a1b6d8;
-  background: #29394f;
+  font-size: 12px;
+  color: var(--text-secondary);
+  background: var(--surface-hover);
   border-radius: 6px;
 }
 .history-heading p {
   margin: 7px 0 0;
-  color: #8398b9;
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: 12px;
   line-height: 1.6;
 }
 .history-grid {
@@ -138,12 +141,12 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   padding: 0;
   overflow: hidden;
   text-align: left;
-  border: 1px solid #2b3b55;
+  border: 1px solid var(--border-strong);
   border-radius: 12px;
-  background: #1d283a;
+  background: var(--surface-hover);
 }
 .history-image-card.selected {
-  border-color: #7f8ef1;
+  border-color: var(--text-primary);
 }
 .history-image-card :deep(.n-button__content) {
   display: block;
@@ -163,9 +166,9 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   position: absolute;
   top: 9px;
   left: 9px;
-  background: #192438c9;
-  color: #cad4f1;
-  font-size: 10px;
+  background: var(--surface-card);
+  color: var(--text-primary);
+  font-size: 12px;
   padding: 3px 7px;
   border-radius: 5px;
 }
@@ -174,7 +177,7 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
 }
 .history-image-caption strong {
   display: block;
-  color: #c8d6eb;
+  color: var(--text-primary);
   font-size: 12px;
   font-weight: 500;
   overflow: hidden;
@@ -185,8 +188,8 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   display: flex;
   justify-content: space-between;
   gap: 8px;
-  color: #7f96b7;
-  font-size: 10px;
+  color: var(--text-tertiary);
+  font-size: 12px;
   margin-top: 9px;
 }
 .history-image-placeholder {
@@ -195,22 +198,22 @@ defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
   align-content: center;
   justify-items: center;
   gap: 12px;
-  color: #758daf;
-  background: #182335;
-  font-size: 10px;
+  color: var(--text-tertiary);
+  background: var(--surface-card);
+  font-size: 12px;
 }
 .history-empty {
   padding: 40px 20px;
 }
 .history-empty span {
-  color: #7d92b3;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 .history-error {
   display: flex;
   align-items: center;
   gap: 12px;
-  color: #f4abb2;
+  color: var(--status-error);
   font-size: 12px;
   margin-bottom: 16px;
 }

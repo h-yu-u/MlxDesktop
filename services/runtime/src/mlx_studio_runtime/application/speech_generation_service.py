@@ -82,11 +82,14 @@ class SpeechGenerationService:
             raise RuntimeFault(RuntimeErrorInfo("AUDIO_JOB_NOT_FOUND", "找不到语音生成任务"))
         return rows[0]
 
-    def content(self, artifact_id: str) -> Path:
+    def get_artifact(self, artifact_id: str) -> dict[str, Any]:
         item = self.repository.artifact(artifact_id)
         if item is None:
             raise RuntimeFault(RuntimeErrorInfo("AUDIO_ARTIFACT_NOT_FOUND", "找不到此作品"))
-        return self.voices.content(str(item["asset_id"]))
+        return item
+
+    def content(self, artifact_id: str) -> Path:
+        return self.voices.content(str(self.get_artifact(artifact_id)["asset_id"]))
 
     def delete_artifact(self, artifact_id: str) -> None:
         item = self.repository.artifact(artifact_id)

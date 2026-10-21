@@ -123,6 +123,14 @@ def register_image_studio_routes(
             for item in service.queries.history(limit, offset)
         ]
 
+    @app.get(
+        "/internal/v1/image-artifacts/{artifact_id}",
+        dependencies=dependencies,
+        response_model=ImageArtifactView,
+    )
+    async def artifact_detail(artifact_id: str) -> ImageArtifactView:
+        return ImageArtifactView.model_validate(service.queries.image_artifact(artifact_id))
+
     @app.get("/internal/v1/image-artifacts/{artifact_id}/content", dependencies=dependencies)
     async def image_content(artifact_id: str) -> FileResponse:
         return FileResponse(

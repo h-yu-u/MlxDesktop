@@ -90,7 +90,7 @@ async function save(): Promise<void> {
 <style scoped>
 .mask-help {
   font-size: 12px;
-  color: #9fb0ca;
+  color: var(--text-secondary);
   margin: 0 0 16px;
   line-height: 1.7;
 }
@@ -109,7 +109,7 @@ async function save(): Promise<void> {
   max-height: 55vh;
   overflow: auto;
   overscroll-behavior: contain;
-  background: #111b2c;
+  background: var(--surface-card);
   text-align: center;
   border-radius: 10px;
 }
@@ -144,7 +144,7 @@ async function save(): Promise<void> {
 }
 .mask-footer span {
   margin-right: auto;
-  font-size: 11px;
-  color: #91a3bd;
+  font-size: 12px;
+  color: var(--text-tertiary);
 }
 </style>

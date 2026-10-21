@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { NButton, NEmpty, NImage, NProgress, NSkeleton, NSpin, NTag } from 'naive-ui'
+import { NButton, NEmpty, NImage, NSkeleton, NTag } from 'naive-ui'
 import { computed, ref } from 'vue'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
+import TaskStatusPanel from '../../../shared/ui/TaskStatusPanel.vue'
+import { mediaTaskStatus } from '../../../capabilities/media'
 import { isTerminal, type ImageArtifact, type ImageJob } from '../domain/image-state'
 
 const props = defineProps<{
@@ -19,18 +21,10 @@ const props = defineProps<{
 defineEmits<{ cancel: []; save: []; reuse: []; edit: []; retryImage: []; reconnect: [] }>()
 const compare = ref(true)
 const active = computed(() => props.submitting || (!!props.job && !isTerminal(props.job)))
-const stateText = computed(() =>
-  props.submitting
-    ? '正在提交任务'
-    : {
-        queued: '等待生成',
-        preparing: '准备模型',
-        running: '正在生成图片',
-        cancelling: '正在取消',
-        succeeded: '生成完成',
-        failed: '生成失败',
-        cancelled: '已取消生成',
-      }[props.job?.state ?? 'queued'],
+const task = computed(() =>
+  props.job
+    ? mediaTaskStatus(props.job, { cancelling: props.cancelling, syncError: props.syncError })
+    : null,
 )
 </script>
 
@@ -47,41 +41,14 @@ const stateText = computed(() =>
         {{ artifact.simulated ? '模拟输出' : '已自动保存' }}
       </NTag>
     </div>
-    <div v-if="active" class="image-generation-state" aria-live="polite">
-      <NSpin v-if="!syncError" size="large" />
-      <StudioIcon v-else name="info" :size="40" />
-      <h3>{{ syncError ? '任务状态同步中断' : stateText }}</h3>
-      <p>
-        {{
-          syncError
-            ? '本地任务可能仍在运行，重新连接后可继续查看结果。'
-            : job?.state === 'queued'
-              ? '正在等待当前推理任务结束'
-              : '你可以切换页面，完成后会自动加入作品历史。'
-        }}
-      </p>
-      <NProgress
-        v-if="job && !isTerminal(job) && !syncError"
-        type="line"
-        :percentage="job.progress"
-        :show-indicator="true"
-        :processing="job.state === 'running'"
-      />
-      <div class="generation-buttons">
-        <NButton v-if="syncError" type="primary" secondary @click="$emit('reconnect')">
-          重新同步 </NButton
-        ><NButton
-          v-if="job && !isTerminal(job)"
-          secondary
-          :loading="cancelling"
-          :disabled="cancelling || job.state === 'cancelling'"
-          @click="$emit('cancel')"
-        >
-          取消生成
-        </NButton>
-      </div>
-    </div>
-    <template v-else-if="artifact">
+    <TaskStatusPanel
+      v-if="task"
+      :status="task"
+      @cancel="$emit('cancel')"
+      @reconnect="$emit('reconnect')"
+    />
+    <p v-if="submitting">正在提交任务</p>
+    <template v-if="artifact">
       <div v-if="sourceUrl" class="compare-toggle">
         <NButton text @click="compare = !compare">{{ compare ? '只看结果' : '对比原图' }}</NButton>
       </div>
@@ -148,9 +115,7 @@ const stateText = computed(() =>
         <StudioIcon name="image" :size="44" />
       </div>
       <h3>
-        {{
-          job?.state === 'cancelled' || job?.state === 'failed' ? stateText : '把你的想象，变成画面'
-        }}
+        {{ active ? '生成后可在这里查看新作品' : '把你的想象，变成画面' }}
       </h3>
       <p>用文字描述创意，或上传原图和编辑指令，结果会显示在这里。</p>
       <span>本地创作 · 自动留存 · 参数可复用</span>

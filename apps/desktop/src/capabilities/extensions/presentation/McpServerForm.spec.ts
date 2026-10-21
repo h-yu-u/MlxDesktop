@@ -2,7 +2,7 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { NFormItem, NInput, NSelect } from 'naive-ui'
 import { nextTick } from 'vue'
 import { describe, expect, it, vi } from 'vitest'
-import type { McpWriteRequest } from '@mlx-studio/api-client'
+import type { McpWriteRequest, ExtensionServer } from '@mlx-studio/api-client'
 import McpServerForm from './McpServerForm.vue'
 import { parsePublicMcpDraft } from './mcp-config'
 
@@ -30,6 +30,8 @@ describe('MCP public configuration and credential form', () => {
     const saveRequest = vi.fn(async (body: McpWriteRequest) => {
       requests.push(body)
       return requests.length > 1
+        ? { kind: 'saved' as const, value: { id: 'server' } as ExtensionServer }
+        : { kind: 'uncertain' as const, message: '提交结果未知', mutationId: body.mutationId }
     })
     const wrapper = mount(McpServerForm, {
       props: { server: null, pending: false, saveRequest },
@@ -62,4 +64,30 @@ describe('MCP public configuration and credential form', () => {
     expect(input('一次性凭据值').props('value')).toBe('')
     wrapper.unmount()
   })
+})
+
+it('retains unsaved fields in process memory after closing and recreating the form', async () => {
+  const memory = new Map(),
+    saveRequest = vi.fn()
+  const first = mount(McpServerForm, {
+    props: { server: null, pending: false, memory, saveRequest },
+  })
+  const name = first
+    .findAllComponents(NFormItem)
+    .find((item) => item.props('label') === '服务名称')!
+    .getComponent(NInput)
+  name.vm.$emit('update:value', 'Keep draft')
+  await nextTick()
+  first.unmount()
+  const reopened = mount(McpServerForm, {
+    props: { server: null, pending: false, memory, saveRequest },
+  })
+  expect(
+    reopened
+      .findAllComponents(NFormItem)
+      .find((item) => item.props('label') === '服务名称')!
+      .getComponent(NInput)
+      .props('value'),
+  ).toBe('Keep draft')
+  reopened.unmount()
 })

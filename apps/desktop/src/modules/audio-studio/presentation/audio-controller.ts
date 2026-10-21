@@ -1,3 +1,6 @@
+import { createDraftRestorer } from '../../../shared/lib/draft-restorer'
+import { restoreSpeech } from '../application/restore-speech'
+import type { FileExportResult } from '../../../shared/lib/file-export'
 import { createAudioHistoryController } from './audio-history-controller'
 import { SubmitSpeech } from '../application/submit-speech'
 import { computed, ref, watch } from 'vue'
@@ -8,7 +11,7 @@ import type {
   SpeechDraft,
   Voice,
 } from '../application/ports'
-import { compatibleModels, terminal } from '../application/speech-request'
+import { compatibleModels, terminal, deriveSpeechReadiness } from '../application/speech-request'
 import type { useModelDirectory } from '../../../capabilities/models'
 import { JobPoller } from '../../../capabilities/jobs'
 import { createVoiceController } from './voice-controller'
@@ -18,7 +21,7 @@ interface Dependencies {
   directory: ReturnType<typeof useModelDirectory>
   refreshModels(): Promise<void>
   gateway: AudioGateway
-  exportAudio(blob: Blob, id: string): Promise<void> | void
+  exportAudio(blob: Blob, id: string): Promise<FileExportResult>
 }
 export function createAudioController(deps: Dependencies) {
   const form = ref<SpeechDraft>({
@@ -68,26 +71,25 @@ export function createAudioController(deps: Dependencies) {
   let scope = new AbortController()
   const submit = new SubmitSpeech(deps.gateway, () => crypto.randomUUID())
   let polling = false
+  let submittedSelection = 0
 
+  const restorer = createDraftRestorer(form)
+  const voiceConfirmed = ref(false)
   watch(
-    [speechModels, () => form.value.modelId],
+    () => [form.value.voiceId, form.value.mode],
     () => {
-      if (!speechModels.value.some((model) => model.id === form.value.modelId))
-        form.value.modelId =
-          speechModels.value.find((model) => model.source !== 'builtin')?.id ??
-          speechModels.value[0]?.id ??
-          null
-      const operation = selectedModel.value?.speech?.operations.find(
-        (op) => op.mode === form.value.mode,
-      )
-      if (!operation?.presetSpeakers.includes(form.value.speaker ?? ''))
-        form.value.speaker = operation?.presetSpeakers[0] ?? null
-      if (!operation?.languages.includes(form.value.language))
-        form.value.language = operation?.languages[0] ?? 'auto'
+      voiceConfirmed.value = false
     },
-    { flush: 'sync', immediate: true },
+    { flush: 'sync' },
   )
-
+  const voiceChange = computed(() =>
+    restorer.adjustments.value.find(
+      (notice) => notice.code === 'voice-changed' && notice.resourceId === form.value.voiceId,
+    ),
+  )
+  const readiness = computed(() =>
+    deriveSpeechReadiness(form.value, deps.directory.items, voices.value),
+  )
   async function action(run: (owner: number) => Promise<void>): Promise<boolean> {
     const owner = epoch
     error.value = null
@@ -104,6 +106,7 @@ export function createAudioController(deps: Dependencies) {
     dispose()
     disposed = false
     history.activate()
+    restorer.activate()
     scope = new AbortController()
     const owner = epoch
     loading.value = true
@@ -118,18 +121,42 @@ export function createAudioController(deps: Dependencies) {
       voices.value = nextVoices
       library.references = nextReferences
       jobs.value = nextJobs
-      if (!nextVoices.some((v) => v.id === form.value.voiceId))
-        form.value.voiceId = nextVoices[0]?.id ?? null
+      if (!form.value.modelId && !form.value.text) {
+        const model =
+          speechModels.value.find((item) => item.source !== 'builtin') ?? speechModels.value[0]
+        const op = model?.speech?.operations.find((item) => item.mode === form.value.mode)
+        form.value = {
+          ...form.value,
+          modelId: model?.id ?? null,
+          speaker: op?.presetSpeakers[0] ?? null,
+          language: op?.languages.includes(form.value.language)
+            ? form.value.language
+            : (op?.languages[0] ?? 'auto'),
+        }
+      }
       const resuming = activeJob.value ? !terminal(activeJob.value) : true
       activeJob.value = nextJobs.find((job) => !terminal(job)) ?? nextJobs[0] ?? null
-      if (resuming && activeJob.value?.artifact_id) selectedId.value = activeJob.value.artifact_id
+      if (
+        resuming &&
+        activeJob.value?.artifact_id &&
+        submittedSelection === history.getSelectionRevision()
+      )
+        await history.select(activeJob.value.artifact_id, false)
       await loadHistory(true)
       if (owner === epoch && busy.value) poller.schedule(refreshJob)
     })
     if (owner === epoch) loading.value = false
   }
   async function generate(): Promise<void> {
-    if (busy.value || submitting.value || disposed) return
+    if (
+      busy.value ||
+      submitting.value ||
+      disposed ||
+      !readiness.value.canSubmit ||
+      (voiceChange.value && !voiceConfirmed.value)
+    )
+      return
+    submittedSelection = history.getSelectionRevision()
     submitting.value = true
     const owner = epoch
     await action(async () => {
@@ -155,7 +182,8 @@ export function createAudioController(deps: Dependencies) {
       syncError.value = null
       poller.recovered()
       if (job.state === 'succeeded') {
-        selectedId.value = job.artifact_id
+        if (job.artifact_id && submittedSelection === history.getSelectionRevision())
+          await history.select(job.artifact_id, false)
         await loadHistory(true)
       }
       if (job.state === 'failed') error.value = audioFailure(job.error_code)
@@ -176,30 +204,36 @@ export function createAudioController(deps: Dependencies) {
     }
   }
   async function cancel(): Promise<void> {
-    if (!activeJob.value || !busy.value || cancelling.value) return
+    if (
+      !activeJob.value ||
+      !busy.value ||
+      activeJob.value.state === 'cancelling' ||
+      cancelling.value
+    )
+      return
     const id = activeJob.value.id,
       owner = epoch
     cancelling.value = true
-    await action(async () => {
+    const cancelled = await action(async () => {
       await deps.gateway.cancel(id)
       if (owner === epoch) await refreshJob()
     })
+    if (!cancelled && owner === epoch) await refreshJob()
     if (owner === epoch) cancelling.value = false
   }
-  function reuse(item: AudioArtifact | AudioJob): void {
+  async function reuse(item: AudioArtifact | AudioJob): Promise<void> {
     if (busy.value || submitting.value) return
-    form.value = {
-      mode: item.mode,
-      modelId: item.model_id,
-      text: item.text,
-      language: item.language,
-      speaker: item.speaker,
-      voiceId: voices.value.some((v) => v.id === item.voice_id) ? item.voice_id : null,
+    try {
+      await restorer.restore(async () => {
+        const currentVoices = await deps.gateway.voices()
+        return restoreSpeech(item, deps.directory.items, currentVoices)
+      })
+    } catch (cause) {
+      error.value = cause instanceof Error ? cause.message : '恢复参数失败，请重试'
     }
-    if (item.mode === 'clone' && !form.value.voiceId)
-      error.value = '原音色已删除，请重新选择或保存音色。'
   }
   function dispose(): void {
+    restorer.dispose()
     epoch++
     disposed = true
     scope.abort()
@@ -214,6 +248,13 @@ export function createAudioController(deps: Dependencies) {
   }
   return {
     form,
+    readiness,
+    restorePending: restorer.pending,
+    restoreCandidate: restorer.candidate,
+    restoreAdjustments: restorer.adjustments,
+    applyRestoreCandidate: restorer.applyCandidate,
+    voiceChange,
+    voiceConfirmed,
     voices,
     library,
     artifacts,
@@ -227,6 +268,12 @@ export function createAudioController(deps: Dependencies) {
     submitting,
     cancelling,
     historyLoading,
+    historyError: history.historyError,
+    historyPhase: history.phase,
+    detailError: history.detailError,
+    detailLoading: history.detailLoading,
+    mediaErrors: history.mediaErrors,
+    savingById: history.savingById,
     hasMore,
     savingId,
     speechModels,

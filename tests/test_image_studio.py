@@ -84,6 +84,36 @@ class ImageStudioApiTests(unittest.TestCase):
                     reopened.get(url, headers=HEADERS).content, content.content
                 )
 
+    def test_detail_reads_beyond_first_page_and_filters_private_fields(self):
+        with tempfile.TemporaryDirectory() as directory:
+            app = create_app("image-test", Path(directory) / "app.db")
+            with TestClient(app) as client:
+                created = client.post(
+                    "/internal/v1/image-jobs", json=PARAMETERS, headers=HEADERS
+                )
+                job = wait_for_job(client, created.json()["id"])
+                original = app.state.service.store.images.get(job["artifact_id"])
+                for index in range(25):
+                    app.state.service.store.images.save(
+                        f"detail-{index}", job["id"], "missing.png", dict(original)
+                    )
+                url = "/internal/v1/image-artifacts/detail-0"
+                self.assertEqual(client.get(url).status_code, 401)
+                page = client.get(
+                    "/internal/v1/image-artifacts?limit=24", headers=HEADERS
+                ).json()
+                self.assertNotIn("detail-0", [item["id"] for item in page])
+                response = client.get(url, headers=HEADERS)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["id"], "detail-0")
+                self.assertNotIn("relative_path", response.json())
+                self.assertEqual(
+                    client.get(
+                        "/internal/v1/image-artifacts/missing", headers=HEADERS
+                    ).status_code,
+                    404,
+                )
+
     def test_cancel_creates_no_artifact_and_next_job_can_succeed(self):
         with (
             tempfile.TemporaryDirectory() as directory,

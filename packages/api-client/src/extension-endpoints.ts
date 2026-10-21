@@ -1,6 +1,8 @@
 import type { Transport } from './transport/ports'
 import {
   decodeExtensionCatalog,
+  decodeServer,
+  decodeInventory,
   decodeBinding,
   decodeMutation,
   decodeOperation,
@@ -34,6 +36,15 @@ export function extensionEndpoints(transport: Pick<Transport, 'get' | 'post' | '
       ),
     saveServer: async (body: McpWriteRequest) =>
       decodeMutation(await transport.post(`${root}/mcp`, body)),
+    server: async (key: string) => decodeServer(await transport.get(`${root}/mcp/${id(key)}`)),
+    inventory: async (key: string, revision: number) =>
+      decodeInventory(
+        await transport.get(`${root}/mcp/${id(key)}/tools?configRevision=${revision}`),
+      ),
+    mutation: async (key: string) => {
+      const value = await transport.get(`${root}/mutations/${id(key)}`)
+      return value === null ? null : decodeMutation(value)
+    },
     test: async (key: string, revision: number) =>
       decodeOperation(
         await transport.post(`${root}/mcp/${id(key)}/test`, { configRevision: revision }),
@@ -44,11 +55,16 @@ export function extensionEndpoints(transport: Pick<Transport, 'get' | 'post' | '
       decodeOperation(await transport.post(`${root}/operations/${id(key)}/cancel`)),
     binding: async (scope: ExtensionScope) =>
       decodeBinding(await transport.get(`${root}/bindings?${new URLSearchParams(scope)}`)),
-    saveBinding: async (scope: ExtensionScope, revision: number, selection: ExtensionSelection) =>
+    saveBinding: async (
+      scope: ExtensionScope,
+      revision: number,
+      selection: ExtensionSelection,
+      mutationId: string,
+    ) =>
       decodeMutation(
         await transport.put(
           `${root}/bindings/${id(`${scope.workspace}:${scope.kind}:${scope.scopeId}`)}`,
-          { mutationId: crypto.randomUUID(), expectedRevision: revision, scope, selection },
+          { mutationId, expectedRevision: revision, scope, selection },
         ),
       ),
     resolve: async (

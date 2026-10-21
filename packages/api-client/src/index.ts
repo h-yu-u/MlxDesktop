@@ -39,3 +39,6 @@ export {
   type AgentChatSnapshot,
   type AgentChatRequest,
 } from './agent-chat'
+
+export type { WebTestResult } from './web-search'
+export { copyExtensionSelection } from './extension-selection'

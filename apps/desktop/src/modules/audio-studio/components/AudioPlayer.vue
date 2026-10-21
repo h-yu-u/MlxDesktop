@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { NAlert, NButton, NCard, NEmpty, NSpace, NTag } from 'naive-ui'
+import { NButton, NCard, NEmpty, NSpace, NTag } from 'naive-ui'
+import { computed } from 'vue'
+import TaskStatusPanel from '../../../shared/ui/TaskStatusPanel.vue'
+import { mediaTaskStatus } from '../../../capabilities/media'
 import type { AudioArtifact, AudioJob } from '../application/ports'
-defineProps<{
+const props = defineProps<{
   artifact: AudioArtifact | null
   url?: string
   job: AudioJob | null
@@ -11,37 +14,21 @@ defineProps<{
   syncError: string | null
 }>()
 const emit = defineEmits<{ cancel: []; save: []; reuse: []; retry: []; reconnect: [] }>()
-const states: Record<string, string> = {
-  queued: '排队中',
-  preparing: '加载模型中',
-  running: '生成中',
-  cancelling: '取消中',
-  cancelled: '已取消',
-  succeeded: '已完成',
-  failed: '生成失败',
-}
+const task = computed(() =>
+  props.job
+    ? mediaTaskStatus(props.job, { cancelling: props.cancelling, syncError: props.syncError })
+    : null,
+)
 </script>
 <template>
   <NCard title="试听与导出" :bordered="false">
     <NSpace vertical :size="18">
-      <div v-if="job" role="status" aria-live="polite">
-        <NTag :type="busy ? 'info' : job.state === 'failed' ? 'error' : 'default'">{{
-          states[job.state]
-        }}</NTag>
-        <NButton
-          v-if="busy"
-          secondary
-          size="small"
-          :loading="cancelling"
-          :disabled="cancelling"
-          @click="emit('cancel')"
-          >取消生成</NButton
-        >
-      </div>
-      <NAlert v-if="syncError" type="warning"
-        >任务同步中断：{{ syncError }}
-        <NButton text @click="emit('reconnect')">重新连接</NButton></NAlert
-      >
+      <TaskStatusPanel
+        v-if="task"
+        :status="task"
+        @cancel="emit('cancel')"
+        @reconnect="emit('reconnect')"
+      />
       <template v-if="artifact">
         <NTag v-if="artifact.simulated" type="warning">开发测试音</NTag>
         <div class="waveform" aria-hidden="true">
@@ -88,7 +75,7 @@ const states: Record<string, string> = {
 .waveform span {
   flex: 1;
   border-radius: 3px;
-  background: var(--accent, #a3baab);
+  background: var(--accent, var(--text-tertiary));
   min-width: 1px;
 }
 audio {

@@ -72,12 +72,12 @@ a {
 }
 
 button:focus-visible {
-  outline: 2px solid #a5a5a5;
+  outline: 2px solid var(--border-focus);
   outline-offset: 3px;
 }
 
 a:focus-visible {
-  outline: 2px solid #a5a5a5;
+  outline: 2px solid var(--border-focus);
   outline-offset: 3px;
 }
 
@@ -92,7 +92,7 @@ svg {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #484848;
+  background: var(--surface-hover);
   border-radius: 5px;
 }
 

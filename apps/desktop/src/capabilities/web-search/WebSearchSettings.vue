@@ -1,60 +1,69 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { NAlert, NButton, NCard, NForm, NFormItem, NInput, NSpace, useMessage } from 'naive-ui'
+import { onMounted } from 'vue'
+import { NAlert, NButton, NCard, NForm, NFormItem, NInput, useMessage } from 'naive-ui'
+import FormActionBar from '../../shared/ui/FormActionBar.vue'
 import { useWebSearch } from './store'
 const web = useWebSearch(),
   message = useMessage()
-const baseUrl = ref('https://api.tavily.com'),
-  apiKey = ref('')
-onMounted(async () => {
-  await web.load()
-  if (web.settings) baseUrl.value = web.settings.baseUrl
-})
-async function save(): Promise<void> {
-  if (
-    await web.save({
-      expected_revision: web.settings?.revision ?? 0,
-      provider: 'tavily',
-      base_url: baseUrl.value,
-      api_key: apiKey.value || undefined,
-    })
-  ) {
-    apiKey.value = ''
-    message.success('联网设置已保存，请测试连接')
+onMounted(web.load)
+async function save(andTest = false): Promise<void> {
+  const result = await web.save()
+  if (result.kind === 'saved') {
+    message.success('联网设置已保存')
+    if (andTest) await web.test()
   }
-}
-async function test(): Promise<void> {
-  if (await web.test()) message.success('搜索服务连接成功')
 }
 </script>
 <template>
-  <NCard title="联网搜索" style="margin-top: 16px">
-    <p>使用 Tavily Search / Extract 获取参考资料，回答由当前本地模型生成。</p>
-    <NForm label-placement="top">
+  <NCard title="联网搜索">
+    <p>使用 Tavily 获取参考资料，回答由当前本地模型生成。</p>
+    <NForm label-placement="top" @submit.prevent="save()">
       <NFormItem label="Tavily 服务地址"
-        ><NInput v-model:value="baseUrl" :disabled="web.pending" aria-label="搜索服务地址"
+        ><NInput v-model:value="web.baseUrl" :disabled="web.pending" aria-label="搜索服务地址"
       /></NFormItem>
       <NFormItem
         :label="web.settings?.credentialConfigured ? 'API Key（已保存，留空沿用）' : 'API Key'"
-      >
-        <NInput
-          v-model:value="apiKey"
+        ><NInput
+          v-model:value="web.apiKey"
           type="password"
-          placeholder="输入 API Key"
           autocomplete="off"
           :disabled="web.pending"
           aria-label="搜索 API Key"
-        />
-      </NFormItem>
+      /></NFormItem>
+      <NAlert v-if="web.error" type="error">{{ web.error }}</NAlert>
+      <FormActionBar
+        :dirty="web.dirty"
+        :save-pending="web.savePending"
+        :save-disabled-reason="!web.settings ? '请先读取配置' : undefined"
+        :test="{
+          pending: web.testPending,
+          disabledReason: web.dirty
+            ? '先保存更改，再测试此配置'
+            : !web.settings?.credentialConfigured
+              ? '请先保存 API Key'
+              : undefined,
+        }"
+        @save="save()"
+        @test="web.test"
+        @reset="web.reset"
+      />
+      <NButton v-if="web.dirty" :disabled="web.pending || !web.settings" @click="save(true)"
+        >保存并测试</NButton
+      >
     </NForm>
-    <NAlert v-if="web.error" type="error">{{ web.error }}</NAlert>
-    <NSpace
-      ><NButton :loading="web.pending" @click="save">保存</NButton
-      ><NButton :disabled="web.pending || !web.settings?.credentialConfigured" @click="test"
-        >测试连接</NButton
-      ></NSpace
-    >
-    <p>搜索关键词会发送给所配置的搜索服务，附件在本地解析。密钥保存在系统安全存储中。</p>
-    <p v-if="web.settings?.ready">连接已验证 · 配置版本 {{ web.settings.revision }}</p>
+    <p v-if="web.verification.kind !== 'untested'">
+      已保存版本 {{ web.verification.revision }} ·
+      {{
+        web.verification.kind === 'passed'
+          ? '此次测试通过'
+          : web.verification.kind === 'failed'
+            ? '此次测试失败'
+            : '正在测试'
+      }}<span v-if="web.verification.elapsedMs !== undefined">
+        · {{ web.verification.elapsedMs }} ms</span
+      >
+    </p>
+    <p v-else-if="web.settings?.ready">此配置曾通过验证 · 已保存版本 {{ web.settings.revision }}</p>
+    <p>搜索关键词会发送给所配置的服务；密钥保存在系统安全存储中。</p>
   </NCard>
 </template>

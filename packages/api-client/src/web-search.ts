@@ -3,6 +3,7 @@ import type { Transport } from './transport/ports'
 import { record, text, number, malformed } from './decoders'
 
 export type WebSettings = components['schemas']['WebSettingsView']
+export type WebTestResult = components['schemas']['WebTestView']
 export type WebSettingsUpdate = components['schemas']['WebSettingsUpdate']
 export type ChatAttempt = components['schemas']['ChatAttemptRequest']
 export function decodeWebSettings(value: unknown): WebSettings {
@@ -28,8 +29,14 @@ export function webSearchEndpoints(transport: Transport) {
     get: async () => decodeWebSettings(await transport.get(path)),
     save: async (value: WebSettingsUpdate) => decodeWebSettings(await transport.put(path, value)),
     test: async (id: string, revision: number) =>
-      decodeWebSettings(
+      decodeWebTest(
         await transport.post(`${path}/test`, { config_id: id, config_revision: revision }),
       ),
   }
+}
+
+export function decodeWebTest(value: unknown): WebTestResult {
+  const item = record(value)
+  if (typeof item.ok !== 'boolean') throw malformed()
+  return { ...decodeWebSettings(value), ok: item.ok, elapsedMs: number(item.elapsedMs) }
 }

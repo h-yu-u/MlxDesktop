@@ -7,6 +7,7 @@ export function createModelsGateway(provider: () => Promise<RuntimeClient>) {
     import: async (path: string) => (await endpoints()).models.import(path),
     pull: async (repoId: string) => (await endpoints()).models.pull(repoId),
     deleteFiles: async (id: string) => (await endpoints()).models.deleteFiles(id),
+    unload: async (id: string) => (await endpoints()).models.unload(id),
     load: async (id: string) => (await endpoints()).models.load(id),
     unregister: async (id: string) => (await endpoints()).models.unregister(id),
   }

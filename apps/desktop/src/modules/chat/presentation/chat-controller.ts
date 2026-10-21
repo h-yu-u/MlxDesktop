@@ -1,3 +1,5 @@
+import { createExportOperation } from '../../../shared/lib/export-operation'
+import type { FileExportResult } from '../../../shared/lib/file-export'
 import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { computed, ref, type Ref } from 'vue'
 import type {
@@ -27,7 +29,7 @@ interface ChatDependencies {
   ) => ReturnType<typeof createChatDraftController>
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
-  exportText(content: string, filename: string): Promise<void> | void
+  exportText(content: string, filename: string): Promise<FileExportResult>
   observe(
     id: string,
     after: number,
@@ -239,21 +241,19 @@ export function createChatController(deps: ChatDependencies) {
       temperature.value = 0.7
     }
   }
-  async function exportConversation(): Promise<void> {
+  const exporting = createExportOperation()
+  async function exportConversation() {
     const title =
       conversations.value.find((item) => item.id === conversationId.value)?.title ?? '本地对话'
-    const owner = viewEpoch
-    try {
-      await deps.exportText(
-        formatConversation(title, state.value.messages),
-        'mlx-studio-conversation.md',
-      )
-    } catch (cause) {
-      if (owner === viewEpoch && viewActive)
-        state.value = { ...state.value, error: errorText(cause) }
-    }
+    const content = formatConversation(title, state.value.messages)
+    return exporting.run({
+      id: conversationId.value ?? 'new',
+      read: async () => new Blob([content]),
+      write: () => deps.exportText(content, 'mlx-studio-conversation.md'),
+    })
   }
   function dispose(): void {
+    exporting.invalidate()
     stream.dispose()
     drafts?.disposePreview()
     viewActive = false
@@ -282,6 +282,7 @@ export function createChatController(deps: ChatDependencies) {
     cancel,
     resetParameters,
     exportConversation,
+    exportPending: exporting.pending,
     dispose,
     drafts,
     phase: stream.phase,

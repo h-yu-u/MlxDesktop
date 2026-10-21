@@ -44,7 +44,7 @@ const percentage = computed(() =>
     <div class="resource-row">
       <span>可用磁盘</span><span>{{ diskFree }}</span>
     </div>
-    <p class="device-footnote">你的数据，始终留在你的设备上</p>
+    <p class="device-footnote">模型推理在本机进行；外部能力按需启用</p>
   </section>
 </template>
 
@@ -56,13 +56,13 @@ const percentage = computed(() =>
   display: flex;
   align-items: center;
   gap: 10px;
-  color: #aebbd3;
+  color: var(--text-secondary);
   font-size: 12px;
   margin-bottom: 18px;
 }
 .device-label svg {
   flex-shrink: 0;
-  color: #97aeff;
+  color: var(--text-primary);
 }
 .resource-row {
   display: flex;
@@ -70,7 +70,7 @@ const percentage = computed(() =>
   align-items: baseline;
   gap: 8px;
   font-size: 12px;
-  color: #aab6ce;
+  color: var(--text-secondary);
   margin: 10px 0;
   font-variant-numeric: tabular-nums;
 }
@@ -79,28 +79,28 @@ const percentage = computed(() =>
 }
 .memory-row {
   flex-wrap: wrap;
-  color: #c4cee2;
+  color: var(--text-secondary);
 }
 .usage-row {
   margin: 7px 0 14px;
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
 .resource-track {
   height: 5px;
   border-radius: 8px;
-  background: #343f54;
+  background: var(--border-strong);
   overflow: hidden;
 }
 .resource-track span {
   display: block;
   height: 100%;
-  background: linear-gradient(90deg, #8a6dff, #76a7ff);
+  background: linear-gradient(90deg, var(--text-primary), var(--text-primary));
   transition: width 0.3s ease;
 }
 .device-footnote {
-  color: #6f7d97;
-  font-size: 10px;
+  color: var(--text-tertiary);
+  font-size: 12px;
   margin: 14px 0 0;
 }
 @media (prefers-reduced-motion: reduce) {

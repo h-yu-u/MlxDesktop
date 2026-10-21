@@ -29,7 +29,7 @@
   padding: 9px 13px;
   border: 1px solid var(--line);
   border-radius: 20px;
-  color: #bdbdbd;
+  color: var(--text-tertiary);
   background: transparent;
   cursor: pointer;
   font-size: 12px;
@@ -39,7 +39,7 @@
 }
 .example-card:hover {
   background: var(--surface-hover);
-  color: #fff;
+  color: var(--text-primary);
 }
 @media (max-width: 680px) {
   .chat-welcome {

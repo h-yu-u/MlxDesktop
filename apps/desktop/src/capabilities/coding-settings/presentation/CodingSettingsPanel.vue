@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { NAlert, NButton, NCard, NFormItem, NInputNumber, NSelect } from 'naive-ui'
+import { NAlert, NCard, NFormItem, NInputNumber, NSelect } from 'naive-ui'
+import FormActionBar from '../../../shared/ui/FormActionBar.vue'
 import { useCodingSettings } from '../store'
 const coding = useCodingSettings()
 onMounted(() => {
@@ -12,20 +13,34 @@ onMounted(() => {
     <NAlert v-if="coding.error" type="error">{{ coding.error }}</NAlert>
     <NFormItem label="默认 Coding 模型（与聊天独立）"
       ><NSelect
-        v-model:value="coding.settings.defaultModelId"
+        v-model:value="coding.draft.defaultModelId"
         :options="coding.models"
         :disabled="coding.pending"
         aria-label="默认 Coding 模型"
     /></NFormItem>
     <NFormItem label="上下文预算（Token）"
       ><NInputNumber
-        v-model:value="coding.settings.contextBudget"
+        v-model:value="coding.draft.contextBudget"
         :min="4096"
         :max="32768"
         :step="4096"
         :disabled="coding.pending"
         aria-label="Coding 上下文预算"
     /></NFormItem>
-    <NButton :loading="coding.pending" @click="coding.save">保存 Coding 设置</NButton>
+    <NFormItem label="最多自动修复轮数"
+      ><NInputNumber
+        v-model:value="coding.draft.maxRepairRounds"
+        :min="0"
+        :max="3"
+        :disabled="coding.pending"
+        aria-label="最多自动修复轮数"
+    /></NFormItem>
+    <FormActionBar
+      :dirty="coding.dirty"
+      :save-pending="coding.savePending"
+      :save-disabled-reason="!coding.loaded ? '请先读取配置' : undefined"
+      @save="coding.save"
+      @reset="coding.reset"
+    />
   </NCard>
 </template>

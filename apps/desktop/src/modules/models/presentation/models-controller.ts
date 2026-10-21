@@ -107,6 +107,10 @@ export function createModelsController(deps: ModelsDependencies) {
     deleteFiles,
     load,
     unregister,
+    unload: async (id: string) => {
+      await deps.gateway.unload(id)
+      await refresh()
+    },
     catalog,
     catalogQuery,
     catalogLoading,

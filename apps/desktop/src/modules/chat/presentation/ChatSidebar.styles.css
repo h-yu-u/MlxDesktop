@@ -77,7 +77,7 @@
   background: transparent;
   border-radius: 8px;
   padding: 10px;
-  color: #d1d1d1;
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 13px;
 }
@@ -89,7 +89,7 @@
 .conversation-link:hover,
 .conversation-link[aria-current='true'] {
   background: var(--surface-hover);
-  color: #fff;
+  color: var(--text-primary);
 }
 .conversation-link:disabled {
   cursor: default;

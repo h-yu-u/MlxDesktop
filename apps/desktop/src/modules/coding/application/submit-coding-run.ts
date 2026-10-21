@@ -1,6 +1,6 @@
 import type { ExtensionSelection } from '@mlx-studio/api-client'
 import { RuntimeError } from '@mlx-studio/api-client'
-import type { CodingGateway } from './ports'
+import type { CodingRun, CodingGateway } from './ports'
 import type { CodingMode } from '../domain/status'
 
 export function modelNeedsVerification(cause: unknown): boolean {
@@ -20,16 +20,16 @@ interface Dependencies {
   invalidate(modelId: string): void
   createId(): string
 }
-export async function submitCodingRun(input: Submission, deps: Dependencies): Promise<void> {
+export async function submitCodingRun(input: Submission, deps: Dependencies): Promise<CodingRun> {
   await deps.ensure(input.modelId)
   const { sessionId, ...fields } = input
   const request = { ...fields, submissionId: deps.createId() }
   try {
-    await deps.gateway.submit(sessionId, request)
+    return await deps.gateway.submit(sessionId, request)
   } catch (cause) {
     if (!modelNeedsVerification(cause)) throw cause
     deps.invalidate(input.modelId)
     await deps.ensure(input.modelId, true)
-    await deps.gateway.submit(sessionId, request)
+    return await deps.gateway.submit(sessionId, request)
   }
 }

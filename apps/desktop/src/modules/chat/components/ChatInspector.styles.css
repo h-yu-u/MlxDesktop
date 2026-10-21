@@ -33,11 +33,11 @@
 }
 
 .inspector-heading h2 svg {
-  color: #ccc;
+  color: var(--text-secondary);
 }
 
 .inspector-heading :deep(.n-button) {
-  color: #999;
+  color: var(--text-tertiary);
 }
 
 .parameter-control {
@@ -58,7 +58,7 @@
 }
 
 .parameter-label label > span {
-  color: #aaa;
+  color: var(--text-tertiary);
   font-size: 12px;
 }
 
@@ -72,17 +72,15 @@
 }
 
 .parameter-label :deep(.n-input) {
-  --n-height: 34px;
-  --n-font-size: 13px;
 }
 
 .parameter-value {
   min-width: 54px;
   padding: 6px 10px;
-  border: 1px solid #444;
+  border: 1px solid var(--surface-hover);
   border-radius: 9px;
   text-align: center;
-  background: #222;
+  background: var(--surface-body);
 }
 
 .unavailable-parameter {
@@ -90,10 +88,10 @@
 }
 
 .advanced-settings {
-  border: 1px solid #444;
+  border: 1px solid var(--surface-hover);
   padding: 12px;
   border-radius: 10px;
-  background: #303030;
+  background: var(--surface-card);
   font-size: 13px;
 }
 
@@ -127,7 +125,7 @@
 
 .session-info dt {
   flex-shrink: 0;
-  color: #aaa;
+  color: var(--text-tertiary);
 }
 
 .session-info dd {

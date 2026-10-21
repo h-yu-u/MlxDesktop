@@ -15,7 +15,7 @@ describe('ConversationListItem', () => {
     expect(wrapper.emitted('pin')).toHaveLength(1)
     expect(wrapper.emitted('open')).toBeUndefined()
     const menu = wrapper.getComponent(NDropdown)
-    expect(menu.props('options')).toEqual([
+    expect(menu.props('options')?.map(({ key, label }) => ({ key, label }))).toEqual([
       { label: '重命名', key: 'rename' },
       { label: '删除', key: 'delete' },
     ])
@@ -23,7 +23,7 @@ describe('ConversationListItem', () => {
     menu.vm.$emit('select', 'delete')
     expect(wrapper.emitted('rename')).toHaveLength(1)
     expect(wrapper.emitted('remove')).toHaveLength(1)
-    await wrapper.get('.conversation-title').trigger('click')
+    await wrapper.get('.session-title').trigger('click')
     expect(wrapper.emitted('open')).toHaveLength(1)
     await wrapper.setProps({
       conversation: { ...props.conversation, pinned: true },

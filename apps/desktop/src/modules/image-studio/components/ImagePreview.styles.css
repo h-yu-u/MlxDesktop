@@ -20,7 +20,7 @@
   font-weight: 600;
 }
 .preview-heading svg {
-  color: #a1b5ff;
+  color: var(--text-primary);
 }
 .preview-empty,
 .image-generation-state {
@@ -39,9 +39,9 @@
   display: grid;
   place-items: center;
   border-radius: 25px;
-  color: #8296ed;
-  background: linear-gradient(135deg, #7260b62b, #305f9e24);
-  border: 1px solid #405273;
+  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--text-tertiary), var(--text-tertiary));
+  border: 1px solid var(--border-strong);
   margin-bottom: 22px;
 }
 .preview-empty h3,
@@ -52,14 +52,14 @@
 }
 .preview-empty p,
 .image-generation-state p {
-  color: #98aac8;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.8;
   margin: 0 0 20px;
 }
 .preview-empty > span {
-  color: #6d82a3;
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 .image-generation-state .n-spin,
 .image-generation-state > svg {
@@ -80,9 +80,9 @@
   align-items: center;
   justify-content: center;
   padding: 12px;
-  border: 1px solid #2b3b53;
+  border: 1px solid var(--border-strong);
   border-radius: 11px;
-  background: #101827;
+  background: var(--surface-card);
   overflow: hidden;
 }
 .generated-image-stage .n-image {
@@ -100,12 +100,12 @@
 }
 .artifact-model {
   font-size: 12px;
-  color: #a4b6db;
+  color: var(--text-secondary);
   overflow-wrap: anywhere;
 }
 .artifact-prompt {
   margin: 8px 0 13px;
-  color: #d4deee;
+  color: var(--text-primary);
   font-size: 13px;
   line-height: 1.8;
   white-space: pre-wrap;
@@ -116,14 +116,14 @@
   display: flex;
   flex-wrap: wrap;
   gap: 8px 16px;
-  color: #8095b5;
-  font-size: 11px;
+  color: var(--text-tertiary);
+  font-size: 12px;
 }
 .preview-actions {
   display: flex;
   justify-content: flex-end;
   gap: 10px;
-  border-top: 1px solid #2b3950;
+  border-top: 1px solid var(--surface-hover);
   padding-top: 16px;
 }
 .preview-actions :deep(.n-button__content) {
@@ -162,8 +162,8 @@
 }
 .comparison-source > span,
 .comparison-result > span {
-  font-size: 11px;
-  color: #97aac7;
+  font-size: 12px;
+  color: var(--text-secondary);
 }
 .compare-toggle {
   display: flex;

@@ -1,8 +1,10 @@
+import { createExportOperation } from '../../shared/lib/export-operation'
+import type { FileExportResult } from '../../shared/lib/file-export'
 import { computed, ref } from 'vue'
 import type { RuntimeMetrics } from '@mlx-studio/api-client'
 interface RuntimeOverviewDependencies {
   gateway: ReturnType<typeof import('./gateway').createRuntimeGateway>
-  exportFile(blob: Blob, filename: string): Promise<void> | void
+  exportFile(blob: Blob, filename: string): Promise<FileExportResult>
 }
 export function createRuntimeController(deps: RuntimeOverviewDependencies) {
   const info = ref<Record<string, unknown>>({})
@@ -63,8 +65,13 @@ export function createRuntimeController(deps: RuntimeOverviewDependencies) {
     await deps.gateway.restart()
     await refresh()
   }
-  async function downloadDiagnostics(): Promise<void> {
-    await deps.exportFile(await deps.gateway.diagnostics(), 'mlx-studio-diagnostics.zip')
+  const exporting = createExportOperation()
+  async function downloadDiagnostics() {
+    return exporting.run({
+      id: 'diagnostics',
+      read: deps.gateway.diagnostics,
+      write: (blob) => deps.exportFile(blob, 'mlx-studio-diagnostics.zip'),
+    })
   }
   return {
     info,
@@ -81,6 +88,8 @@ export function createRuntimeController(deps: RuntimeOverviewDependencies) {
     poll,
     restart,
     downloadDiagnostics,
+    exportPending: exporting.pending,
+    dispose: exporting.invalidate,
   }
 }
 

@@ -5,7 +5,7 @@ import {
   CapabilityPicker,
   type ExtensionSelection,
 } from '../../../capabilities/extensions'
-import { NButton, NDrawer, NDrawerContent, NSelect, useDialog, useMessage } from 'naive-ui'
+import { NButton, NDrawer, NDrawerContent, NSelect, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
@@ -26,7 +26,6 @@ const selection = ref<ExtensionSelection | undefined>()
 const store = useChatStore()
 const runtime = useRuntimeStore()
 const message = useMessage()
-const dialog = useDialog()
 const router = useRouter()
 const { state, models, selectedModelId, busy, pending, maxTokens, temperature } = storeToRefs(store)
 const drafts =
@@ -143,7 +142,6 @@ async function retryAnswer(
 }
 const phaseText = computed(() => phaseLabel(store.phase))
 const showInspector = ref(false)
-const clearing = ref(false)
 const options = computed(() =>
   models.value.map((model) => ({ label: model.displayName, value: model.id })),
 )
@@ -187,30 +185,6 @@ async function continueReply(): Promise<void> {
   } catch (error) {
     message.error(error instanceof Error ? error.message : '继续回答失败')
   }
-}
-
-function clearConversation(): void {
-  dialog.warning({
-    title: '清空当前对话',
-    content: '此操作会删除当前会话及其消息，无法恢复。',
-    positiveText: '清空对话',
-    negativeText: '取消',
-    onPositiveClick: async () => {
-      clearing.value = true
-      try {
-        await store.clearConversation()
-      } catch (error) {
-        message.error(error instanceof Error ? error.message : '清空失败')
-      } finally {
-        clearing.value = false
-      }
-    },
-  })
-}
-
-function exportChat(): void {
-  store.exportConversation()
-  message.success('对话已导出为 Markdown')
 }
 </script>
 
@@ -298,18 +272,14 @@ function exportChat(): void {
     <p v-if="drafts.error" role="alert">{{ drafts.error }}</p>
     <AttachmentPreview :preview="drafts.preview" />
     <NDrawer v-model:show="showInspector" :width="360" placement="right">
-      <NDrawerContent title="模型与会话" closable>
+      <NDrawerContent title="本次模型参数" closable>
         <ChatInspector
           v-model:max-tokens="maxTokens"
           v-model:temperature="temperature"
           :selected-model="selectedModel"
           :runtime="runtime"
-          :message-count="state.messages.length"
           :busy="busy || pending"
-          :clearing="clearing"
           @reset="store.resetParameters"
-          @clear="clearConversation"
-          @export="exportChat"
         />
       </NDrawerContent>
     </NDrawer>

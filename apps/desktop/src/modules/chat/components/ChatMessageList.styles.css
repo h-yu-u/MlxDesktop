@@ -25,10 +25,10 @@
 }
 
 .error-text {
-  color: #ffb2b2;
+  color: var(--status-error);
   font-size: 13px;
-  background: #3e252a80;
-  border: 1px solid #663c45;
+  background: color-mix(in srgb, var(--surface-hover) 50%, transparent);
+  border: 1px solid var(--border-strong);
   border-radius: 10px;
   padding: 12px 16px;
   margin: 0;

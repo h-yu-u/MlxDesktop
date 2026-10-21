@@ -2,6 +2,7 @@
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { NButton, NPopover, NSelect, NSpace, NAlert, NInput } from 'naive-ui'
 import type { ExtensionScope, ExtensionSelection } from '@mlx-studio/api-client'
+import { MediaAssetField } from '../../media'
 import { useModelDirectory } from '../../models'
 import { createCapabilitySelection } from '../configuration'
 const props = defineProps<{
@@ -23,6 +24,7 @@ const speechModels = computed(() =>
     .map((model) => ({ label: model.displayName, value: model.id })),
 )
 const media = computed(() => state.selection.value.mediaBindings ?? {})
+
 function setSpeechMode(value: 'preset' | 'clone'): void {
   media.value.speechMode = value
   if (value === 'preset') media.value.voiceId = undefined
@@ -30,6 +32,21 @@ function setSpeechMode(value: 'preset' | 'clone'): void {
 }
 const state = createCapabilitySelection(),
   open = ref(false)
+const selectionRevision = ref(0)
+watch(
+  state.selection,
+  () => {
+    selectionRevision.value++
+  },
+  { deep: true, flush: 'sync' },
+)
+watch(
+  () => media.value.imageReferenceIds?.[0],
+  (current, previous) => {
+    if (previous && current !== previous) media.value.imageMaskId = undefined
+  },
+  { flush: 'sync' },
+)
 let generation = 0
 watch(
   () => props.scope,
@@ -122,18 +139,22 @@ onUnmounted(state.dispose)
                 { label: '局部重绘', value: 'inpaint' },
               ]"
           /></label>
-          <label v-if="media.imageMode === 'edit' || media.imageMode === 'inpaint'"
-            >受管参考图 ID<NSelect
-              v-model:value="media.imageReferenceIds"
-              multiple
-              tag
-              filterable
-              :options="[]"
-              placeholder="选择已导入的参考图 ID"
-          /></label>
-          <label v-if="media.imageMode === 'inpaint'"
-            >受管遮罩 ID<NInput v-model:value="media.imageMaskId"
-          /></label>
+          <MediaAssetField
+            v-if="media.imageMode === 'edit' || media.imageMode === 'inpaint'"
+            kind="image"
+            :ids="media.imageReferenceIds ?? []"
+            :target-key="`${scope.workspace}:${scope.kind}:${scope.scopeId}:references:${selectionRevision}`"
+            :disabled="disabled"
+            @change="media.imageReferenceIds = $event"
+          />
+          <MediaAssetField
+            v-if="media.imageMode === 'inpaint'"
+            kind="mask"
+            :ids="media.imageMaskId ? [media.imageMaskId] : []"
+            :target-key="`${scope.workspace}:${scope.kind}:${scope.scopeId}:mask:${media.imageReferenceIds?.[0] ?? ''}`"
+            :disabled="disabled || !media.imageReferenceIds?.length"
+            @change="media.imageMaskId = $event[0]"
+          />
         </template>
         <template v-if="state.selection.value.toolIds.includes('builtin:speech_generate')">
           <label
@@ -151,9 +172,14 @@ onUnmounted(state.dispose)
           <label v-if="media.speechMode === 'preset'"
             >Speaker<NInput v-model:value="media.speaker" placeholder="模型支持的 speaker 名称"
           /></label>
-          <label v-else-if="media.speechMode === 'clone'"
-            >音色 ID<NInput v-model:value="media.voiceId" placeholder="语音创作音色库中的已授权 ID"
-          /></label>
+          <MediaAssetField
+            v-else-if="media.speechMode === 'clone'"
+            kind="voice"
+            :ids="media.voiceId ? [media.voiceId] : []"
+            :target-key="`${scope.workspace}:${scope.kind}:${scope.scopeId}:voice:${selectionRevision}`"
+            :disabled="disabled"
+            @change="media.voiceId = $event[0]"
+          />
         </template>
       </template>
       <small>仅支持技能指令与参考资源；脚本执行未接入。配置更新下次任务生效。</small>
@@ -162,8 +188,11 @@ onUnmounted(state.dispose)
         {{ state.preview.value.estimatedContextTokens }} tokens</small
       >
       <NSpace
-        ><NButton size="small" @click="state.saveDefault"
-          >保存为{{ scope.kind === 'project' ? '项目' : '工作区' }}默认</NButton
+        ><NButton
+          size="small"
+          :disabled="state.pending.value || !state.loaded.value"
+          @click="state.saveDefault"
+          >{{ state.defaultLabel.value }}</NButton
         ><NButton size="small" type="primary" @click="apply">应用本次选择</NButton></NSpace
       >
       <RouterLink to="/settings/extensions/skills">管理扩展能力</RouterLink>

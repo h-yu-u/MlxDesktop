@@ -122,6 +122,24 @@ class AudioApiTests(unittest.TestCase):
         artifact = history[0]
         self.assertTrue(artifact["simulated"])
         self.assertNotIn("requestDigest", artifact)
+        detail_url = f"/internal/v1/audio-artifacts/{artifact['id']}"
+        self.assertEqual(self.client.get(detail_url).status_code, 401)
+        detail = self.client.get(detail_url, headers=HEADERS)
+        self.assertEqual(detail.status_code, 200)
+        self.assertEqual(detail.json(), artifact)
+        self.assertEqual(
+            self.client.get(
+                "/internal/v1/audio-artifacts?offset=24", headers=HEADERS
+            ).json(),
+            [],
+        )
+        self.assertNotIn("relative_path", detail.json())
+        self.assertEqual(
+            self.client.get(
+                "/internal/v1/audio-artifacts/missing", headers=HEADERS
+            ).status_code,
+            404,
+        )
         url = f"/internal/v1/audio-artifacts/{artifact['id']}/content"
         self.assertEqual(self.client.get(url).status_code, 401)
         content = self.client.get(url, headers=HEADERS)
@@ -138,6 +156,7 @@ class AudioApiTests(unittest.TestCase):
             204,
         )
         self.assertEqual(self.client.get(url, headers=HEADERS).status_code, 404)
+        self.assertEqual(self.client.get(detail_url, headers=HEADERS).status_code, 404)
         self.assertEqual(
             list(
                 (self.app.state.service.store.media_path / "audio/generated").glob(
