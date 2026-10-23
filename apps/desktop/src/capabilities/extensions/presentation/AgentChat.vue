@@ -15,6 +15,7 @@ const props = defineProps<{
   text?: string
   disabled?: boolean
   standalone?: boolean
+  hideTrigger?: boolean
   initialSessionId?: string
   handoff?: AgentChatRequest['handoff']
   previewText?: string
@@ -63,7 +64,7 @@ watch(
 onUnmounted(state.dispose)
 </script>
 <template>
-  <NButton size="small" :disabled="disabled" @click="show">工具助手</NButton>
+  <NButton v-if="!hideTrigger" size="small" :disabled="disabled" @click="show">工具助手</NButton>
   <NDrawer v-model:show="open" width="min(680px, 100vw)" @update:show="!$event && emit('closed')"
     ><NDrawerContent title="聊天 · 工具助手" closable>
       <NSpace vertical>

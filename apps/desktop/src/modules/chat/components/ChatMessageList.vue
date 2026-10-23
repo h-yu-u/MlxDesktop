@@ -11,6 +11,7 @@ const props = defineProps<{
   totalCount: number
   status: ChatState['status']
   error: string | null
+  busy?: boolean
 }>()
 defineEmits<{
   prompt: [text: string]
@@ -18,6 +19,7 @@ defineEmits<{
   continue: []
   preview: [source: MessageSource]
   regenerate: [message: ChatMessage]
+  reuse: [message: ChatMessage]
   handoff: [message: ChatMessage]
   attachment: [file: NonNullable<ChatMessage['attachments']>[number]]
 }>()
@@ -54,13 +56,15 @@ watch(
     <MessageBubble
       v-for="item in messages"
       :key="item.id"
-      v-memo="[item, status === 'sending', item === messages.at(-1)]"
+      v-memo="[item, status === 'sending', busy, item === messages.at(-1)]"
       :message="item"
+      :busy="busy || status === 'sending' || status === 'loading'"
       :can-continue="status !== 'sending' && item === messages.at(-1)"
       @continue="$emit('continue')"
       @preview="$emit('preview', $event)"
       @attachment="$emit('attachment', $event)"
       @regenerate="$emit('regenerate', item)"
+      @reuse="$emit('reuse', item)"
       @handoff="$emit('handoff', item)"
     />
     <NEmpty v-if="totalCount && !messages.length" description="没有找到匹配的消息" />

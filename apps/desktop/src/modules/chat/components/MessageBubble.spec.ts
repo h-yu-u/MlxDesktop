@@ -46,8 +46,8 @@ it('explains truncation and offers continuing only when allowed', async () => {
       canContinue: true,
     },
   })
-  expect(wrapper.text()).toContain('已达到本次输出长度上限')
-  await wrapper.get('button').trigger('click')
+  expect(wrapper.find('[aria-label="继续回答"]').exists()).toBe(true)
+  await wrapper.get('[aria-label="继续回答"]').trigger('click')
   expect(wrapper.emitted('continue')).toHaveLength(1)
   await wrapper.setProps({ canContinue: false })
   expect(wrapper.findAll('button').some((button) => button.text().includes('继续'))).toBe(false)
@@ -143,5 +143,100 @@ it('keeps unresolved citation feedback when only some sources exist', () => {
     },
   })
   expect(wrapper.text()).toContain('部分引用无法定位')
+  wrapper.unmount()
+})
+
+it('places copy and regenerate in the answer toolbar without a tool-task primary action', async () => {
+  const wrapper = mount(MessageBubble, {
+    props: {
+      message: { id: 'answer', role: 'assistant', content: '**完整回答**', state: 'complete' },
+      canContinue: true,
+    },
+  })
+  const toolbar = wrapper.get('[aria-label="回答操作"]')
+  expect(wrapper.text()).not.toContain('创建工具任务')
+  await toolbar.get('[aria-label="复制回答"]').trigger('click')
+  await flushPromises()
+  expect(copyText).toHaveBeenLastCalledWith('**完整回答**')
+  expect(toolbar.find('[aria-label="已复制"]').exists()).toBe(true)
+  await toolbar.get('[aria-label="重新生成"]').trigger('click')
+  expect(wrapper.emitted('regenerate')).toHaveLength(1)
+  await wrapper.setProps({ busy: true })
+  expect(toolbar.get('[aria-label="重新生成"]').attributes('disabled')).toBeDefined()
+  wrapper.unmount()
+})
+
+it('keeps streaming and user messages free of answer actions', () => {
+  for (const message of [
+    { id: 'user', role: 'user' as const, content: 'hello' },
+    { id: 'stream', role: 'assistant' as const, content: 'partial', state: 'streaming' as const },
+  ]) {
+    const wrapper = mount(MessageBubble, { props: { message } })
+    expect(wrapper.find('[aria-label="回答操作"]').exists()).toBe(false)
+    wrapper.unmount()
+  }
+})
+
+it('distinguishes publication and retrieval dates for web sources', () => {
+  const wrapper = mount(MessageBubble, {
+    props: {
+      message: {
+        id: 'web',
+        role: 'assistant',
+        content: 'answer',
+        sources: [
+          {
+            id: 'w1',
+            kind: 'web',
+            title: 'Old article',
+            url: 'https://example.com',
+            publishedAt: '2025-07-27',
+            retrievedAt: '2026-10-23T15:16:42Z',
+            representation: 'snippet_only',
+            contentHash: '',
+          },
+        ],
+      },
+    },
+  })
+  expect(wrapper.text()).toContain('发布/更新 2025/07/27')
+  expect(wrapper.text()).toContain('检索 2026/10/23')
+  expect(wrapper.text()).not.toContain('T15:16:42Z')
+  wrapper.unmount()
+})
+
+it('locates inline citations without changing the hash route or opening another conversation', async () => {
+  const wrapper = mount(MessageBubble, {
+    attachTo: document.body,
+    props: {
+      message: {
+        id: 'answer-with-source',
+        role: 'assistant',
+        content: '证据 [[cite:w1]]',
+        sources: [
+          {
+            id: 'w1',
+            kind: 'web',
+            title: 'Source',
+            url: 'https://example.com/article',
+            retrievedAt: '2026-10-23',
+            representation: 'snippet_only',
+            contentHash: '',
+          },
+        ],
+      },
+    },
+  })
+  const target = wrapper.get('[data-source-id="w1"]').element as HTMLElement
+  const scroll = vi.fn()
+  target.scrollIntoView = scroll
+  const hash = window.location.hash
+  const click = new MouseEvent('click', { bubbles: true, cancelable: true })
+  wrapper.get('a.citation').element.dispatchEvent(click)
+  await flushPromises()
+  expect(click.defaultPrevented).toBe(true)
+  expect(window.location.hash).toBe(hash)
+  expect(scroll).toHaveBeenCalledOnce()
+  expect(document.activeElement).toBe(target)
   wrapper.unmount()
 })

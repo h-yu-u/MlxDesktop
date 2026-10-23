@@ -107,6 +107,17 @@ class WebRetrievalTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.provider.reads, [])
         self.assertEqual(self.secrets.resolves, 0)
 
+    async def test_plain_chat_never_resolves_or_checks_extension_defaults(self):
+        with patch.object(
+            self.service.extensions.coding, "call", new_callable=AsyncMock
+        ) as call:
+            call.side_effect = AssertionError(
+                "Plain chat must not load tools or skills"
+            )
+            job = await self.finish(await self.send("Hello"))
+            self.assertEqual(job["state"], "succeeded")
+            call.assert_not_awaited()
+
     async def test_transport_retry_after_config_change_returns_original_real_state(
         self,
     ):

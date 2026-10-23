@@ -1,12 +1,14 @@
 """Tavily Search/Extract. Response size is bounded and per-result failures are respected."""
 
 import json
+from datetime import datetime
 from typing import Any
 
 import httpx
 
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.web import PageRead, SearchHit, WebConfig
+from mlx_studio_runtime.domain.web_freshness import freshness_window, search_query
 
 
 class Tavily:
@@ -43,12 +45,19 @@ class Tavily:
             ) from error
 
     async def search(self, query: str, config: WebConfig, credential: str) -> list[SearchHit]:
+        window = freshness_window(query, datetime.now().astimezone())
         data = await self._post(
             "search",
             config,
             credential,
             {
-                "query": query,
+                "query": search_query(query, window),
+                "include_published_date": True,
+                **(
+                    {"time_range": window.time_range, "filter_by_published_date": True}
+                    if window
+                    else {}
+                ),
                 "include_answer": False,
                 "include_raw_content": False,
                 "include_images": False,

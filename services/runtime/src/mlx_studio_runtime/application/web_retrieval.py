@@ -14,6 +14,7 @@ from mlx_studio_runtime.application.web_ports import (
 )
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.web import PageRead, SearchHit, WebConfig, public_result_url
+from mlx_studio_runtime.domain.web_freshness import fresh_hit, freshness_window
 
 
 class WebRetrieval:
@@ -39,31 +40,25 @@ class WebRetrieval:
             async with asyncio.timeout(config.timeout_seconds), self.semaphore:
                 credential = await asyncio.to_thread(self.secrets.resolve, config.secret_ref)
                 await phase("searching")
+                now = datetime.now().astimezone()
+                window = freshness_window(query, now)
                 hits = await self.search.search(query, config, credential)
-                selected = self._select_results(hits)
+                selected = self._select_results(
+                    [hit for hit in hits if fresh_hit(hit, window, now)]
+                )
+                if window and not selected:
+                    raise RuntimeFault(
+                        RuntimeErrorInfo(
+                            "WEB_FRESHNESS_UNVERIFIED",
+                            f"未找到 {window.label} 可核实日期的资料，请更换关键词或稍后重试。"
+                            "不会使用旧网页冒充当前信息。",
+                            True,
+                        )
+                    )
                 read_urls = [url for _, url in selected if await self.policy.allowed(url)]
                 await phase("reading_sources")
                 reads = await self._read(read_urls, config, credential)
-                by_url = {item.url: item.text for item in reads}
-                sources: list[dict[str, Any]] = []
-                retrieved_at = datetime.now(UTC).isoformat()
-                for hit, url in selected:
-                    text = by_url.get(url) or hit.snippet
-                    if not text.strip():
-                        continue
-                    sources.append(
-                        {
-                            "id": f"w{len(sources) + 1}",
-                            "kind": "web",
-                            "title": hit.title,
-                            "url": url,
-                            "retrievedAt": retrieved_at,
-                            "publishedAt": hit.published_at,
-                            "representation": "page_excerpt" if url in by_url else "snippet_only",
-                            "contentHash": hashlib.sha256(text.encode()).hexdigest(),
-                            "text": text,
-                        }
-                    )
+                sources = self._sources(selected, reads, datetime.now(UTC).isoformat())
                 if not sources:
                     raise RuntimeFault(
                         RuntimeErrorInfo(
@@ -82,6 +77,31 @@ class WebRetrieval:
             raise RuntimeFault(
                 RuntimeErrorInfo("WEB_SEARCH_TIMEOUT", "联网检索超过总时限", True)
             ) from error
+
+    @staticmethod
+    def _sources(
+        selected: list[tuple[SearchHit, str]], reads: list[PageRead], retrieved_at: str
+    ) -> list[dict[str, Any]]:
+        by_url = {item.url: item.text for item in reads}
+        sources: list[dict[str, Any]] = []
+        for hit, url in selected:
+            text = by_url.get(url) or hit.snippet
+            if not text.strip():
+                continue
+            sources.append(
+                {
+                    "id": f"w{len(sources) + 1}",
+                    "kind": "web",
+                    "title": hit.title,
+                    "url": url,
+                    "retrievedAt": retrieved_at,
+                    "publishedAt": hit.published_at,
+                    "representation": "page_excerpt" if url in by_url else "snippet_only",
+                    "contentHash": hashlib.sha256(text.encode()).hexdigest(),
+                    "text": text,
+                }
+            )
+        return sources
 
     @staticmethod
     def _select_results(hits: list[SearchHit]) -> list[tuple[SearchHit, str]]:

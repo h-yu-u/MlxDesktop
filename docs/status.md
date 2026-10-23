@@ -2,7 +2,7 @@
 
 [文档入口](./README.md) · [使用说明](./getting-started.md) · [架构](./architecture.md)
 
-本文根据当前实现与 2026-10-15 至 2026-10-22 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
+本文根据当前实现与 2026-10-15 至 2026-10-23 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
 
 ## 已有实现
 
@@ -62,6 +62,10 @@
 - 回归：`tests/test_inference_reliability.py`、`test_context_compaction.py`、`test_history_revisions.py`、`test_load_cancellation.py`、`test_download_lifecycle.py`、`test_data_recovery.py`，Node `tests/reliability.test.mjs` 及前端 readiness/媒体缓存测试。
 
 隔离数据和界面证据位于忽略目录 `.build/optimization-validation/`，未操作正式会话数据库。下列内容仍未由本轮验证：真实 MLX 模型的新预算/压缩/工具解析和流式故障路径、实际 HF 网络断点恢复、大容量备份压力测试、原生备份保存对话框端到端、强化 Sidecar 打包、签名公证、干净机器及长期内存稳定性。下文的真实模型记录是此前的具体环境结果，不能视为本次变更已复验。
+
+2026-10-23 对话操作收敛为回答下方的复制、重新生成、继续回答（仅截断时）与更多菜单。普通输入框移除工具/技能选择，普通请求不读取默认扩展绑定；工具助手在明确选择转交后才加载。联网重新生成默认重新检索，复用相同资料放在更多菜单中。来源显示发布/更新与检索日期；时效性检索带日期条件，并在 Runtime 复核，旧/无日期/未来日期来源不会充作今日信息。模型上下文接收本地当前时间及来源日期。真实已保存配置只读检索取得 3 条符合本地当日日期的摘要，正文仍未验证；隔离浏览器验证了回答操作、按需工具界面和仅有旧资料时的拦截提示。没有新增依赖；Python 后端修改需重启开发应用生效。 本轮 `pnpm check`、`pnpm test`（前端 241、Runtime 200、Coding Host 53、验收工具 8，共 502 项）和 `pnpm build:web` 通过，构建保留已有大 chunk 提示。界面证据位于忽略目录 `.build/optimization-validation/evidence/chat-answer-toolbar.png` 与 `chat-freshness-guard.png`。
+
+2026-10-23 参考来源点击修复：新增受限外链桥接，网页来源与正文网页链接在系统浏览器打开；引用编号在消息内部滚动、聚焦来源，阻止锚点改写 Hash 路由。打开错误可见且支持重试，没有新增依赖或放开通用 Shell 权限。`pnpm check`、`pnpm test`（前端 261、Runtime 200、Coding Host 53、验收工具 8，共 522 项）、`pnpm build:web`、Rust fmt/clippy 和 7 项 Rust 测试通过。浏览器和独立数据的 macOS 桌面应用均完成点击验证，桌面端实际唤起系统 Chrome 显示来源页；证据位于忽略目录 `.build/optimization-validation/evidence/source-native-citation.png` 与 `source-native-browser-opened.png`。该变更需重新编译桌面壳，不能仅刷新页面。
 
 ## 真实模型验证
 

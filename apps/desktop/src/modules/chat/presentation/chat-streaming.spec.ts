@@ -49,6 +49,19 @@ function setup() {
   return { controller, gateway, release, receive: (event: RuntimeEvent) => receive(event) }
 }
 afterEach(() => vi.useRealTimers())
+it('explains that dated evidence is unavailable instead of showing a generic generation error', async () => {
+  const { controller, receive } = setup()
+  await controller.send('今日热点')
+  receive({
+    type: 'job.failed',
+    seq: 1,
+    payload: { job_id: 'job', error_code: 'WEB_FRESHNESS_UNVERIFIED' },
+  })
+  expect(controller.state.value.errorCode).toBe('WEB_FRESHNESS_UNVERIFIED')
+  expect(controller.state.value.error).toContain('不会使用旧网页作为今日信息')
+  expect(controller.state.value.status).toBe('error')
+  controller.dispose()
+})
 it('ignores duplicate deltas and replaces text from a snapshot when a revision is skipped', async () => {
   const { controller, gateway, receive } = setup()
   gateway.job.mockResolvedValue({

@@ -2,6 +2,7 @@
 import { computed, ref, watch } from 'vue'
 import { refThrottled } from '@vueuse/core'
 import { renderMarkdown } from '../lib/render-markdown'
+import { openWebUrl } from '../../platform/external-links'
 import type { CodeCopyIntent, CodeCopyState } from './markdown-copy'
 const props = withDefaults(
   defineProps<{
@@ -15,6 +16,7 @@ const props = withDefaults(
   { codeCopy: true, citations: undefined, copyState: undefined },
 )
 const emit = defineEmits<{ copyCode: [intent: CodeCopyIntent]; openCitation: [id: string] }>()
+const linkError = ref('')
 const source = computed(() => ({ contentId: props.contentId, text: props.source })),
   throttled = refThrottled(source, 100),
   body = ref<HTMLElement | null>(null)
@@ -70,10 +72,20 @@ function click(event: MouseEvent): void {
   if (!(event.target instanceof Element)) return
   const citation = event.target.closest<HTMLAnchorElement>('a.citation')
   if (citation) {
+    event.preventDefault()
     const id = Object.entries(props.citations ?? {}).find(
       ([, href]) => href === citation.getAttribute('href'),
     )?.[0]
     if (id) emit('openCitation', id)
+    return
+  }
+  const link = event.target.closest<HTMLAnchorElement>('a[href]')
+  if (link) {
+    event.preventDefault()
+    linkError.value = ''
+    void openWebUrl(link.getAttribute('href') ?? '').catch((cause: unknown) => {
+      linkError.value = cause instanceof Error ? cause.message : '无法打开链接，请重试'
+    })
     return
   }
   const button = event.target.closest<HTMLButtonElement>('.code-copy')
@@ -95,6 +107,7 @@ function click(event: MouseEvent): void {
     <!-- renderMarkdown disables raw HTML and sanitizes the generated markup. -->
     <!-- eslint-disable-next-line vue/no-v-html -->
     <div ref="body" v-html="html" />
+    <p v-if="linkError" role="alert">{{ linkError }}</p>
     <p v-if="html.includes('<span class=&quot;citation-unresolved&quot;>')" role="status">
       部分引用无法定位。
     </p>

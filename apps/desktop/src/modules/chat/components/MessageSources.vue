@@ -1,33 +1,67 @@
 <script setup lang="ts">
 import { NButton } from 'naive-ui'
+import { ref } from 'vue'
+import { externalWebUrl, openWebUrl } from '../../../platform/external-links'
 import type { MessageSource } from '../domain/message-source'
 defineProps<{ sources: readonly MessageSource[]; prefix: string }>()
 defineEmits<{ preview: [source: MessageSource] }>()
-function safeUrl(url: string): string | undefined {
+const list = ref<HTMLElement | null>(null)
+const linkError = ref('')
+function reveal(id: string): void {
+  const item = [...(list.value?.querySelectorAll<HTMLElement>('[data-source-id]') ?? [])].find(
+    (node) => node.dataset.sourceId === id,
+  )
+  if (!item) return
+  item.scrollIntoView({ block: 'nearest' })
+  item.focus({ preventScroll: true })
+}
+async function open(url: string): Promise<void> {
+  linkError.value = ''
   try {
-    const parsed = new URL(url)
-    return ['https:', 'http:'].includes(parsed.protocol) && !parsed.username && !parsed.password
-      ? parsed.href
-      : undefined
-  } catch {
-    return undefined
+    await openWebUrl(url)
+  } catch (cause) {
+    linkError.value = cause instanceof Error ? cause.message : '无法打开来源链接，请重试'
   }
+}
+defineExpose({ reveal })
+function sourceTime(value?: string | null): string {
+  if (!value) return '未提供'
+  const date = new Date(value)
+  if (!Number.isFinite(date.getTime())) return '未提供'
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) return value.replaceAll('-', '/')
+  return new Intl.DateTimeFormat('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    ...(value.length > 10 ? { hour: '2-digit', minute: '2-digit', hour12: false } : {}),
+  }).format(date)
 }
 </script>
 <template>
   <aside v-if="sources.length" class="message-sources" aria-label="参考来源">
     <strong>参考来源</strong>
-    <ul>
-      <li v-for="source in sources" :id="`${prefix}${source.id}`" :key="source.id">
+    <ul ref="list">
+      <li
+        v-for="source in sources"
+        :id="`${prefix}${source.id}`"
+        :key="source.id"
+        :data-source-id="source.id"
+        tabindex="-1"
+      >
         <template v-if="source.kind === 'web'">
-          <a :href="safeUrl(source.url)" target="_blank" rel="noopener noreferrer"
+          <a
+            :href="externalWebUrl(source.url)"
+            target="_blank"
+            rel="noopener noreferrer"
+            @click.prevent="open(source.url)"
             >[{{ source.id }}] {{ source.title }}</a
           >
           <small
             >{{
               source.representation === 'snippet_only' ? '仅搜索摘要 · 未读取全文' : '网页摘录'
             }}
-            · 检索于 {{ source.retrievedAt }}</small
+            · 发布/更新 {{ sourceTime(source.publishedAt) }} · 检索
+            {{ sourceTime(source.retrievedAt) }}</small
           >
         </template>
         <template v-else>
@@ -48,6 +82,7 @@ function safeUrl(url: string): string | undefined {
         </template>
       </li>
     </ul>
+    <p v-if="linkError" role="alert">{{ linkError }}</p>
   </aside>
 </template>
 <style scoped>
@@ -67,6 +102,14 @@ li {
   display: grid;
   gap: 4px;
   overflow-wrap: anywhere;
+}
+li:focus {
+  outline: 1px solid var(--accent);
+  outline-offset: 4px;
+  border-radius: 4px;
+}
+p[role='alert'] {
+  color: var(--status-error);
 }
 small {
   color: var(--muted);

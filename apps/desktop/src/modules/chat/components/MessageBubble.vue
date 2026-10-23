@@ -1,21 +1,24 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { NButton } from 'naive-ui'
 import MarkdownContent from '../../../shared/ui/MarkdownContent.vue'
 import { useMarkdownCopy } from '../../../shared/ui/markdown-copy'
 import { copyText } from '../../../platform/clipboard'
 import type { ChatMessage } from '../domain/chat-state'
 import MessageSources from './MessageSources.vue'
+import MessageActions from './MessageActions.vue'
 import type { MessageSource } from '../domain/message-source'
 
-const props = defineProps<{ message: ChatMessage; canContinue?: boolean }>()
+const props = defineProps<{ message: ChatMessage; canContinue?: boolean; busy?: boolean }>()
 defineEmits<{
   continue: []
   preview: [source: MessageSource]
   regenerate: []
+  reuse: []
   handoff: []
   attachment: [file: NonNullable<ChatMessage['attachments']>[number]]
 }>()
+const sourceList = ref<InstanceType<typeof MessageSources> | null>(null)
 const prefix = computed(() => `source-${encodeURIComponent(props.message.id)}-`)
 const sourceMap = computed(() => props.message.sources)
 const citations = computed(() =>
@@ -46,31 +49,27 @@ const { copyState, copyCode } = useMarkdownCopy(copyText)
       :citations="citations"
       :copy-state="copyState"
       @copy-code="copyCode"
+      @open-citation="sourceList?.reveal($event)"
     />
     <p v-if="message.parameters?.attemptMode === 'local_only'" class="message-limit">
       未进行新的联网检索。
     </p>
     <MessageSources
+      ref="sourceList"
       :sources="message.sources ?? []"
       :prefix="prefix"
       @preview="$emit('preview', $event)"
     />
-    <NButton
-      v-if="message.role === 'assistant' && message.parameters?.contextJobId && canContinue"
-      text
-      size="small"
-      @click="$emit('regenerate')"
-      >使用相同资料重新生成</NButton
-    >
-    <div v-if="message.finishReason === 'length'" class="message-limit">
-      <span>已达到本次输出长度上限，回答可能尚未完成。</span>
-      <NButton v-if="canContinue" secondary size="small" @click="$emit('continue')">
-        继续回答
-      </NButton>
-    </div>
-    <NButton v-if="message.state !== 'streaming'" text size="tiny" @click="$emit('handoff')"
-      >创建工具任务</NButton
-    >
+    <MessageActions
+      v-if="message.role === 'assistant' && message.state !== 'streaming' && message.content"
+      :message="message"
+      :latest="canContinue"
+      :busy="busy"
+      @regenerate="$emit('regenerate')"
+      @reuse="$emit('reuse')"
+      @continue="$emit('continue')"
+      @handoff="$emit('handoff')"
+    />
   </article>
 </template>
 

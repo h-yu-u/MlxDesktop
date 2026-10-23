@@ -1,14 +1,10 @@
 <script setup lang="ts">
 import { createChatHandoff } from '../presentation/chat-handoff'
 import { phaseLabel } from '../domain/phase-label'
-import {
-  AgentChat,
-  CapabilityPicker,
-  type ExtensionSelection,
-} from '../../../capabilities/extensions'
+import { regenerationMode } from '../domain/answer-attempt'
 import { NButton, NDrawer, NDrawerContent, NSelect, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
-import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
+import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { RuntimeStatusBanner as RuntimeStatus } from '../../../capabilities/runtime'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
@@ -22,7 +18,9 @@ import ChatInspector from '../components/ChatInspector.vue'
 import ChatMessageList from '../components/ChatMessageList.vue'
 import { useRuntimeStore } from '../../../capabilities/runtime'
 import { useChatStore } from '../stores/chat.store'
-const selection = ref<ExtensionSelection>({ skillIds: [], toolIds: [] })
+const AgentChat = defineAsyncComponent(() =>
+  import('../../../capabilities/extensions').then((module) => module.AgentChat),
+)
 const store = useChatStore()
 const runtime = useRuntimeStore()
 const message = useMessage()
@@ -127,7 +125,7 @@ async function openAttachment(
   )
 }
 async function retryAnswer(
-  mode: 'refresh_web' | 'local_only',
+  mode: 'regenerate' | 'refresh_web' | 'local_only' | 'reuse_context',
   assistant?: ChatMessage,
 ): Promise<void> {
   const user = [...state.value.messages]
@@ -139,7 +137,7 @@ async function retryAnswer(
   try {
     await store.attempt(
       user.id,
-      assistant ? 'reuse_context' : mode,
+      mode === 'regenerate' ? regenerationMode(assistant) : mode,
       typeof assistant?.parameters?.contextJobId === 'string'
         ? assistant.parameters.contextJobId
         : undefined,
@@ -175,7 +173,7 @@ onBeforeUnmount(() => store.dispose())
 async function send(): Promise<void> {
   if (!eligibility.value.allowed) return
   try {
-    await store.send(draft.value, [], selection.value)
+    await store.send(draft.value, [], { skillIds: [], toolIds: [] })
   } catch (error) {
     message.error(error instanceof Error ? error.message : '发送失败')
   }
@@ -221,12 +219,14 @@ async function continueReply(): Promise<void> {
         :total-count="state.messages.length"
         :status="state.status"
         :error="state.error"
+        :busy="busy || pending"
         @prompt="draft = $event"
         @image="router.push({ path: '/image-studio', query: { prompt: $event } })"
         @continue="continueReply"
         @preview="openSource"
         @attachment="openAttachment"
-        @regenerate="retryAnswer('local_only', $event)"
+        @regenerate="retryAnswer('regenerate', $event)"
+        @reuse="retryAnswer('reuse_context', $event)"
         @handoff="handoff.choose"
       />
       <p v-if="busy" role="status">{{ phaseText }}</p>
@@ -270,18 +270,6 @@ async function continueReply(): Promise<void> {
         @submit="send"
         @cancel="cancel"
       >
-        <template #capabilities
-          ><AgentChat
-            :text="draft"
-            :disabled="busy || pending"
-            :handoff="handoff.selected.value?.request"
-            :preview-text="handoff.selected.value?.preview"
-            @closed="handoff.selected.value = null" />
-          <CapabilityPicker
-            :scope="{ workspace: 'chat', kind: 'workspace', scopeId: 'default' }"
-            :disabled="busy || pending"
-            @change="selection = $event"
-        /></template>
         <template #model>
           <div class="composer-model">
             <span class="model-status-dot" :class="{ 'model-status-offline': !models.length }" />
@@ -302,6 +290,14 @@ async function continueReply(): Promise<void> {
     </section>
     <p v-if="drafts.error" role="alert">{{ drafts.error }}</p>
     <AttachmentPreview :preview="drafts.preview" />
+    <AgentChat
+      v-if="handoff.selected.value"
+      standalone
+      hide-trigger
+      :handoff="handoff.selected.value.request"
+      :preview-text="handoff.selected.value.preview"
+      @closed="handoff.selected.value = null"
+    />
     <NDrawer v-model:show="showInspector" :width="360" placement="right">
       <NDrawerContent title="本次模型参数" closable>
         <ChatInspector

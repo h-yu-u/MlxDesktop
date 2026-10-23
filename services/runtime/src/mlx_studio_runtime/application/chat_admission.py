@@ -87,7 +87,7 @@ class ChatAdmission:
         if self.preparation.extensions and "skillContext" not in accepted:
             skill_context = await self.preparation.extensions.text_skills(
                 {"workspace": "chat", "kind": "workspace", "scopeId": "default"},
-                intent.get("extension_selection"),
+                intent.get("extension_selection") or {"skillIds": [], "toolIds": []},
             )
             accepted = {**accepted, "skillContext": skill_context}
         accepted = bind_turn_references(accepted, turn_id)

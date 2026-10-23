@@ -3,6 +3,7 @@ import { decodeSource, type Conversation, type RuntimeEvent } from '@mlx-studio/
 import type { ChatGateway } from '../application/ports'
 import { reduceChatState, type ChatState } from '../domain/chat-state'
 import { createDeltaBuffer } from './delta-buffer'
+import { chatError } from '../domain/chat-error'
 
 export interface ChatStreamDependencies {
   gateway: ChatGateway
@@ -120,7 +121,7 @@ export function createChatStream(deps: ChatStreamDependencies) {
             ? {
                 type: 'generation.failed' as const,
                 code: String(event.payload.error_code ?? 'INFERENCE_FAILED'),
-                message: `生成失败${event.payload.error_code ? `（${event.payload.error_code}）` : ''}`,
+                message: chatError(event.payload.error_code),
               }
             : undefined
     if (!terminal) return

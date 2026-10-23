@@ -1,5 +1,6 @@
 """Freeze attachment versions at admission; prepare evidence before taking the model lease."""
 
+from datetime import datetime
 from typing import Any
 
 from mlx_studio_runtime.application.attachments import Attachments
@@ -151,13 +152,14 @@ class ChatPreparation:
             model.context_length,
             int(request["maxTokens"]),
             len(accepted["visuals"]),
+            current_time=datetime.now().astimezone().isoformat(timespec="seconds"),
         )
         if request.get("operation") == "local_only":
             snapshot["messages"][0]["content"] += (
                 "本次未进行新的联网检索，仅使用本地资料和已有文字历史。"
             )
         skill_context = accepted.get("skillContext")
-        if skill_context and self.extensions:
+        if skill_context and skill_context["loaded"] and self.extensions:
             await self.extensions.validate_text(skill_context["snapshot"])
             bodies = "\n\n".join(item["body"] for item in skill_context["loaded"])
             snapshot["messages"][0]["content"] += (
