@@ -47,6 +47,20 @@ export function createSelectionController(gateway: ExtensionsGateway) {
         }) ?? [])
       : [],
   )
+  const serverStates = computed(() =>
+    (catalog.value?.servers ?? []).map((server) => ({
+      id: server.id,
+      name: server.name,
+      enabled: server.enabled,
+      selected: tools.value.filter(
+        (tool) => selection.value.toolIds.includes(tool.id) && tool.serverId === server.id,
+      ).length,
+      tested:
+        catalog.value?.inventories.some(
+          (item) => item.serverId === server.id && item.configRevision === server.revision,
+        ) ?? false,
+    })),
+  )
   async function load(value: ExtensionScope): Promise<void> {
     const owner = ++epoch
     scope = { ...value }
@@ -104,6 +118,7 @@ export function createSelectionController(gateway: ExtensionsGateway) {
   }
   return {
     catalog,
+    serverStates,
     defaultLabel,
     loaded,
     selection,

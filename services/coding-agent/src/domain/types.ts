@@ -27,9 +27,23 @@ export interface Session {
   title: string
   pinned: boolean
   archived: boolean
+  transcript?: TranscriptDescriptor
   piPath: string | null
 }
+export interface VerificationPlan {
+  digest: string
+  commands: string[]
+  cwd: string
+  manifestDigest: string
+  repairLimit: number
+  timeoutMs: number
+  scope: string
+  invalid?: boolean
+}
 export interface Run {
+  verifyAfter?: boolean
+  handoff?: Record<string, unknown>
+  verificationPlan?: VerificationPlan
   capabilitySnapshot?: Snapshot
   selection?: Selection
   id: string
@@ -72,6 +86,7 @@ export interface Change {
   state: 'pending' | 'written'
 }
 export interface Verification {
+  planDigest?: string
   purpose?: 'command' | 'verification'
   id: string
   runId: string
@@ -103,9 +118,11 @@ export interface Capability {
 export interface AgentSession {
   id: string
   title: string
+  transcript?: TranscriptDescriptor
   piPath: string | null
 }
 export interface Entities {
+  instructions: { id: string; path: string; digest: string; content: string; scope: string }
   agentSession: AgentSession
   settings: Settings
   project: Project
@@ -138,4 +155,14 @@ export function mode(value: unknown): Mode {
   if (value !== 'analyze' && value !== 'develop' && value !== 'review')
     throw new Error('INVALID_MODE')
   return value
+}
+
+export interface TranscriptDescriptor {
+  sourceCwd?: string
+  restoredCwd?: string
+  productSessionId: string
+  piSessionId: string
+  path: string
+  state: 'allocated' | 'materialized'
+  lastKnownEntryId: string | null
 }

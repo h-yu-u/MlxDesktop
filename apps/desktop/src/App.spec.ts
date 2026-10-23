@@ -30,7 +30,7 @@ async function render(path: string) {
   const wrapper = mount(App, {
     global: {
       plugins: [createPinia(), router],
-      stubs: { RuntimeStatusBanner: true },
+      stubs: { RuntimeStatusBanner: true, TaskCenter: true },
     },
   })
   await flushPromises()

@@ -1,7 +1,9 @@
+import { deriveTaskReadiness } from '../../models'
 import { computed, ref, type Ref } from 'vue'
 import {
   RuntimeError,
   type AgentChatSnapshot,
+  type AgentChatRequest,
   type AgentSession,
   type ExtensionSelection,
   type ModelSummary,
@@ -14,9 +16,12 @@ import {
   type AgentDraftMemory,
   type PendingAgentSubmission,
 } from './agent-draft-memory'
+import { projectAgentEvent } from './agent-observer'
 import { extensionError } from './errors'
 interface Dependencies {
-  gateway: ReturnType<typeof agentChatEndpoints>
+  runtimeAvailable?(): boolean
+  gateway: Omit<ReturnType<typeof agentChatEndpoints>, 'events'> &
+    Partial<Pick<ReturnType<typeof agentChatEndpoints>, 'events'>>
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
   verifyModel(id: string): Promise<unknown>
@@ -59,6 +64,7 @@ export function createAgentController(deps: Dependencies) {
   let epoch = 0,
     disposed = false,
     watching: number | undefined
+  let observation = new AbortController()
   const requests = new Set<symbol>()
   async function guard<T>(action: () => Promise<T>): Promise<T | undefined> {
     const owner = epoch,
@@ -88,9 +94,10 @@ export function createAgentController(deps: Dependencies) {
     watching = owner
     try {
       while (owner === epoch && !disposed) {
-        await refresh()
-        if (!active.value) break
-        await new Promise((resolve) => setTimeout(resolve, 350))
+        if (!deps.gateway.events) break
+        const batch = await deps.gateway.events(snapshot.value?.watermark ?? 0, observation.signal)
+        if (owner !== epoch || disposed || !snapshot.value) return
+        for (const event of batch.events) snapshot.value = projectAgentEvent(snapshot.value, event)
       }
     } catch (cause) {
       if (owner === epoch && !disposed) error.value = `状态同步中断：${extensionError(cause)}`
@@ -173,7 +180,19 @@ export function createAgentController(deps: Dependencies) {
       return { kind: 'failed', acceptance: 'not-accepted', message }
     }
   }
-  async function send(selection: ExtensionSelection): Promise<SubmitOutcome> {
+  async function send(
+    selection: ExtensionSelection,
+    handoff?: AgentChatRequest['handoff'],
+  ): Promise<SubmitOutcome> {
+    if (
+      !deriveTaskReadiness(
+        deps.models.value.find((model) => model.id === modelId.value),
+        { available: deps.runtimeAvailable?.() ?? true },
+        { output: 'text', tools: true },
+        { allowTrial: true },
+      ).submitAllowed
+    )
+      return { kind: 'blocked', reason: '请选择兼容的本地模型' }
     if (active.value || pending.value || !text.value.trim() || !modelId.value)
       return { kind: 'blocked', reason: '请选择模型并等待当前任务结束' }
     const initialTarget = sessionId.value,
@@ -195,6 +214,7 @@ export function createAgentController(deps: Dependencies) {
         modelId: selectedModel,
         mode: 'develop' as const,
         selection: selected,
+        ...(handoff ? { handoff } : {}),
       }
       const ticket: PendingAgentSubmission = {
         targetSessionId: target,
@@ -241,6 +261,7 @@ export function createAgentController(deps: Dependencies) {
       if (ticket && ticket.state === 'unknown' && !pending.value) await guard(() => commit(ticket))
     },
     async load() {
+      if (observation.signal.aborted) observation = new AbortController()
       disposed = false
       await guard(async () => {
         const owner = epoch
@@ -261,6 +282,8 @@ export function createAgentController(deps: Dependencies) {
       })
     },
     async open(id: string) {
+      observation.abort()
+      observation = new AbortController()
       epoch++
       disposed = false
       if (!sessionId.value && memory.drafts.get(memory.unboundKey).text)
@@ -305,6 +328,7 @@ export function createAgentController(deps: Dependencies) {
       })
     },
     dispose() {
+      observation.abort()
       epoch++
       disposed = true
       watching = undefined

@@ -6,7 +6,7 @@ import json
 import secrets
 import time
 import uuid
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -234,7 +234,12 @@ class CapabilityGrants:
         except ValueError as error:
             raise fault(str(error)) from error
 
-    async def complete(self, authorization: str, request: dict[str, Any]) -> dict[str, Any]:
+    async def complete(
+        self,
+        authorization: str,
+        request: dict[str, Any],
+        on_event: Callable[[dict[str, Any]], Awaitable[None]] | None = None,
+    ) -> dict[str, Any]:
         grant = self.get(authorization)
         async with grant.lock:
             self._check(grant)
@@ -256,7 +261,7 @@ class CapabilityGrants:
             invocation = "text-" + uuid.uuid4().hex
             self._reserve(grant.run_id, invocation, "inference", "text", {})
             prepared = await self.inference.admit(
-                request, lambda job: self.ledger.bind(grant.run_id, invocation, job.id)
+                request, lambda job: self.ledger.bind(grant.run_id, invocation, job.id), on_event
             )
         result = await self.inference.wait(prepared)
         self._check(grant)

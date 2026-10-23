@@ -18,6 +18,9 @@ class RuntimeSnapshot:
     job_states: tuple[str, ...]
     event_sequence: int
     instance_id: str
+    worker_epoch: int = 0
+    worker_phase: str = "stopped"
+    loading_model_id: str | None = None
 
 
 class DiagnosticEnvironment(Protocol):
@@ -50,6 +53,9 @@ class RuntimeOverview:
             active_model_id=snapshot.active_model_id,
             event_sequence=snapshot.event_sequence,
             instance_id=snapshot.instance_id,
+            worker_epoch=snapshot.worker_epoch,
+            worker_phase=snapshot.worker_phase,
+            loading_model_id=snapshot.loading_model_id,
         )
 
     def metrics(self) -> dict[str, object]:

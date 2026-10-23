@@ -1,5 +1,6 @@
 mod commands;
 mod runtime;
+use commands::backup::export_backup;
 use commands::export::export_blob;
 use commands::runtime::{restart_runtime_process, runtime_connection};
 use runtime::state::RuntimeProcess;
@@ -23,6 +24,7 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             export_blob,
+            export_backup,
             runtime_connection,
             restart_runtime_process,
         ])

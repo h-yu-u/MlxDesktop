@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { codingLimits } from '@mlx-studio/api-client'
 import { onMounted } from 'vue'
 import { NAlert, NCard, NFormItem, NInputNumber, NSelect } from 'naive-ui'
 import FormActionBar from '../../../shared/ui/FormActionBar.vue'
@@ -22,7 +23,7 @@ onMounted(() => {
       ><NInputNumber
         v-model:value="coding.draft.contextBudget"
         :min="4096"
-        :max="32768"
+        :max="codingLimits.contextBudget.maximum"
         :step="4096"
         :disabled="coding.pending"
         aria-label="Coding 上下文预算"
@@ -31,7 +32,7 @@ onMounted(() => {
       ><NInputNumber
         v-model:value="coding.draft.maxRepairRounds"
         :min="0"
-        :max="3"
+        :max="codingLimits.maxRepairRounds.maximum"
         :disabled="coding.pending"
         aria-label="最多自动修复轮数"
     /></NFormItem>

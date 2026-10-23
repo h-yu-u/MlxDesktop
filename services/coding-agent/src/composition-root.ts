@@ -1,3 +1,6 @@
+import { verificationManifest } from './adapters/verification-manifest.js'
+import { restoreData } from './adapters/data-restore.js'
+import { exportData } from './adapters/data-export.js'
 import { fileURLToPath } from 'node:url'
 import { AgentChat } from './application/agent-chat.js'
 import { activateCapability, closeCapability } from './adapters/extensions/capability-client.js'
@@ -12,7 +15,7 @@ import { CapabilityVerifier } from './application/capability-verifier.js'
 import { projectWorkspace } from './adapters/project-workspace.js'
 import { Repository } from './adapters/repository.js'
 import { Commands } from './adapters/commands.js'
-import { fingerprint, git, Workspace } from './adapters/workspace.js'
+import { fingerprint, git, instructions, Workspace } from './adapters/workspace.js'
 import { openPi } from './adapters/pi-session.js'
 import { Runs } from './application/runs.js'
 import { CodingService } from './application/service.js'
@@ -49,6 +52,8 @@ export function createCodingService(
     closeCapability,
     commands: new Commands(processEvent),
     fingerprint,
+    instructions,
+    verificationManifest,
     gitStatus: (root) => git(root, 'status'),
     workspace: (root, run) => new Workspace(repo, root, run),
     open: (input) => openPi({ ...input, extensions: resources, processEvent }),
@@ -78,5 +83,7 @@ export function createCodingService(
     extensions,
     agent,
     () => agentRepo.close(),
+    () => exportData(repo, agentRepo, extensionRepo),
+    restoreData,
   )
 }

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router'
+import { TaskCenter } from '../capabilities/tasks'
 const route = useRoute()
 import StudioIcon from '../shared/components/StudioIcon.vue'
 const links = [
@@ -24,6 +25,7 @@ const links = [
       :aria-label="link.label"
       ><StudioIcon :name="link.icon" :size="21"
     /></RouterLink>
+    <div class="rail-tasks"><TaskCenter /></div>
   </nav>
 </template>
 <style scoped>
@@ -56,6 +58,9 @@ const links = [
   background: var(--surface-card);
   color: var(--text-primary);
 }
+.rail-tasks {
+  margin-top: auto;
+}
 @media (max-width: 680px) {
   .icon-rail {
     flex-direction: row;
@@ -65,6 +70,19 @@ const links = [
   }
   .rail-brand {
     margin: 0 auto 0 0;
+  }
+  .rail-tasks {
+    margin-top: 0;
+  }
+}
+@media (max-width: 400px) {
+  .icon-rail {
+    gap: 4px;
+    padding-inline: 8px;
+  }
+  .rail-brand,
+  .rail-link {
+    width: 34px;
   }
 }
 </style>

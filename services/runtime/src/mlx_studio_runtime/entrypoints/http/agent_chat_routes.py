@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, FastAPI, Request
+from fastapi import APIRouter, Depends, FastAPI, Query, Request
 from pydantic import BaseModel, ConfigDict, Field
 
 from mlx_studio_runtime.application.extension_gateway import public_projection
@@ -14,6 +14,7 @@ from mlx_studio_runtime.entrypoints.http.coding_contracts import (
     CodingRunView,
 )
 from mlx_studio_runtime.entrypoints.http.extension_models import ExtensionSelection
+from mlx_studio_runtime.entrypoints.http.handoff_contracts import ContextHandoffRequest
 
 
 class AgentSessionView(BaseModel):
@@ -28,6 +29,7 @@ class AgentSessionCreate(BaseModel):
 
 
 class AgentChatRunRequest(BaseModel):
+    handoff: ContextHandoffRequest | None = None
     model_config = ConfigDict(extra="forbid")
     submissionId: str = Field(min_length=1, max_length=128)
     text: str = Field(min_length=1, max_length=32000)
@@ -37,6 +39,7 @@ class AgentChatRunRequest(BaseModel):
 
 
 class AgentChatSnapshot(BaseModel):
+    watermark: int = 0
     session: AgentSessionView
     runs: list[CodingRunView]
     approvals: list[CodingApprovalView]
@@ -58,6 +61,27 @@ def register_agent_chat_routes(
     async def sessions() -> Any:
         return await call("agent.sessions.list", {})
 
+    @router.get("/events/poll")
+    async def poll(after: int = Query(default=0, ge=0)) -> Any:
+        return public_projection(await call("agent.events.wait", {"after": after}))
+
+    @router.get("/sessions/{identifier}/events")
+    async def history(
+        identifier: str,
+        before: int | None = Query(default=None, ge=1),
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> Any:
+        return public_projection(
+            await call(
+                "agent.events.list",
+                {
+                    "id": identifier,
+                    "limit": limit,
+                    **({"before": before} if before is not None else {}),
+                },
+            )
+        )
+
     @router.post("/sessions", response_model=AgentSessionView)
     async def create(body: AgentSessionCreate) -> Any:
         return await call("agent.sessions.create", body.model_dump())
@@ -72,6 +96,24 @@ def register_agent_chat_routes(
             "sessionId": identifier,
             **body.model_dump(exclude={"modelId"}, exclude_none=True),
         }
+        if body.handoff:
+            handoff_request = body.handoff.model_dump()
+            prior = await call(
+                "agent.runs.find", {"sessionId": identifier, "submissionId": body.submissionId}
+            )
+            if prior and prior.get("handoff"):
+                from mlx_studio_runtime.domain.chat_context import fingerprint
+                from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+
+                if prior["handoff"]["digest"] != fingerprint(handoff_request):
+                    raise RuntimeFault(
+                        RuntimeErrorInfo("IDEMPOTENCY_CONFLICT", "请求编号已用于其他来源")
+                    )
+                params["handoff"] = prior["handoff"]
+            else:
+                params["handoff"] = service.handoffs.freeze(
+                    handoff_request, f"agent:{identifier}:{body.submissionId}"
+                )
         return public_projection(
             await service.coding_submissions.submit(
                 params, str(request.base_url), body.modelId, agent=True

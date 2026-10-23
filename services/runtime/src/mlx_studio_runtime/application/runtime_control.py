@@ -1,5 +1,6 @@
 """Public model and Worker control through the scheduler's resource lease."""
 
+import asyncio
 from typing import Any
 
 from mlx_studio_runtime.application.job_scheduler import JobScheduler
@@ -12,6 +13,7 @@ class RuntimeControl:
     def __init__(self, scheduler: JobScheduler, inference: ModelRuntime) -> None:
         self.scheduler = scheduler
         self.inference = inference
+        self.restart_lock = asyncio.Lock()
 
     async def load(self, model_id: str) -> dict[str, Any]:
         self.scheduler.check_model_available(model_id)
@@ -30,13 +32,27 @@ class RuntimeControl:
         if self.inference.active_model_id == model_id:
             await self.inference.stop()
 
-    async def restart(self) -> dict[str, str]:
-        async with self.scheduler.lock:
+    async def restart(self, mode: str = "interrupt") -> dict[str, str]:
+        async with self.restart_lock:
+            self.scheduler.poisoned = True
             model = self.inference.active_model_id
-            await self.inference.stop()
-            self.inference.worker_restarts += 1
-            if model:
-                await self.inference.load(model)
-            self.inference.state = RuntimeState.READY
-            self.scheduler.poisoned = False
+            try:
+                if mode == "interrupt":
+                    tasks = tuple(self.scheduler.tasks.values())
+                    for task in tasks:
+                        task.cancel()
+                    # The control path does not wait behind the inference lease.
+                    await asyncio.wait_for(self.inference.stop(), timeout=10)
+                    if tasks:
+                        await asyncio.wait_for(asyncio.gather(*tasks, return_exceptions=True), 10)
+                async with self.scheduler.lock:
+                    await self.inference.stop()
+                    self.inference.worker_restarts += 1
+                    if model:
+                        await asyncio.wait_for(self.inference.load(model), timeout=120)
+                    self.inference.state = RuntimeState.READY
+                    self.scheduler.poisoned = False
+            except BaseException:
+                self.inference.state = RuntimeState.DEGRADED
+                raise
         return {"state": "ready"}

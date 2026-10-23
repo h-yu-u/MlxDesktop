@@ -38,6 +38,7 @@ function fixture(memory = createAgentDraftMemory()) {
     create: vi.fn(async () => ({ id: 'created', title: 'new', piPath: null })),
     snapshot: vi.fn(
       async (id: string): Promise<AgentChatSnapshot> => ({
+        watermark: 0,
         session: { id, title: id, piPath: null },
         runs: [],
         approvals: [],
@@ -125,6 +126,7 @@ describe('Agent process lifetime draft memory', () => {
     f.state.dispose()
     const reopened = f.reopen()
     f.gateway.snapshot.mockResolvedValue({
+      watermark: 0,
       session: { id: 'A', title: 'A', piPath: null },
       runs: [{ ...run, status: 'starting' }],
       approvals: [],

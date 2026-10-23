@@ -5,19 +5,16 @@ import ipaddress
 import socket
 from urllib.parse import urlsplit
 
+from mlx_studio_runtime.domain.web import public_result_url
+
 
 class PublicResultPolicy:
     async def allowed(self, url: str) -> bool:
+        normalized = public_result_url(url)
+        if not normalized:
+            return False
         try:
-            parsed = urlsplit(url)
-            if (
-                parsed.scheme not in {"http", "https"}
-                or not parsed.hostname
-                or parsed.username
-                or parsed.password
-                or parsed.port not in {None, 80, 443}
-            ):
-                return False
+            parsed = urlsplit(normalized)
             addresses = await asyncio.get_running_loop().getaddrinfo(
                 parsed.hostname, parsed.port or 443, type=socket.SOCK_STREAM
             )

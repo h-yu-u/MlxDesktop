@@ -106,9 +106,9 @@ export class RuntimeClient {
     }
   }
 
-  async downloadImageArtifact(id: string, signal?: AbortSignal): Promise<Blob> {
+  async downloadImageArtifact(id: string, signal?: AbortSignal, thumbnail = false): Promise<Blob> {
     const response = await this.fetch(
-      `/internal/v1/image-artifacts/${encodeURIComponent(id)}/content`,
+      `/internal/v1/image-artifacts/${encodeURIComponent(id)}/content?thumbnail=${thumbnail}`,
       { signal },
     )
     if (!response.ok) {
@@ -134,6 +134,29 @@ export class RuntimeClient {
       `/internal/v1/${collection}/${encodeURIComponent(id)}/content`,
       { signal },
     )
+    if (!response.ok)
+      throw decodeError(await response.json().catch(() => undefined), response.status)
+    return response.blob()
+  }
+
+  async inspectBackup(file: File) {
+    const response = await this.fetch('/internal/v1/storage/restore/preview', {
+      method: 'POST',
+      body: file,
+    })
+    const payload: unknown = await response.json().catch(() => undefined)
+    if (!response.ok) throw decodeError(payload, response.status)
+    const item = record(payload)
+    return {
+      id: text(item.id),
+      bytes: Number(item.bytes),
+      files: Number(item.files),
+      warnings: Array.isArray(item.warnings) ? item.warnings.map(text) : [],
+    }
+  }
+
+  async downloadBackup(): Promise<Blob> {
+    const response = await this.fetch('/internal/v1/storage/backup', { method: 'POST' })
     if (!response.ok)
       throw decodeError(await response.json().catch(() => undefined), response.status)
     return response.blob()

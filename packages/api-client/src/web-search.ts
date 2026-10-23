@@ -37,6 +37,14 @@ export function webSearchEndpoints(transport: Transport) {
 
 export function decodeWebTest(value: unknown): WebTestResult {
   const item = record(value)
-  if (typeof item.ok !== 'boolean') throw malformed()
-  return { ...decodeWebSettings(value), ok: item.ok, elapsedMs: number(item.elapsedMs) }
+  if (typeof item.ok !== 'boolean' || (item.partial != null && typeof item.partial !== 'boolean'))
+    throw malformed()
+  return {
+    ...decodeWebSettings(value),
+    ok: item.ok,
+    elapsedMs: number(item.elapsedMs),
+    partial: item.partial === true,
+    sourceCount: item.sourceCount == null ? null : number(item.sourceCount),
+    readCount: item.readCount == null ? null : number(item.readCount),
+  }
 }

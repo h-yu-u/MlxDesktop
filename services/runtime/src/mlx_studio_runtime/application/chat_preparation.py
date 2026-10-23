@@ -5,12 +5,13 @@ from typing import Any
 from mlx_studio_runtime.application.attachments import Attachments
 from mlx_studio_runtime.application.chat_context_ports import ChatContexts
 from mlx_studio_runtime.application.chat_support import validate_attachments
+from mlx_studio_runtime.application.context_compaction import SummaryInference, compact_history
 from mlx_studio_runtime.application.extension_gateway import ExtensionGateway
 from mlx_studio_runtime.application.ports import JobWriter
 from mlx_studio_runtime.application.web_ports import WebConfigStore
 from mlx_studio_runtime.application.web_retrieval import WebRetrieval
 from mlx_studio_runtime.domain.attachments import validate_attachment_set
-from mlx_studio_runtime.domain.chat_context import build_context, calculate_budget
+from mlx_studio_runtime.domain.chat_context import build_context, calculate_budget, fingerprint
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.models import ModelManifest
 
@@ -24,7 +25,9 @@ class ChatPreparation:
         retrieval: WebRetrieval,
         lifecycle: JobWriter,
         extensions: ExtensionGateway | None = None,
+        summarize: SummaryInference | None = None,
     ) -> None:
+        self.summarize = summarize
         self.extensions = extensions
         self.attachments = attachments
         self.contexts = contexts
@@ -77,7 +80,7 @@ class ChatPreparation:
             "submitted": [
                 {"id": item["id"], "preparationId": item["preparationId"]} for item in current
             ],
-            "history": history,
+            "historyHeadRevision": self.contexts.freeze_history(history),
         }
 
     def _freeze_reference(self, reference: dict[str, Any]) -> dict[str, Any]:
@@ -130,9 +133,19 @@ class ChatPreparation:
             web = await self.retrieval.retrieve(
                 request["content"], config, lambda phase: self.lifecycle.set_phase(job_id, phase)
             )
+        history = accepted.get("history")
+        if history is None:
+            history = self.contexts.history(accepted.get("historyHeadRevision"))
+        if self.summarize:
+            history = await compact_history(
+                {**request, "modelId": model.id, "modelRevision": fingerprint(model.to_dict())},
+                model.context_length or 8192,
+                self.contexts,
+                self.summarize,
+            )
         snapshot = build_context(
             request["content"],
-            accepted["history"],
+            history,
             documents,
             web["sources"],
             model.context_length,
@@ -152,6 +165,8 @@ class ChatPreparation:
             )
             snapshot["skillSnapshot"] = skill_context["snapshot"]
         snapshot = self._with_visual_sources(snapshot, accepted["visuals"])
+        if snapshot["prompt"] == request["content"]:
+            snapshot["messages"][-1]["messageId"] = request["userMessageId"]
         snapshot.update(
             {
                 "documents": accepted["documents"],
@@ -285,7 +300,9 @@ def history_references(
         if message["id"] == target_user:
             break
         if message["role"] in {"user", "assistant", "system"}:
-            history.append({"role": message["role"], "content": message["content"]})
+            history.append(
+                {"role": message["role"], "content": message["content"], "messageId": message["id"]}
+            )
         group: list[dict[str, Any]] = []
         versions = message.get("parameters", {}).get("attachmentPreparations", {})
         for attachment in message.get("attachments", []):

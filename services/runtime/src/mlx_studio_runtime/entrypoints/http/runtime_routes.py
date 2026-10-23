@@ -1,6 +1,7 @@
 """HTTP protocol adaptation; business behavior lives in application use cases."""
 
 from collections.abc import Awaitable, Callable
+from typing import Literal
 
 from fastapi import Depends, FastAPI
 from fastapi.responses import Response
@@ -53,5 +54,7 @@ def register_runtime_routes(
         )
 
     @app.post("/internal/v1/runtime/restart-worker", dependencies=[Depends(authenticate)])
-    async def restart_worker() -> dict[str, str]:
-        return await service.controls.restart()
+    async def restart_worker(
+        mode: Literal["graceful", "interrupt"] = "interrupt",
+    ) -> dict[str, str]:
+        return await service.controls.restart(mode)

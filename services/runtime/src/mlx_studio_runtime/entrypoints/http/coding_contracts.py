@@ -38,6 +38,7 @@ class CodingRunRequest(StrictRequest):
     modelId: str
     mode: Literal["analyze", "develop", "review"] = "develop"
     queue: bool = False
+    verifyAfter: bool = False
     selection: ExtensionSelection | None = None
 
 
@@ -69,7 +70,19 @@ class CodingSessionView(BaseModel):
     piPath: str | None
 
 
+class VerificationPlanView(BaseModel):
+    digest: str
+    commands: list[str]
+    cwd: str
+    manifestDigest: str
+    repairLimit: int
+    timeoutMs: int
+    scope: str
+    invalid: bool = False
+
+
 class CodingRunView(BaseModel):
+    verificationPlan: VerificationPlanView | None = None
     capabilitySnapshot: ExtensionSnapshot | None = None
     selection: ExtensionSelection | None = None
     id: str
@@ -113,6 +126,7 @@ class CodingApprovalView(BaseModel):
 
 
 class CodingVerificationView(BaseModel):
+    planDigest: str | None = None
     purpose: Literal["command", "verification"] = "command"
     id: str
     runId: str
@@ -186,5 +200,5 @@ class CodingFileView(BaseModel):
 class CodingSettings(StrictRequest):
     id: Literal["coding"] = "coding"
     defaultModelId: str = Field(default="", max_length=128)
-    contextBudget: int = Field(default=32768, ge=4096, le=32768)
+    contextBudget: int = Field(default=32768, ge=4096, le=1048576)
     maxRepairRounds: int = Field(default=2, ge=0, le=2)

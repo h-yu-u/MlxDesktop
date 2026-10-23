@@ -49,7 +49,7 @@ class InferenceRequest(BaseModel):
     tool_choice: Literal["auto", "none"] = "auto"
     stream: bool = True
     stream_options: dict[str, bool] | None = None
-    max_tokens: int = Field(default=4096, ge=1, le=8192)
+    max_tokens: int | None = Field(default=None, ge=1, le=8192)
     temperature: float = Field(default=0.2, ge=0, le=2)
     parallel_tool_calls: Literal[False] = False
     store: Literal[False] = False

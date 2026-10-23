@@ -13,6 +13,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from mlx_studio_runtime.adapters.data_profiles import resolve_profile
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeFault, error_payload
@@ -25,6 +26,7 @@ from mlx_studio_runtime.entrypoints.http.contracts import (
     ErrorEnvelope,
 )
 from mlx_studio_runtime.entrypoints.http.conversation_routes import register_conversation_routes
+from mlx_studio_runtime.entrypoints.http.data_routes import register_data_routes
 from mlx_studio_runtime.entrypoints.http.event_routes import register_event_routes
 from mlx_studio_runtime.entrypoints.http.extension_routes import register_extension_routes
 from mlx_studio_runtime.entrypoints.http.image_studio import register_image_studio_routes
@@ -39,8 +41,10 @@ RUNTIME_SOURCE = Path(__file__).parents[3]
 def _data_path() -> Path:
     configured = os.getenv("MLX_STUDIO_DATA_DIR")
     if configured:
-        return Path(configured).expanduser() / "app.db"
-    return Path.home() / "Library" / "Application Support" / "MLX Studio" / "data" / "app.db"
+        return resolve_profile(Path(configured).expanduser() / "app.db")
+    return resolve_profile(
+        Path.home() / "Library" / "Application Support" / "MLX Studio" / "data" / "app.db"
+    )
 
 
 def create_app(
@@ -94,6 +98,17 @@ def create_app(
     @app.middleware("http")
     async def add_request_id(request: Request, call_next):
         request.state.request_id = request.headers.get("x-request-id") or str(uuid.uuid4())
+        if service.data.busy and request.method not in {"GET", "HEAD"}:
+            return JSONResponse(
+                status_code=409,
+                content={
+                    "error": {
+                        "code": "BACKUP_IN_PROGRESS",
+                        "message": "正在导出一致快照",
+                        "retryable": True,
+                    }
+                },
+            )
         response = await call_next(request)
         response.headers["X-Request-ID"] = request.state.request_id
         response.headers["X-Content-Type-Options"] = "nosniff"
@@ -145,6 +160,7 @@ def create_app(
             },
         )
 
+    register_data_routes(app, service, authenticate)
     register_runtime_routes(app, service, authenticate)
     register_model_routes(app, service, authenticate)
     register_attachment_routes(app, service, authenticate)

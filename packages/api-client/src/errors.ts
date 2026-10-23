@@ -5,6 +5,8 @@ export class RuntimeError extends Error {
     readonly status = 0,
     readonly retryable = false,
     readonly requestId?: string,
+    readonly phase?: string,
+    readonly recoveryActions: string[] = [],
   ) {
     super(message)
     this.name = 'RuntimeError'
@@ -23,5 +25,11 @@ export function decodeError(value: unknown, status: number): RuntimeError {
     status,
     field('retryable') === true,
     typeof field('request_id') === 'string' ? String(field('request_id')) : undefined,
+    typeof field('phase') === 'string' ? String(field('phase')) : undefined,
+    Array.isArray(field('recoveryActions'))
+      ? (field('recoveryActions') as unknown[]).filter(
+          (item): item is string => typeof item === 'string',
+        )
+      : [],
   )
 }

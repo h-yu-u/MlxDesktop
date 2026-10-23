@@ -64,6 +64,10 @@ async def serve() -> None:
 
 
 def main() -> int:
+    if sys.argv[1:] == ["--download"]:
+        from mlx_studio_runtime.entrypoints.download import main as download_main
+
+        return download_main()
     if sys.argv[1:] == ["--prepare"]:
         from mlx_studio_runtime.entrypoints.prepare import main as prepare_main
 

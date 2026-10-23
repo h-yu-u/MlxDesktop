@@ -66,7 +66,7 @@ export function createChatStream(deps: ChatStreamDependencies) {
           {
             type: `job.${snapshot.state}`,
             seq: snapshot.event_sequence,
-            payload: { job_id: jobId },
+            payload: { job_id: jobId, error_code: snapshot.errorCode ?? undefined },
           },
           false,
         )
@@ -119,7 +119,8 @@ export function createChatStream(deps: ChatStreamDependencies) {
           : event.type === 'job.failed'
             ? {
                 type: 'generation.failed' as const,
-                message: `生成失败${event.payload.error_code ? `（${event.payload.error_code}）` : ''}，可重试或使用本地资料回答`,
+                code: String(event.payload.error_code ?? 'INFERENCE_FAILED'),
+                message: `生成失败${event.payload.error_code ? `（${event.payload.error_code}）` : ''}`,
               }
             : undefined
     if (!terminal) return
@@ -147,6 +148,7 @@ export function createChatStream(deps: ChatStreamDependencies) {
     deps.state.value.error = cause instanceof Error ? cause.message : '聊天恢复失败'
   }
   function start(id: string, after: number): void {
+    active = true
     release?.()
     textRevision = 0
     projectionVersion = 0

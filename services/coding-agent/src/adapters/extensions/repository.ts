@@ -232,6 +232,9 @@ export class ExtensionsRepository implements ExtensionRepository {
   private notify(): void {
     for (const listener of [...this.listeners]) listener()
   }
+  exportDatabase(path: string): void {
+    this.db.prepare('VACUUM INTO ?').run(path)
+  }
   close(): void {
     this.notify()
     this.db.close()

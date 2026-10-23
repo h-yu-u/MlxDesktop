@@ -31,6 +31,19 @@ async function save(andTest = false): Promise<void> {
           aria-label="搜索 API Key"
       /></NFormItem>
       <NAlert v-if="web.error" type="error">{{ web.error }}</NAlert>
+      <NAlert
+        v-else-if="web.verification.kind === 'passed' && !web.dirty"
+        :type="web.verification.partial ? 'warning' : 'success'"
+      >
+        <template v-if="web.verification.partial">
+          {{
+            web.verification.readCount === 0
+              ? '搜索服务已连接，当前可使用搜索摘要，暂未取得网页正文。'
+              : '搜索服务已连接，部分网页正文暂不可用，已保留搜索摘要。'
+          }}
+        </template>
+        <template v-else>搜索与网页读取测试通过。</template>
+      </NAlert>
       <FormActionBar
         :dirty="web.dirty"
         :save-pending="web.savePending"

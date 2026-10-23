@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { NButton, NSelect, NSpace } from 'naive-ui'
+import { NButton, NSelect, NSpace, NCheckbox } from 'naive-ui'
 import ComposerShell from '../../../shared/ui/ComposerShell.vue'
 import { codingPrimary, type ComposerAction } from '../../../shared/ui/composer-policy'
 import { modeOptions, type CodingMode } from '../domain/status'
@@ -8,6 +8,7 @@ const props = defineProps<{
   modelValue: string
   models: { label: string; value: string }[]
   modelId: string
+  verifyAfter?: boolean
   mode: CodingMode
   ready: boolean
   busy: boolean
@@ -20,6 +21,7 @@ const emit = defineEmits<{
   'update:modelValue': [text: string]
   model: [id: string]
   mode: [mode: CodingMode]
+  verify: [enabled: boolean]
   submit: []
   steer: []
   queue: []
@@ -81,7 +83,13 @@ function act(action: ComposerAction): void {
         ></NSpace
       ></template
     >
-    <template #context><slot name="capabilities" /></template>
+    <template #context
+      ><slot name="capabilities" /><NCheckbox
+        :checked="verifyAfter"
+        @update:checked="emit('verify', $event)"
+        >完成后运行项目验证</NCheckbox
+      ></template
+    >
     <template #hint
       ><small>{{
         mode === 'develop' ? '受管读写；执行命令需逐次审批' : '只读工具；不开放通用命令'

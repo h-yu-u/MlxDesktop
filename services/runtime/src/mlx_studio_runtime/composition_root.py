@@ -8,8 +8,11 @@ from mlx_studio_runtime.adapters.attachment_derivatives import AttachmentDerivat
 from mlx_studio_runtime.adapters.attachment_files import AttachmentFiles
 from mlx_studio_runtime.adapters.attachment_preparation_executor import PreparationExecutor
 from mlx_studio_runtime.adapters.audio_files import AudioFiles
+from mlx_studio_runtime.adapters.backup_bundle import create_backup_async
 from mlx_studio_runtime.adapters.coding_model_identity import coding_model_identity
+from mlx_studio_runtime.adapters.data_profiles import DataProfiles
 from mlx_studio_runtime.adapters.diagnostics import HostDiagnostics
+from mlx_studio_runtime.adapters.download_transfer import transfer
 from mlx_studio_runtime.adapters.event_hub import EventHub
 from mlx_studio_runtime.adapters.image_files import ImageFiles
 from mlx_studio_runtime.adapters.managed_models import ManagedModelFiles
@@ -24,6 +27,7 @@ from mlx_studio_runtime.adapters.persistence.attachment_reference_repository imp
 )
 from mlx_studio_runtime.adapters.persistence.capability_ledger import CapabilityLedger
 from mlx_studio_runtime.adapters.persistence.chat_context_repository import ChatContextRepository
+from mlx_studio_runtime.adapters.persistence.download_repository import DownloadRepository
 from mlx_studio_runtime.adapters.persistence.sqlite_repositories import SQLiteRepositories
 from mlx_studio_runtime.adapters.persistence.submission_journal import SubmissionJournal
 from mlx_studio_runtime.adapters.persistence.text_assistant_repository import (
@@ -31,6 +35,7 @@ from mlx_studio_runtime.adapters.persistence.text_assistant_repository import (
 )
 from mlx_studio_runtime.adapters.persistence.web_config_repository import WebConfigRepository
 from mlx_studio_runtime.adapters.secret_store import KeychainSecrets
+from mlx_studio_runtime.adapters.storage_management import StorageManagement
 from mlx_studio_runtime.adapters.web.tavily import Tavily
 from mlx_studio_runtime.adapters.web.url_policy import PublicResultPolicy
 from mlx_studio_runtime.adapters.worker_host import WorkerHost
@@ -42,6 +47,8 @@ from mlx_studio_runtime.application.chat_service import ChatService
 from mlx_studio_runtime.application.coding_gateway import CodingGateway
 from mlx_studio_runtime.application.coding_model_requests import CodingModelRequests
 from mlx_studio_runtime.application.coding_run_submission import CodingRunSubmission
+from mlx_studio_runtime.application.context_handoff import ContextHandoffs
+from mlx_studio_runtime.application.data_management import DataManagement
 from mlx_studio_runtime.application.downloads import Downloads
 from mlx_studio_runtime.application.extension_gateway import ExtensionGateway
 from mlx_studio_runtime.application.image_generation_service import ImageGenerationService
@@ -64,6 +71,12 @@ from mlx_studio_runtime.application.web_settings import WebSettings
 class RuntimeApplication:
     def __init__(self, store: SQLiteRepositories, runtime_source: Path) -> None:
         self.store = store
+        self.profiles = DataProfiles(store.database_path)
+        self.storage = StorageManagement(store.database)
+        self.handoffs = ContextHandoffs(
+            store.conversations,
+            lambda id, owner: self.storage.protect(id, owner, 100 * 365 * 86400),
+        )
         self.events = EventHub()
         self.started_at = time.monotonic()
         store.jobs.recover_interrupted("RUNTIME_RESTARTED")
@@ -112,6 +125,7 @@ class RuntimeApplication:
             self.lifecycle,
             ImageFiles(store.media_path).read,
             contexts,
+            ImageFiles(store.media_path).thumbnail,
         )
         attachment_files = AttachmentFiles(store.attachments, store.media_path)
         preparations = PreparationRepository(store.database)
@@ -129,9 +143,17 @@ class RuntimeApplication:
         retrieval = WebRetrieval(provider, provider, secrets, PublicResultPolicy())
         self.web_settings = WebSettings(configs, secrets, retrieval)
         preparation = ChatPreparation(
-            self.attachments, contexts, configs, retrieval, self.lifecycle, self.extensions
+            self.attachments,
+            contexts,
+            configs,
+            retrieval,
+            self.lifecycle,
+            self.extensions,
+            self.provider_inference.complete,
         )
-        self.downloads = Downloads(download_model, self.catalog)
+        self.downloads = Downloads(
+            download_model, self.catalog, DownloadRepository(store.database), transfer
+        )
         self.chat = ChatService(
             store.conversations,
             preparation,
@@ -171,6 +193,20 @@ class RuntimeApplication:
                 lambda: self.inference.worker.pid if self.inference.worker else None,
             ),
         )
+        self.data = DataManagement(
+            self.queries,
+            self.coding,
+            self.downloads,
+            self.scheduler,
+            lambda: bool(
+                store.database.connection.execute(
+                    "SELECT 1 FROM attachment_preparations "
+                    "WHERE state IN ('queued','preparing') LIMIT 1"
+                ).fetchone()
+            ),
+            lambda node: create_backup_async(self.storage, node, self.agent_host.directory),
+            self._restore_profile,
+        )
         self.model_removal = RemoveModel(
             ModelRemovalPorts(
                 self.catalog.models.get,
@@ -194,7 +230,20 @@ class RuntimeApplication:
             attachments.paths,
         )
 
+    async def _restore_profile(self, identifier: str) -> None:
+        import asyncio
+
+        try:
+            _, target = await asyncio.to_thread(self.profiles.prepare, identifier)
+            if not (target / "restore-complete").is_file():
+                await self.coding.call("data.restore.profile", {"identifier": identifier})
+            self.profiles.activate(identifier)
+        except BaseException:
+            self.profiles.discard(identifier)
+            raise
+
     async def close(self) -> None:
+        await self.downloads.close()
         await self.agent_host.close()
         await self.capability_grants.close()
         await self.attachments.close()
@@ -214,4 +263,7 @@ class RuntimeApplication:
             job_states=tuple(str(job["state"]) for job in self.queries.list_jobs()),
             event_sequence=self.events.sequence,
             instance_id=self.events.instance_id,
+            worker_epoch=self.inference.epoch,
+            worker_phase=self.inference.phase,
+            loading_model_id=self.inference.loading_model_id,
         )

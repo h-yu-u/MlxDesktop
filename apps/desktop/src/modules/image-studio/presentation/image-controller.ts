@@ -33,6 +33,7 @@ export function createImageController(deps: ImageDependencies) {
   const history = createArtifactHistory({
     ...deps.gateway,
     content: deps.gateway.image,
+    thumbnail: deps.gateway.thumbnail,
     export: deps.exportImage,
   })
   const {
@@ -94,7 +95,6 @@ export function createImageController(deps: ImageDependencies) {
       activeJob.value =
         jobs.value.find((item) => !isTerminal(item)) ?? activeJob.value ?? jobs.value[0] ?? null
       await loadHistory(true)
-      await Promise.all(artifacts.value.map((item) => loadImage(item.id)))
       if (hasActiveJob.value) schedulePoll()
       await inputs.restoreInputs()
     } catch (cause) {
@@ -309,6 +309,17 @@ export function createImageController(deps: ImageDependencies) {
     loadWorkspace,
     loadHistory,
     loadImage,
+    imageVisibility: history.visibility,
+    async recycle() {
+      const id = selectedId.value
+      if (!id || !deps.gateway.recycle) return
+      try {
+        await deps.gateway.recycle(id)
+        history.forget(id)
+      } catch (cause) {
+        error.value = errorText(cause)
+      }
+    },
     generate,
     refreshJob,
     cancel,

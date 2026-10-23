@@ -1,3 +1,4 @@
+import { deriveTaskReadiness } from '../../../capabilities/models'
 import type { CodingControllerDependencies } from './coding-controller-ports'
 import { createCodingSubmission } from './coding-submission'
 import { createProjectSessionController } from './project-session-controller'
@@ -34,6 +35,14 @@ export function createCodingController(deps: CodingControllerDependencies) {
   )
   const active = computed(() => snapshot.value?.activeRun ?? null)
   const busy = computed(() => !!active.value && activeStatus(active.value.status))
+  const readiness = computed(() =>
+    deriveTaskReadiness(
+      deps.models.value.find((model) => model.id === selectedModelId.value),
+      { available: deps.runtimeAvailable?.() ?? true, busy: busy.value },
+      { output: 'text', tools: true },
+      { toolsVerified: isVerified(capabilities.value, selectedModelId.value), allowTrial: true },
+    ),
+  )
   const projectSelection = createProjectSessionController({
     gateway: deps.gateway,
     guard,
@@ -63,7 +72,7 @@ export function createCodingController(deps: CodingControllerDependencies) {
     mode,
     pending,
     busy,
-    canSubmit: () => !snapshot.value?.session.archived,
+    canSubmit: () => !snapshot.value?.session.archived && readiness.value.submitAllowed,
     canSteer: () =>
       !!active.value &&
       active.value.sessionId === sessionId.value &&
@@ -297,6 +306,7 @@ export function createCodingController(deps: CodingControllerDependencies) {
     preparingModel,
     ...inspector,
     models,
+    readiness,
     modelReady: computed(() => isVerified(capabilities.value, selectedModelId.value)),
     active,
     busy,
@@ -309,6 +319,7 @@ export function createCodingController(deps: CodingControllerDependencies) {
     newSession,
     updateSession,
     removeSession,
+    verifyAfter: submission.verifyAfter,
     send: submission.send,
     draftText: submission.text,
     cancel,

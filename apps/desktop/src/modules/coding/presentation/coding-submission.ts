@@ -29,6 +29,7 @@ export function createCodingSubmission(deps: {
   owner(): number
   owns(owner: number): boolean
 }) {
+  const verifyAfter = ref(true)
   const revision = ref(0),
     drafts = new ScopedTextDrafts(() => revision.value++)
   const key = computed(
@@ -70,6 +71,7 @@ export function createCodingSubmission(deps: {
       text: value,
       mode,
       queue,
+      verifyAfter: verifyAfter.value,
       selected,
       draftId: draft.id,
       revision: draft.revision,
@@ -79,7 +81,15 @@ export function createCodingSubmission(deps: {
       let sent = false
       try {
         const run = await submitCodingRun(
-          { sessionId: target, modelId, text: value, mode, queue, selection: selected },
+          {
+            sessionId: target,
+            modelId,
+            text: value,
+            mode,
+            queue,
+            verifyAfter: verifyAfter.value,
+            selection: selected,
+          },
           {
             gateway: {
               submit: (...args) => {
@@ -154,6 +164,7 @@ export function createCodingSubmission(deps: {
   }
   let activeRunId = () => ''
   return {
+    verifyAfter,
     text,
     send,
     steer,

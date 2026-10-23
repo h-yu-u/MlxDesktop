@@ -1,3 +1,4 @@
+import { useModelDirectoryState } from '../../../capabilities/models/directory'
 import { installWorkspaces } from '../../../app/composition-root'
 import { modelFixture } from '../../../test-fixtures/runtime'
 import { createPinia, setActivePinia } from 'pinia'
@@ -14,10 +15,15 @@ const api = vi.hoisted(() => ({
   post: vi.fn(),
   subscribe: vi.fn(),
 }))
-vi.mock('../../../platform/runtime-bridge', () => ({ runtimeClient: async () => api }))
+vi.mock('../../../platform/runtime-bridge', () => ({
+  runtimeClient: async () => api,
+  runtimeConnectionStatus: { value: 'ready' },
+  restartRuntimeProcess: vi.fn(),
+}))
 
 function populatedStore(): ReturnType<typeof useChatStore> {
   const store = useChatStore()
+  store.selectedModelId = 'qwen-local'
   store.conversationId = 'current'
   store.conversations = [
     { id: 'current', title: '当前会话', pinned: false, modelId: null, messages: [] },
@@ -31,6 +37,7 @@ describe('chat workspace actions', () => {
   beforeEach(() => {
     eventSequence = 10
     setActivePinia(createPinia())
+    useModelDirectoryState().items = [modelFixture({ id: 'qwen-local' })]
     api.delete.mockReset()
     api.patch.mockReset()
     api.get.mockReset()
@@ -256,6 +263,7 @@ describe('chat recovery and exclusion', () => {
   beforeEach(() => {
     eventSequence = 10
     setActivePinia(createPinia())
+    useModelDirectoryState().items = [modelFixture({ id: 'qwen-local' })]
     api.get.mockReset()
     api.post.mockReset()
     api.subscribe.mockReset()

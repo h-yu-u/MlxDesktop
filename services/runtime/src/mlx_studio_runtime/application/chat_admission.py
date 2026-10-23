@@ -75,7 +75,12 @@ class ChatAdmission:
             if options["enabled"]
             else None
         )
-        accepted = target.get("parameters", {}).get("acceptedSnapshot") if target else None
+        target_parameters = target.get("parameters", {}) if target else {}
+        accepted = target_parameters.get("acceptedSnapshot")
+        if target_parameters.get("acceptedContextJobId"):
+            accepted = self.preparation.contexts.job(target_parameters["acceptedContextJobId"])[
+                "request"
+            ]["acceptedSnapshot"]
         accepted = accepted or self.preparation.accept(
             conversation, ids, intent["visual_selection"], model, target["id"] if target else None
         )
@@ -180,7 +185,7 @@ class ChatAdmission:
                         "maxTokens": request["maxTokens"],
                         "temperature": request["temperature"],
                         "webSearch": options,
-                        "acceptedSnapshot": accepted,
+                        "acceptedContextJobId": job.id,
                         "attachmentPreparations": {
                             item["id"]: item["preparationId"] for item in accepted["submitted"]
                         },

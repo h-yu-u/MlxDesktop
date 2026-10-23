@@ -210,9 +210,11 @@ export class Repository {
     const rows = sessionId
       ? this.db
           .prepare(
-            'SELECT * FROM (SELECT * FROM events WHERE sessionId=? ORDER BY seq DESC LIMIT 300) ORDER BY seq',
+            after > 0
+              ? 'SELECT * FROM events WHERE sessionId=? AND seq>? ORDER BY seq LIMIT 300'
+              : 'SELECT * FROM (SELECT * FROM events WHERE sessionId=? AND seq>? ORDER BY seq DESC LIMIT 300) ORDER BY seq',
           )
-          .all(sessionId)
+          .all(sessionId, after)
       : this.db.prepare('SELECT * FROM events WHERE seq>? ORDER BY seq LIMIT 50').all(after)
     return rows.map((row) => ({
       seq: Number(row.seq),
@@ -222,6 +224,21 @@ export class Repository {
       text: String(row.text),
       data: JSON.parse(String(row.data)) as unknown,
     }))
+  }
+  historyEvents(before: number, sessionId: string, limit = 50): Event[] {
+    if (!Number.isInteger(limit) || limit < 1 || limit > 100) throw new Error('INVALID_LIMIT')
+    return this.db
+      .prepare('SELECT * FROM events WHERE sessionId=? AND seq<? ORDER BY seq DESC LIMIT ?')
+      .all(sessionId, before, limit)
+      .reverse()
+      .map((row) => ({
+        seq: Number(row.seq),
+        sessionId,
+        runId: row.runId === null ? null : String(row.runId),
+        type: String(row.type),
+        text: String(row.text),
+        data: JSON.parse(String(row.data)) as unknown,
+      }))
   }
   watermark(): number {
     return Number(
@@ -248,6 +265,12 @@ export class Repository {
     }
   }
 
+  recentRuns(): Run[] {
+    return this.db
+      .prepare("SELECT value FROM entities WHERE kind='run' ORDER BY rowid DESC LIMIT 100")
+      .all()
+      .map((row) => JSON.parse(String(row.value)) as Run)
+  }
   active(sessionId?: string): Run | undefined {
     const row = this.db
       .prepare(
@@ -258,13 +281,21 @@ export class Repository {
       .get(...(sessionId ? [sessionId] : []))
     return row ? (JSON.parse(String(row.value)) as Run) : undefined
   }
+  exportDatabase(path: string): void {
+    this.db.prepare('VACUUM INTO ?').run(path)
+  }
   close(): void {
     this.db.close()
   }
 }
 
 function eventProjection<K extends keyof Entities>(kind: K, item: Entities[K]): unknown {
-  if (kind === 'run' || kind === 'verification') return { version: 1, kind, value: item }
+  if (kind === 'run' || kind === 'verification')
+    return {
+      version: 1,
+      kind,
+      value: Object.fromEntries(Object.entries(item).filter(([key]) => key !== 'handoff')),
+    }
   if (kind === 'approval' && 'status' in item)
     return {
       version: 1,

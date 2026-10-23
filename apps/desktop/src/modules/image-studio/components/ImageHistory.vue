@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { NButton, NImage } from 'naive-ui'
 import { computed } from 'vue'
+import { visibleMedia } from '../../../capabilities/media'
 import ResourceListState from '../../../shared/ui/ResourceListState.vue'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import type { ImageArtifact } from '../domain/image-state'
@@ -14,7 +15,18 @@ const props = defineProps<{
   error: string | null
   hasMore: boolean
 }>()
-defineEmits<{ select: [id: string]; refresh: []; more: [] }>()
+const emit = defineEmits<{
+  select: [id: string]
+  refresh: []
+  more: []
+  visible: [id: string]
+  hidden: [id: string]
+}>()
+const vMediaVisible = visibleMedia(
+  (id) => !props.urls[id] && !props.errors[id],
+  (id) => emit('visible', id),
+  (id) => emit('hidden', id),
+)
 const phase = computed(() =>
   props.loading
     ? props.artifacts.length
@@ -55,12 +67,13 @@ const phase = computed(() =>
         <NButton
           v-for="item in artifacts"
           :key="item.id"
+          v-media-visible="item.id"
           quaternary
           class="history-image-card"
           :class="{ selected: selectedId === item.id }"
           :aria-pressed="selectedId === item.id"
           :aria-label="`查看作品：${item.prompt}`"
-          @click="$emit('select', item.id)"
+          @click="errors[item.id] ? $emit('visible', item.id) : $emit('select', item.id)"
         >
           <div class="history-image-cover">
             <NImage

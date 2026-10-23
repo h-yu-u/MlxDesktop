@@ -56,9 +56,9 @@ describe('Hugging Face model discovery', () => {
       modelFixture({ id: 'local-model', displayName: model.repo_id, source: 'huggingface' }),
     ])
     expect(await store.pullModel()).toBe(true)
-    expect(api.post).toHaveBeenCalledWith('/internal/v1/models/pull', { repo_id: model.repo_id })
+    expect(api.post).toHaveBeenCalledWith('/internal/v1/downloads', { repo_id: model.repo_id })
     expect(store.items[0]?.displayName).toBe(model.repo_id)
-    expect(store.lastDownloadedRepoId).toBe(model.repo_id)
+    expect(store.downloadQueuedRepoId).toBe(model.repo_id)
     expect(store.pullingRepoId).toBeNull()
     expect(await store.pullModel()).toBe(false)
     expect(api.post).toHaveBeenCalledTimes(1)

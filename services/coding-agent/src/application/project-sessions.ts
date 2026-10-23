@@ -86,6 +86,6 @@ export class ProjectSessions {
       }
     },
     'sessions.snapshot': async (p) =>
-      buildSnapshot(this.repo, this.projects.fingerprint, string(p.id)),
+      buildSnapshot(this.repo, this.projects.version ?? this.projects.fingerprint, string(p.id)),
   }
 }

@@ -5,6 +5,7 @@ import json
 import re
 from typing import Any
 
+from mlx_studio_runtime.domain.context_budget import ContextBudget, estimate_tokens
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 
 DEFAULT_TASK = "请概括这些附件的主要内容，并说明可读取的范围。"
@@ -16,8 +17,7 @@ SYSTEM = (
 
 
 def token_bound(text: str) -> int:
-    # A UTF-8 byte upper bound is intentionally conservative, not a character/token equivalence.
-    return len(text.encode("utf-8"))
+    return estimate_tokens(text)
 
 
 def fingerprint(value: object) -> str:
@@ -59,15 +59,17 @@ def select_blocks(blocks: list[dict[str, Any]], question: str, budget: int) -> l
 def retain_history(
     history: list[dict[str, str]], available: int
 ) -> tuple[list[dict[str, str]], int]:
-    # Retain the nearest complete text messages before selecting evidence. Never trim the question.
+    groups: list[list[dict[str, str]]] = []
+    for message in history:
+        if message["role"] == "user" or not groups:
+            groups.append([])
+        groups[-1].append(message)
     retained: list[dict[str, str]] = []
-    history_budget = min(available // 4, 6000)
-    for message in reversed(history):
-        cost = token_bound(message["content"]) + 32
-        if cost > history_budget:
-            break
-        retained.insert(0, message)
-        history_budget -= cost
+    for group in reversed(groups):
+        cost = sum(token_bound(message["content"]) + 32 for message in group)
+        if cost > available:
+            continue
+        retained = group + retained
         available -= cost
     return retained, available
 
@@ -151,11 +153,13 @@ def build_context(
         raise RuntimeFault(
             RuntimeErrorInfo("CONTEXT_BUDGET_EXCEEDED", "问题、输出或视觉输入超出上下文预算")
         )
-    retained, available = retain_history(history, available)
+    history_allowance = available if not documents and not web else available // 2
+    retained, remaining = retain_history(history, history_allowance)
+    available -= history_allowance - remaining
     sources: list[dict[str, Any]] = []
     evidence: list[str] = []
     source_count = len(documents) + len(web)
-    for document in documents:
+    for document in sorted(documents, key=lambda item: str(item["id"])):
         source_id = f"f{len(sources) + 1}"
         source, entry = document_evidence(
             document, question, available // max(1, source_count), source_id
@@ -194,13 +198,6 @@ def calculate_budget(
     messages: list[dict[str, str]], limit: int, output_tokens: int, image_count: int
 ) -> dict[str, Any]:
     estimated = sum(token_bound(item["content"]) + 32 for item in messages) + image_count * 2048
-    if estimated + output_tokens + 128 > limit:
-        raise RuntimeFault(
-            RuntimeErrorInfo("CONTEXT_BUDGET_EXCEEDED", "资料超出上下文预算，请减少附件或缩小范围")
-        )
-    return {
-        "contextLimit": limit,
-        "estimatedInput": estimated,
-        "outputReserve": output_tokens,
-        "estimator": "utf8-byte-upper-bound-v1",
-    }
+    budget = ContextBudget(limit, estimated, output_tokens)
+    budget.validate()
+    return {**budget.to_dict(), "estimatedInput": estimated, "estimator": "estimate-utf8-cjk-v1"}

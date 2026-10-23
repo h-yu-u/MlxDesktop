@@ -1,36 +1,19 @@
+import type { RpcParamsMap } from '../protocol/generated/types.js'
+import type { Submission } from './run-submission.js'
+import { saveTranscript, closeTranscript } from './transcript-lifecycle.js'
+import { freezeInstructions } from './run-instructions.js'
+import { freezeVerificationPlan } from './verification-plan.js'
 import { RunCommands } from './run-commands.js'
 import { RunReservations } from './run-reservations.js'
-import type { RunRuntime, ActiveCapability } from './ports.js'
-import { canonical, type Selection } from '../extensions/domain/types.js'
-import type { RpcParamsMap } from '../protocol/generated/types.js'
-import { verificationStatus } from '../domain/verification.js'
+import type { ActiveCapability } from './ports.js'
+import { canonical } from '../extensions/domain/types.js'
 import { RunPolicy } from './run-policy.js'
 import type { PiSession, Provider, RepositoryPort, RunPorts } from './ports.js'
-import { promptAndVerify } from './run-verification.js'
+import { promptAndVerify, finalizeRun } from './run-verification.js'
 import { randomUUID } from 'node:crypto'
-import {
-  terminal,
-  nextStatus,
-  type Run,
-  type Mode,
-  type Project,
-  type Session,
-} from '../domain/types.js'
+import { terminal, nextStatus, type Run, type Project, type Session } from '../domain/types.js'
 import { defaultSettings } from '../domain/settings.js'
 import { Approvals } from './approvals.js'
-interface Submission {
-  sessionId: string
-  submissionId: string
-  text: string
-  mode: Mode
-  provider: Provider
-  probe?: boolean
-  queue?: boolean
-  verifyOnly?: boolean
-  selection?: Selection
-  runtime?: RunRuntime
-  connectionSecrets?: RpcParamsMap['runs.submit']['connectionSecrets']
-}
 export class Runs {
   private reservations: RunReservations<Submission>
   private current:
@@ -47,9 +30,7 @@ export class Runs {
       repo,
       ports,
       approvals: this.approvals,
-      update: (id, patch) => {
-        this.update(id, patch)
-      },
+      update: (id, patch) => this.update(id, patch),
     })
     this.reservations = new RunReservations((id) => {
       void this.cancel(id)
@@ -62,6 +43,8 @@ export class Runs {
         previous.text !== input.text ||
         previous.modelId !== input.provider.modelId ||
         previous.mode !== input.mode ||
+        (previous.verifyAfter !== undefined &&
+          previous.verifyAfter !== (input.verifyAfter === true)) ||
         canonical(previous.selection) !== canonical(input.selection)
       )
         throw new Error('IDEMPOTENCY_CONFLICT')
@@ -92,7 +75,9 @@ export class Runs {
       status: this.reservations.busy ? 'queued' : 'starting',
       phase: 'exploring',
       verification: 'not_run',
-      verificationCommands: input.probe || input.verifyOnly ? [...project.commands] : [],
+      verifyAfter: input.verifyAfter === true,
+      verificationCommands:
+        input.probe || input.verifyOnly || input.verifyAfter ? [...project.commands] : [],
       error: null,
       createdAt: new Date().toISOString(),
       baseline: '',
@@ -134,8 +119,8 @@ export class Runs {
     const { probe = false, verifyOnly = false } = input
     let provider = input.provider,
       capability: ActiveCapability | undefined
-    const run = this.repo.get('run', id),
-      session = this.repo.get('session', run.sessionId),
+    let run = this.repo.get('run', id)
+    const session = this.repo.get('session', run.sessionId),
       project = this.repo.get('project', session.projectId)
     let opened: Awaited<ReturnType<RunPorts['open']>> | undefined
     const timer = setTimeout(() => abort.abort(), 20 * 60 * 1000)
@@ -158,6 +143,9 @@ export class Runs {
           throw new Error('MCP_CONFIG_CHANGED')
         if (secret) connectionSecrets[server.id] = secret.values
       }
+      run = this.update(id, {
+        verificationPlan: await freezeVerificationPlan(this.ports, run, project),
+      })
       opened = await this.prepare({
         run,
         project,
@@ -167,6 +155,13 @@ export class Runs {
         probe,
         connectionSecrets,
         capability,
+      })
+      await saveTranscript({
+        repo: this.repo,
+        kind: 'session',
+        sessionId: session.id,
+        runId: id,
+        opened,
       })
       const pi = opened.session
       if (this.current?.id === id) this.current.pi = pi
@@ -185,10 +180,20 @@ export class Runs {
         probe,
         verifyOnly,
         command: (callId, command, signal, probe) =>
-          this.command(id, callId, command, signal, probe, true),
+          this.commands.execute(id, callId, command, signal, probe, true),
         checks: () => this.repo.checksForRun(id).slice(-(run.verificationCommands?.length ?? 0)),
       })
-      await this.finalize(run, project.path)
+      await saveTranscript({
+        repo: this.repo,
+        kind: 'session',
+        sessionId: session.id,
+        runId: id,
+        opened,
+      })
+      this.update(
+        id,
+        await finalizeRun({ repo: this.repo, ports: this.ports, run, root: project.path }),
+      )
       abort.signal.removeEventListener('abort', stop)
     } catch (error) {
       const cancelled = abort.signal.aborted || this.repo.get('run', id).status === 'cancelling'
@@ -204,13 +209,14 @@ export class Runs {
       clearTimeout(timer)
       this.approvals.denyRun(id)
       try {
-        if (opened) {
-          this.repo.save('session', {
-            ...this.repo.get('session', session.id),
-            piPath: opened.path() ?? null,
+        if (opened)
+          await closeTranscript({
+            repo: this.repo,
+            kind: 'session',
+            sessionId: session.id,
+            runId: id,
+            opened,
           })
-          await opened.session.close()
-        }
       } finally {
         try {
           if (input.runtime) await this.ports.closeCapability?.(input.runtime, capability)
@@ -233,8 +239,14 @@ export class Runs {
     capability?: ActiveCapability
     connectionSecrets: Record<string, Record<string, string>>
   }): Promise<Awaited<ReturnType<RunPorts['open']>>> {
-    const { run, project, session, provider, abort, probe } = input,
+    const { run, session, provider, abort, probe } = input,
       id = run.id
+    const project = await freezeInstructions({
+      repo: this.repo,
+      ports: this.ports,
+      run,
+      project: input.project,
+    })
     const context = new RunPolicy({
       repo: this.repo,
       ports: this.ports,
@@ -246,7 +258,7 @@ export class Runs {
         this.update(id, patch)
       },
       command: (callId, command, signal) =>
-        this.command(id, callId, command, signal ?? abort.signal, probe),
+        this.commands.execute(id, callId, command, signal ?? abort.signal, probe),
     }).context()
     let skillInstructions = ''
     for (const skill of run.capabilitySnapshot?.skills ?? []) {
@@ -270,21 +282,6 @@ export class Runs {
       provider,
       context,
     })
-  }
-  private async finalize(run: Run, root: string): Promise<void> {
-    const id = run.id
-    const currentFingerprint = await this.ports.fingerprint(root)
-    const checks = this.repo.checksForRun(id)
-    const verification = verificationStatus(run, checks, currentFingerprint)
-    this.update(id, {
-      status: 'completed',
-      phase: 'reviewing',
-      verification,
-      fingerprint: currentFingerprint,
-    })
-  }
-  private command(...args: Parameters<RunCommands['execute']>) {
-    return this.commands.execute(...args)
   }
   resolve(id: string, allowed: boolean): void {
     this.approvals.resolve(id, allowed)

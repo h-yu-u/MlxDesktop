@@ -34,6 +34,7 @@ build = [
     "pyinstaller==6.16.0",
 ]
 dev = [
+  "numpy>=2,<3",
   "pyright>=1.1.390,<2",
   "ruff>=0.9,<1",
 ]

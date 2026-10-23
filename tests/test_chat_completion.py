@@ -16,7 +16,7 @@ RUNTIME_SOURCE = Path(__file__).parents[1] / "services/runtime/src"
 class CompletionTests(unittest.TestCase):
     def test_default_budget_and_length_metadata(self) -> None:
         self.assertEqual(
-            ChatMessageRequest(content="hello", model_id="test").max_tokens, 4096
+            ChatMessageRequest(content="hello", model_id="test").max_tokens, 1024
         )
         events = []
         session = EngineSession()

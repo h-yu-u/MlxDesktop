@@ -1,17 +1,19 @@
 """Scoped local provider endpoints; no ordinary Chat conversation is created."""
 
 import asyncio
-import json
 import time
 import uuid
 from collections.abc import Awaitable, Callable
 from typing import Any
 
 from fastapi import Depends, FastAPI, Header, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 
 from mlx_studio_runtime.composition_root import RuntimeApplication
+from mlx_studio_runtime.domain.errors import RuntimeFault
+from mlx_studio_runtime.domain.worker_protocol import STREAM_QUEUE_SIZE
 from mlx_studio_runtime.entrypoints.http.inference_contracts import InferenceRequest
+from mlx_studio_runtime.entrypoints.http.provider_stream import provider_error, stream_result, usage
 
 
 def register_inference_routes(
@@ -43,23 +45,54 @@ def register_inference_routes(
             if isinstance(message.get("content"), list):
                 message["content"] = "\n".join(block["text"] for block in message["content"])
         authorization = request.headers.get("authorization")
+        queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue(STREAM_QUEUE_SIZE)
+        admitted = asyncio.Event()
+
+        async def on_event(event: dict[str, Any]) -> None:
+            if event["type"] == "generation.admitted":
+                admitted.set()
+            elif body.stream:
+                await queue.put(event)
+
         task = asyncio.create_task(
-            service.capability_grants.complete(authorization, payload)
+            service.capability_grants.complete(authorization, payload, on_event)
             if authorization and request.state.capability_scoped
-            else service.provider_inference.complete(payload)
+            else service.provider_inference.complete(payload, on_event)
         )
+        admission = asyncio.create_task(admitted.wait())
         try:
-            while not task.done():
-                await asyncio.wait({task}, timeout=0.2)
+            while not task.done() and not (body.stream and admitted.is_set()):
+                await asyncio.wait(
+                    {task, admission} if not admission.done() else {task},
+                    timeout=0.1,
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
                 if await request.is_disconnected():
                     task.cancel()
                     await asyncio.gather(task, return_exceptions=True)
                     return {}
-            result = await task
+            if task.done():
+                result = await task
+            elif body.stream:
+                identity = {
+                    "id": f"chatcmpl-{uuid.uuid4().hex}",
+                    "created": int(time.time()),
+                    "model": body.model,
+                }
+                return StreamingResponse(
+                    stream_result(task, queue, identity), media_type="text/event-stream"
+                )
+            else:
+                result = await task
+        except RuntimeFault as error:
+            return JSONResponse(status_code=400, content=provider_error(error))
         except asyncio.CancelledError:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)
             raise
+        finally:
+            admission.cancel()
+            await asyncio.gather(admission, return_exceptions=True)
         if body.tool_choice == "none" and result["message"].get("tool_calls"):
             from fastapi import HTTPException
 
@@ -80,36 +113,8 @@ def register_inference_routes(
                         "finish_reason": result["finish_reason"],
                     }
                 ],
-                "usage": {
-                    "prompt_tokens": 0,
-                    "completion_tokens": result.get("generation_tokens", 0),
-                    "total_tokens": result.get("generation_tokens", 0),
-                },
+                "usage": usage(result),
             }
-
-        async def chunks():
-            message = result["message"]
-            delta: dict[str, object] = {
-                "role": "assistant",
-                "content": message.get("content") or "",
-            }
-            if message.get("tool_calls"):
-                delta["tool_calls"] = [
-                    {"index": index, **call} for index, call in enumerate(message["tool_calls"])
-                ]
-            for value, reason in ((delta, None), ({}, result["finish_reason"])):
-                yield (
-                    "data: "
-                    + json.dumps(
-                        {
-                            **identity,
-                            "object": "chat.completion.chunk",
-                            "choices": [{"index": 0, "delta": value, "finish_reason": reason}],
-                        },
-                        ensure_ascii=False,
-                    )
-                    + "\n\n"
-                )
-            yield "data: [DONE]\n\n"
-
-        return StreamingResponse(chunks(), media_type="text/event-stream")
+        return StreamingResponse(
+            stream_result(task, queue, identity), media_type="text/event-stream"
+        )

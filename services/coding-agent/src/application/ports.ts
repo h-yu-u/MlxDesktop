@@ -30,9 +30,11 @@ export interface RepositoryPort {
   append(sessionId: string, runId: string | null, type: string, text: string, data?: unknown): void
   events(after: number, sessionId?: string): Event[]
   waitEvents(after: number): Promise<{ events: Event[]; watermark: number }>
+  historyEvents(before: number, sessionId: string, limit?: number): Event[]
   watermark(): number
   delete(kind: keyof Entities, id: string): void
   deleteSession(id: string): void
+  recentRuns(): Run[]
   active(sessionId?: string): Run | undefined
 }
 export interface Provider {
@@ -44,6 +46,9 @@ export interface Provider {
   engineVersion: string
 }
 export interface PiSession {
+  checkpoint?(): Promise<import('../domain/types.js').TranscriptDescriptor>
+  compact?(): Promise<void>
+  contextUsage?(): unknown
   prompt(text: string): Promise<void>
   steer(text: string): Promise<unknown>
   abort(): Promise<void>
@@ -93,6 +98,8 @@ export interface ActiveCapability {
   capabilityUrl: string
 }
 export interface RunPorts {
+  verificationManifest?(root: string): Promise<string>
+  instructions?(root: string): Promise<string>
   activate?(runtime: RunRuntime, signal: AbortSignal): Promise<ActiveCapability>
   closeCapability?(runtime: RunRuntime, active?: ActiveCapability): Promise<void>
   extensions?: RunExtensions
@@ -113,6 +120,7 @@ export interface RunPorts {
   }): Promise<{ session: PiSession; path(): string | undefined }>
 }
 export interface ProjectPort {
+  version?(root: string): Promise<string>
   register(path: string): Promise<Project>
   read(root: string, path: string): Promise<{ content: string; sha256: string }>
   files(root: string): Promise<string[]>

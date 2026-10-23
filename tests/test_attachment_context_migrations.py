@@ -44,7 +44,7 @@ class AttachmentMigrationTests(unittest.TestCase):
                         (f"job-{index}", request),
                     )
                     connection.execute(
-                        "INSERT INTO artifacts VALUES(?,NULL,'image',?,?,0)",
+                        "INSERT INTO artifacts(id,job_id,kind,relative_path,metadata_json,created_at) VALUES(?,NULL,'image',?,?,0)",
                         (f"art-{index}", f"images/{index}.png", request),
                     )
                 connection.execute(

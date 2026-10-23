@@ -2,6 +2,7 @@
 
 from collections.abc import Callable, Mapping
 from types import MappingProxyType
+from typing import Any
 
 from mlx_studio_runtime.application.ports import EventPublisher, JobRepository, Transaction
 from mlx_studio_runtime.domain.jobs import (
@@ -23,6 +24,9 @@ class JobLifecycle:
         self._items: dict[str, Job] = {}
         self._output: dict[str, str] = {}
         self._text_revisions: dict[str, int] = {}
+
+    def save_result(self, job_id: str, result: dict[str, Any]) -> None:
+        self.store.save_result(job_id, result)
 
     @property
     def items(self) -> Mapping[str, Job]:

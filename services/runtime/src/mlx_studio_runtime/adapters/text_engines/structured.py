@@ -3,9 +3,13 @@
 import json
 import re
 import sys
+import time
 import uuid
 from contextlib import redirect_stdout
 from typing import Any
+
+from mlx_studio_runtime.adapters.text_engines.structured_input import prepare_input
+from mlx_studio_runtime.domain.worker_protocol import MAX_RESULT_BYTES, text_parts
 
 
 def parse_completion(
@@ -148,41 +152,17 @@ def generate_structured(session: Any, payload: dict[str, Any]) -> None:
     session.generation_tokens = 0
     session.emit("generation.started", {"job_id": job_id})
     try:
-        parser = "json"
+        rendered, parser, budget = prepare_input(session, payload)
+        session.emit("generation.admitted", {"job_id": job_id, "budget": budget})
         if session.engine == "fake":
             text = scripted_reply(payload)
+            session.generation_tokens = len(text)
+            visible = text.split("<tool_call>", 1)[0]
+            for part in text_parts(visible):
+                session.emit("text.delta", {"job_id": job_id, "text": part})
+                time.sleep(0.005)
         else:
-            tokenizer = (
-                session.tokenizer if session.engine == "mlx-lm" else session.processor.tokenizer
-            )
-            template = tokenizer.chat_template
-            if not isinstance(template, str) or "<tool_call>" not in template:
-                raise ValueError("TOOL_TEMPLATE_UNSUPPORTED")
-            parser = "qwen-xml" if "<function=" in template else "json"
-            messages = []
-            for item in payload["messages"]:
-                value = dict(item)
-                if "tool_calls" in value:
-                    value["tool_calls"] = [
-                        {
-                            **call,
-                            "function": {
-                                **call["function"],
-                                "arguments": json.loads(call["function"]["arguments"]),
-                            },
-                        }
-                        for call in value["tool_calls"]
-                    ]
-                messages.append(value)
             with redirect_stdout(sys.stderr):
-                rendered = tokenizer.apply_chat_template(
-                    messages,
-                    tools=payload["tools"],
-                    tokenize=False,
-                    add_generation_prompt=True,
-                    enable_thinking=False,
-                )
-                # The rendered prompt is already tool-aware; don't normalize or re-template it.
                 text = _generate_native(session, rendered, payload)
         if session.cancel.is_set() or session.shutdown.is_set():
             session.emit("generation.cancelled", {"job_id": job_id})
@@ -190,7 +170,13 @@ def generate_structured(session: Any, payload: dict[str, Any]) -> None:
         result = parse_completion(text, payload["tools"], session.finish_reason, parser)
         session.emit(
             "generation.result",
-            {"job_id": job_id, **result, "generation_tokens": session.generation_tokens},
+            {
+                "job_id": job_id,
+                **result,
+                "generation_tokens": session.generation_tokens,
+                "input_tokens": budget["inputTokens"],
+                "budget": budget,
+            },
         )
         session.emit(
             "generation.completed", {"job_id": job_id, "finish_reason": result["finish_reason"]}
@@ -200,6 +186,7 @@ def generate_structured(session: Any, payload: dict[str, Any]) -> None:
             "generation.failed",
             {
                 "job_id": job_id,
+                "budget": getattr(error, "budget", {}),
                 "error_code": str(error)
                 if isinstance(error, ValueError)
                 else "STRUCTURED_INFERENCE_FAILED",
@@ -233,11 +220,30 @@ def _generate_native(session: Any, rendered: str, payload: dict[str, Any]) -> st
     else:
         raise ValueError("TOOL_ENGINE_UNSUPPORTED")
     parts: list[str] = []
+    size = 0
+    visible = ""
+    tool_started = False
     for response in responses:
         if session.cancel.is_set() or session.shutdown.is_set():
             break
         session.record_completion(response)
-        parts.append(str(response.text))
+        chunk = str(response.text)
+        size += len(chunk.encode())
+        if size > MAX_RESULT_BYTES:
+            raise ValueError("INFERENCE_RESULT_TOO_LARGE")
+        parts.append(chunk)
+        if not tool_started:
+            visible += chunk
+            marker = visible.find("<tool_call>")
+            tool_started = marker >= 0
+            # Hold a possible marker prefix across chunk boundaries.
+            count = marker if tool_started else max(0, len(visible) - len("<tool_call>"))
+            for part in text_parts(visible[:count]):
+                session.emit("text.delta", {"job_id": payload["job_id"], "text": part})
+            visible = visible[count:]
+    if not tool_started:
+        for part in text_parts(visible):
+            session.emit("text.delta", {"job_id": payload["job_id"], "text": part})
     if session.generation_tokens >= payload["max_tokens"]:
         session.finish_reason = "length"
     return "".join(parts)

@@ -61,6 +61,8 @@ class MessageView(ReadModel):
 
 
 class ConversationView(ReadModel):
+    nextCursor: str | None = None
+    activeJobId: str | None = None
     pinned: bool = False
     webSearchEnabled: bool = False
     id: str
@@ -79,6 +81,9 @@ class ChatSubmission(ReadModel):
 
 
 class RuntimeInfo(ReadModel):
+    worker_epoch: int = 0
+    worker_phase: str = "stopped"
+    loading_model_id: str | None = None
     version: str
     protocol_version: int
     pid: int
@@ -122,6 +127,8 @@ class JobSnapshot(JobView):
 
 
 class ErrorInfo(BaseModel):
+    phase: str | None = None
+    recoveryActions: list[str] = Field(default_factory=list)
     code: str
     message: str
     retryable: bool
@@ -156,7 +163,7 @@ class ChatMessageRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     content: str = Field(default="", max_length=200_000)
     model_id: str = Field(min_length=1, max_length=200)
-    max_tokens: int = Field(default=4096, ge=1, le=8192)
+    max_tokens: int = Field(default=1024, ge=1, le=8192)
     temperature: float = Field(default=0.7, ge=0, le=2)
     attachment_ids: list[str] = Field(default_factory=list, max_length=8)
     client_request_id: str | None = Field(default=None, min_length=1, max_length=100)

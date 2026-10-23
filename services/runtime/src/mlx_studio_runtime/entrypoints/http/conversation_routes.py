@@ -3,7 +3,7 @@
 from collections.abc import Awaitable, Callable
 from typing import Any
 
-from fastapi import Depends, FastAPI
+from fastapi import Depends, FastAPI, Query
 
 from mlx_studio_runtime.composition_root import RuntimeApplication
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
@@ -47,8 +47,12 @@ def register_conversation_routes(
         dependencies=[Depends(authenticate)],
         response_model=ConversationView,
     )
-    async def get_conversation(conversation_id: str) -> dict[str, Any]:
-        return service.queries.conversation(conversation_id)
+    async def get_conversation(
+        conversation_id: str,
+        before: str | None = None,
+        limit: int = Query(default=50, ge=1, le=100),
+    ) -> dict[str, Any]:
+        return service.queries.conversation(conversation_id, before, limit)
 
     @app.patch(
         "/internal/v1/conversations/{conversation_id}",

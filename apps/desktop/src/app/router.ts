@@ -19,6 +19,16 @@ export const router = createRouter({
       meta: { workspace: 'coding' },
       component: () => import('../modules/coding/pages/CodingPage.vue'),
     },
+    {
+      path: '/agent-chat',
+      meta: { navKey: 'chat' },
+      props: (route) => ({
+        standalone: true,
+        initialSessionId:
+          typeof route.query.sessionId === 'string' ? route.query.sessionId : undefined,
+      }),
+      component: () => import('../capabilities/extensions/presentation/AgentChat.vue'),
+    },
     { path: '/models', component: () => import('../modules/models/pages/ModelsPage.vue') },
     {
       path: '/image-studio',

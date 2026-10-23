@@ -1,5 +1,6 @@
 """Explicit two-phase collection. No automatic collector is enabled by this release."""
 
+import json
 import shutil
 import time
 import uuid
@@ -10,6 +11,10 @@ from mlx_studio_runtime.adapters.persistence.sqlite_database import SQLiteDataba
 class AttachmentGC:
     def __init__(self, database: SQLiteDatabase) -> None:
         self.database = database
+        database.connection.execute(
+            "CREATE TABLE IF NOT EXISTS resource_protections "
+            "(resource_id TEXT, owner TEXT, expires_at INTEGER, PRIMARY KEY(resource_id,owner))"
+        )
 
     def claim(self, attachment_id: str, grace_seconds: int = 86400) -> str | None:
         uuid.UUID(attachment_id)
@@ -34,6 +39,11 @@ class AttachmentGC:
             return token
 
     def _referenced(self, attachment_id: str) -> bool:
+        if self.database.connection.execute(
+            "SELECT 1 FROM resource_protections WHERE resource_id=? AND expires_at>?",
+            (attachment_id, int(time.time())),
+        ).fetchone():
+            return True
         for table in ("message_attachments", "job_attachment_refs", "artifact_attachment_refs"):
             if self.database.connection.execute(
                 f"SELECT 1 FROM {table} WHERE attachment_id=? LIMIT 1", (attachment_id,)
@@ -64,9 +74,22 @@ class AttachmentGC:
         ).fetchone()
         if row is None:
             return False
+        if self._referenced(attachment_id):
+            return False
+        metadata = self.database.connection.execute(
+            "SELECT * FROM attachments WHERE id=?", (attachment_id,)
+        ).fetchone()
+        preparations = self.database.connection.execute(
+            "SELECT * FROM attachment_preparations WHERE attachment_id=?", (attachment_id,)
+        ).fetchall()
         root = self.database.media_path
         trash = root / ".trash" / f"attachment-{attachment_id}-{token}"
         trash.mkdir(parents=True, exist_ok=True)
+        record = {
+            "attachment": dict(metadata),
+            "preparations": [dict(item) for item in preparations],
+        }
+        (trash / "record.json").write_text(json.dumps(record))
         source = root / row[0]
         if source.parent.resolve() != (root / "attachments").resolve() or source.is_symlink():
             return False

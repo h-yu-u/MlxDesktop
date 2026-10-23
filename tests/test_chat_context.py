@@ -20,7 +20,7 @@ class ChatContextTests(unittest.TestCase):
             {"id": "a", "text": "经济增长" * 100},
             {"id": "b", "text": "人工智能" * 100},
         ]
-        selected = select_blocks(blocks, "人工智能情况如何", 1500)
+        selected = select_blocks(blocks, "人工智能情况如何", 600)
         self.assertEqual([block["id"] for block in selected], ["b"])
         snapshot = build_context(
             "人工智能情况如何",
@@ -35,7 +35,7 @@ class ChatContextTests(unittest.TestCase):
                 }
             ],
             [],
-            4096,
+            2300,
             1000,
             0,
         )

@@ -6,7 +6,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 from urllib.error import URLError
 from urllib.parse import parse_qs, urlparse
 
@@ -148,9 +148,11 @@ class HubCatalogApiTests(unittest.TestCase):
             headers = {"Authorization": "Bearer download-test"}
             with (
                 TestClient(app) as client,
-                patch(
-                    "huggingface_hub.snapshot_download",
-                    return_value=str(model_dir),
+                patch.object(
+                    app.state.service.downloads,
+                    "download",
+                    new_callable=AsyncMock,
+                    return_value=(model_dir, "resolved"),
                 ) as download,
                 patch(
                     "huggingface_hub.HfApi.model_info",
@@ -166,9 +168,7 @@ class HubCatalogApiTests(unittest.TestCase):
                     headers=headers,
                 )
                 self.assertEqual(result.status_code, 200)
-                self.assertEqual(
-                    download.call_args.kwargs["repo_id"], "community/selected-mlx"
-                )
+                self.assertEqual(download.call_args.args[0], "community/selected-mlx")
                 models = client.get("/internal/v1/models", headers=headers).json()
                 model = next(
                     item for item in models if item["id"] == result.json()["modelId"]

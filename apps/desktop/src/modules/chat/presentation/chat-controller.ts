@@ -1,3 +1,4 @@
+import { deriveTaskReadiness } from '../../../capabilities/models'
 import { createExportOperation } from '../../../shared/lib/export-operation'
 import type { FileExportResult } from '../../../shared/lib/file-export'
 import type { ExtensionSelection } from '@mlx-studio/api-client'
@@ -27,6 +28,7 @@ interface ChatDependencies {
   draftFactory?: (
     conversationId: Ref<string | null>,
   ) => ReturnType<typeof createChatDraftController>
+  runtimeAvailable?(): boolean
   models: Readonly<Ref<readonly ModelSummary[]>>
   refreshModels(): Promise<void>
   exportText(content: string, filename: string): Promise<FileExportResult>
@@ -43,12 +45,20 @@ export function createChatController(deps: ChatDependencies) {
   const conversationId = ref<string | null>(null)
   const selectedModelId = ref('')
   const pending = ref(false)
-  const maxTokens = ref(4096)
+  const maxTokens = ref(1024)
+  const nextCursor = ref<string | null>(null)
   const temperature = ref(0.7)
   const models = computed(() =>
     deps.models.value
       .filter((model) => model.outputModalities.includes('text'))
       .map((model) => ({ ...model, multiImage: model.capabilities.multiImage === true })),
+  )
+  const readiness = computed(() =>
+    deriveTaskReadiness(
+      deps.models.value.find((item) => item.id === selectedModelId.value),
+      { available: deps.runtimeAvailable?.() ?? true },
+      { output: 'text' },
+    ),
   )
   const busy = computed(() => state.value.status === 'sending')
   const submission = new SubmitChat(deps.gateway)
@@ -79,6 +89,7 @@ export function createChatController(deps: ChatDependencies) {
   })
 
   function present(item: Conversation, selectModel = true): void {
+    nextCursor.value = item.nextCursor ?? null
     drafts?.restore(item)
     conversationId.value = item.id
     if (selectModel) selectedModelId.value = item.modelId ?? selectedModelId.value
@@ -91,14 +102,46 @@ export function createChatController(deps: ChatDependencies) {
         finishReason: message.parameters.finishReason === 'length' ? 'length' : undefined,
       }))
     state.value = reduceChatState(state.value, { type: 'conversation.loaded', messages })
+    if (item.activeJobId)
+      state.value = {
+        ...state.value,
+        status: 'sending',
+        activeJobId: item.activeJobId,
+        messages: [
+          ...messages,
+          { id: item.activeJobId, role: 'assistant', content: '', state: 'streaming' },
+        ],
+      }
   }
   async function openConversation(id: string): Promise<void> {
-    if (busy.value || pending.value) return
+    if (pending.value) return
+    stream.dispose()
     const epoch = ++readEpoch
     readAbort?.abort()
     readAbort = new AbortController()
     const item = await deps.gateway.get(id, readAbort.signal)
-    if (epoch === readEpoch) present(item)
+    if (epoch === readEpoch) {
+      present(item)
+      await stream.resume()
+    }
+  }
+  async function loadMore(): Promise<void> {
+    const id = conversationId.value,
+      cursor = nextCursor.value,
+      owner = readEpoch
+    if (!id || !cursor || !deps.gateway.page) return
+    const page = await deps.gateway.page(id, cursor)
+    if (owner !== readEpoch || cursor !== nextCursor.value || id !== conversationId.value) return
+    const known = new Set(state.value.messages.map((item) => item.id))
+    const older = page.messages
+      .filter((item) => !known.has(item.id))
+      .map((item) => ({
+        ...item,
+        role: item.role === 'user' ? ('user' as const) : ('assistant' as const),
+        state: 'complete' as const,
+      }))
+    state.value = { ...state.value, messages: [...older, ...state.value.messages] }
+    nextCursor.value = page.nextCursor ?? null
   }
   async function loadWorkspace(): Promise<void> {
     viewActive = true
@@ -129,7 +172,8 @@ export function createChatController(deps: ChatDependencies) {
     }
   }
   async function newConversation(): Promise<void> {
-    if (busy.value || pending.value) return
+    if (pending.value) return
+    stream.dispose()
     pending.value = true
     try {
       const item = await deps.gateway.create(selectedModelId.value)
@@ -183,6 +227,7 @@ export function createChatController(deps: ChatDependencies) {
     files: File[] = [],
     selection?: ExtensionSelection,
   ): Promise<boolean> {
+    if (!readiness.value.submitAllowed) return false
     const draft = drafts?.draft.value.text === content ? drafts.draft.value : undefined
     if (
       (!content.trim() && !files.length && !draft?.attachments.length) ||
@@ -237,7 +282,7 @@ export function createChatController(deps: ChatDependencies) {
   }
   function resetParameters(): void {
     if (!busy.value && !pending.value) {
-      maxTokens.value = 4096
+      maxTokens.value = 1024
       temperature.value = 0.7
     }
   }
@@ -263,6 +308,7 @@ export function createChatController(deps: ChatDependencies) {
   }
   return {
     state,
+    readiness,
     models,
     conversations,
     conversationId,
@@ -271,6 +317,8 @@ export function createChatController(deps: ChatDependencies) {
     maxTokens,
     temperature,
     busy,
+    nextCursor,
+    loadMore,
     loadWorkspace,
     newConversation,
     clearConversation,

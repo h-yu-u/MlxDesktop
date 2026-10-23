@@ -21,6 +21,8 @@ class CapabilityLedger:
                 job_id TEXT, outcome TEXT NOT NULL, request_json TEXT NOT NULL,
                 PRIMARY KEY(run_id,invocation_id)
             );
+            CREATE INDEX IF NOT EXISTS capability_dispatch_job
+                ON capability_dispatches(job_id) WHERE job_id IS NOT NULL;
             UPDATE capability_scopes SET state='interrupted' WHERE state!='closed';
             UPDATE capability_dispatches SET outcome='interrupted' WHERE outcome='reserved';
             INSERT OR IGNORE INTO schema_migrations(version,applied_at)

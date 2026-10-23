@@ -183,6 +183,7 @@ def fake_text_manifest() -> ModelManifest:
     return ModelManifest(
         id="builtin-fake-text",
         display_name="Fake Text Engine (Development)",
+        context_length=32768,
         source="builtin",
         local_path="fake://text",
         engine="fake",

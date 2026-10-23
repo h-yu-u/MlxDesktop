@@ -1,3 +1,4 @@
+import { deriveTaskReadiness } from './task-readiness'
 import type { ModelSummary } from './directory'
 export interface ModelOptionView {
   id: string
@@ -13,10 +14,12 @@ export function modelOptions(
   return models
     .filter((model) => model.outputModalities.includes(modality))
     .map((model) => {
+      const readiness = deriveTaskReadiness(model, { available: true }, { output: modality })
       const reason =
-        model.engine === 'unknown'
+        readiness.blockers[0]?.recovery ??
+        (model.engine === 'unknown'
           ? '模型架构尚未适配'
-          : (model.speech?.unavailableReason ?? undefined)
+          : (model.speech?.unavailableReason ?? undefined))
       return {
         id: model.id,
         label: model.displayName,

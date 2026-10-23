@@ -13,6 +13,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
+from mlx_studio_runtime.adapters.data_profiles import profile_base
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.generated.coding_rpc import SCHEMA, RpcMethod
 from mlx_studio_runtime.domain.rpc_validation import validate_rpc
@@ -68,6 +69,9 @@ class AgentHost:
                         "LANG": "en_US.UTF-8",
                         "HOME": str(Path.home()),
                         "PI_CODING_AGENT_DIR": str(self.directory / "pi"),
+                        "MLX_STUDIO_PROFILE_ROOT": str(
+                            profile_base(self.directory.parent / "app.db")
+                        ),
                     },
                     limit=16 * 1024 * 1024,
                 )

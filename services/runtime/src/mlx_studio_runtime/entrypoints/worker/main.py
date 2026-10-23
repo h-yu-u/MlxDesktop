@@ -14,6 +14,12 @@ from mlx_studio_runtime.adapters.worker_runtime.cancellation import WorkerCancel
 from mlx_studio_runtime.adapters.worker_runtime.context import WorkerContext
 from mlx_studio_runtime.adapters.worker_runtime.runtime import WorkerRuntime
 from mlx_studio_runtime.domain.speech import speech_error_code
+from mlx_studio_runtime.domain.worker_protocol import (
+    LIMITS,
+    MAX_FRAME_BYTES,
+    MAX_RESULT_BYTES,
+    text_parts,
+)
 
 logging.basicConfig(stream=sys.stderr, level=logging.INFO)
 LOGGER = logging.getLogger("mlx_studio.worker")
@@ -21,32 +27,49 @@ LOGGER = logging.getLogger("mlx_studio.worker")
 
 class Worker:
     def __init__(self) -> None:
-        self.commands: queue.Queue[dict[str, Any]] = queue.Queue()
+        self.commands: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=32)
         self.context = WorkerContext(self.emit)
         self.runtime = WorkerRuntime(self.context)
         self.cancel, self.shutdown = self.context.signals
         self.cancellation = WorkerCancellation(self.cancel)
         self.sequence = 0
+        self.epoch = str(uuid.uuid4())
+        self.attempt_id: str | None = None
         self.protocol_lock = threading.Lock()
         self.protocol_output = sys.stdout
 
     def emit(self, event_type: str, payload: dict[str, Any]) -> None:
+        if event_type == "generation.result":
+            serialized = json.dumps(payload, ensure_ascii=False)
+            if len(serialized.encode()) > MAX_RESULT_BYTES:
+                raise ValueError("INFERENCE_RESULT_TOO_LARGE")
+            if len(serialized.encode()) > 64 * 1024:
+                for part in text_parts(serialized):
+                    self.emit("generation.result.part", {"job_id": payload["job_id"], "text": part})
+                self.emit("generation.result.end", {"job_id": payload["job_id"]})
+                return
         with self.protocol_lock:
             self.sequence += 1
             frame = {
                 "protocol_version": PROTOCOL_VERSION,
                 "seq": self.sequence,
+                "worker_epoch": self.epoch,
+                "attempt_id": self.attempt_id,
+                "item_id": str(payload.get("job_id", "worker")) + ":assistant",
                 "type": event_type,
                 "payload": payload,
             }
-            self.protocol_output.write(
-                json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n"
-            )
+            serialized = json.dumps(frame, ensure_ascii=False, separators=(",", ":")) + "\n"
+            if len(serialized.encode()) > MAX_FRAME_BYTES:
+                raise ValueError("WORKER_FRAME_TOO_LARGE")
+            self.protocol_output.write(serialized)
             self.protocol_output.flush()
 
     def read_commands(self) -> None:
         for line in sys.stdin:
             try:
+                if len(line.encode()) > MAX_FRAME_BYTES:
+                    raise ValueError("WORKER_FRAME_TOO_LARGE")
                 command = json.loads(line)
                 self._validate_command(command)
             except (json.JSONDecodeError, ValueError) as error:
@@ -56,9 +79,16 @@ class Worker:
                 return
             if command["type"] == "generation.cancel":
                 self.cancellation.cancel(str(command.get("payload", {}).get("job_id", "")))
+                continue
             if command["type"] == "worker.shutdown":
                 self.shutdown.set()
-            self.commands.put(command)
+                continue
+            try:
+                self.commands.put_nowait(command)
+            except queue.Full:
+                self.emit("worker.protocol_error", {"message": "WORKER_QUEUE_FULL"})
+                self.shutdown.set()
+                return
         # The Supervisor can exit without a shutdown command (for example after a crash).
         self.shutdown.set()
 
@@ -74,7 +104,7 @@ class Worker:
             raise ValueError("payload must be an object")
 
     def run(self) -> int:
-        self.emit("worker.ready", {"worker_id": str(uuid.uuid4())})
+        self.emit("worker.ready", {"worker_id": self.epoch, "limits": LIMITS})
         threading.Thread(target=self.read_commands, daemon=True).start()
         while not self.shutdown.is_set():
             try:
@@ -105,6 +135,7 @@ class Worker:
         return 0
 
     def handle(self, command: dict[str, Any]) -> None:
+        self.attempt_id = command.get("id")
         if command["type"] in {"audio.start", "image.start", "inference.start", "generation.start"}:
             job_id = str(command.get("payload", {}).get("job_id", ""))
             if not self.cancellation.begin(job_id):

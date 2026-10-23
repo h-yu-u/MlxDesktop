@@ -13,6 +13,7 @@ from mlx_studio_runtime.entrypoints.http.contracts import (
     ModelPullRequest,
     ModelView,
 )
+from mlx_studio_runtime.entrypoints.http.download_contracts import DownloadView
 from mlx_studio_runtime.entrypoints.http.model_catalog import register_model_catalog_routes
 
 
@@ -51,6 +52,44 @@ def register_model_routes(
     @app.post("/internal/v1/models/import", dependencies=[Depends(authenticate)])
     async def import_model(body: ModelPathRequest) -> dict[str, Any]:
         return await service.catalog.scan_model(Path(body.path))
+
+    @app.get(
+        "/internal/v1/downloads",
+        dependencies=[Depends(authenticate)],
+        response_model=list[DownloadView],
+    )
+    async def downloads() -> list[dict[str, Any]]:
+        return service.downloads.list()
+
+    @app.post(
+        "/internal/v1/downloads", dependencies=[Depends(authenticate)], response_model=DownloadView
+    )
+    async def start_download(body: ModelPullRequest) -> dict[str, Any]:
+        return service.downloads.start(body.repo_id, body.revision)
+
+    @app.post(
+        "/internal/v1/downloads/{identifier}/pause",
+        dependencies=[Depends(authenticate)],
+        response_model=DownloadView,
+    )
+    async def pause_download(identifier: str) -> dict[str, Any]:
+        return await service.downloads.stop(identifier)
+
+    @app.post(
+        "/internal/v1/downloads/{identifier}/cancel",
+        dependencies=[Depends(authenticate)],
+        response_model=DownloadView,
+    )
+    async def cancel_download(identifier: str) -> dict[str, Any]:
+        return await service.downloads.stop(identifier, cancel=True)
+
+    @app.post(
+        "/internal/v1/downloads/{identifier}/resume",
+        dependencies=[Depends(authenticate)],
+        response_model=DownloadView,
+    )
+    async def resume_download(identifier: str) -> dict[str, Any]:
+        return service.downloads.resume(identifier)
 
     @app.post("/internal/v1/models/pull", dependencies=[Depends(authenticate)])
     async def pull_model(body: ModelPullRequest) -> dict[str, str]:

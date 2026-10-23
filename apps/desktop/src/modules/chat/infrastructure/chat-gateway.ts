@@ -12,6 +12,8 @@ export function createChatGateway(provider: () => Promise<RuntimeClient>) {
     list: async () => (await endpoints()).conversations.list(),
     get: async (id: string, signal?: AbortSignal) =>
       (await endpoints()).conversations.get(id, signal),
+    page: async (id: string, before: string, signal?: AbortSignal) =>
+      (await endpoints()).conversations.page(id, before, signal),
     create: async (modelId: string) => (await endpoints()).conversations.create(modelId),
     update: async (id: string, patch: ConversationPatch) =>
       (await endpoints()).conversations.update(id, patch),

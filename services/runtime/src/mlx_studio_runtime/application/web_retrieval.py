@@ -5,7 +5,6 @@ import hashlib
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from typing import Any
-from urllib.parse import urlsplit, urlunsplit
 
 from mlx_studio_runtime.application.web_ports import (
     PageReader,
@@ -14,7 +13,7 @@ from mlx_studio_runtime.application.web_ports import (
     SecretStore,
 )
 from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
-from mlx_studio_runtime.domain.web import PageRead, SearchHit, WebConfig
+from mlx_studio_runtime.domain.web import PageRead, SearchHit, WebConfig, public_result_url
 
 
 class WebRetrieval:
@@ -41,9 +40,10 @@ class WebRetrieval:
                 credential = await asyncio.to_thread(self.secrets.resolve, config.secret_ref)
                 await phase("searching")
                 hits = await self.search.search(query, config, credential)
-                selected = await self._select_results(hits)
+                selected = self._select_results(hits)
+                read_urls = [url for _, url in selected if await self.policy.allowed(url)]
                 await phase("reading_sources")
-                reads = await self._read([url for _, url in selected], config, credential)
+                reads = await self._read(read_urls, config, credential)
                 by_url = {item.url: item.text for item in reads}
                 sources: list[dict[str, Any]] = []
                 retrieved_at = datetime.now(UTC).isoformat()
@@ -66,7 +66,11 @@ class WebRetrieval:
                     )
                 if not sources:
                     raise RuntimeFault(
-                        RuntimeErrorInfo("WEB_NO_RESULTS", "未取得可用网页资料", True)
+                        RuntimeErrorInfo(
+                            "WEB_NO_RESULTS",
+                            "搜索服务已连接，但未取得可用正文或摘要，请更换问题后重试",
+                            True,
+                        )
                     )
                 return {
                     "sources": sources,
@@ -79,24 +83,13 @@ class WebRetrieval:
                 RuntimeErrorInfo("WEB_SEARCH_TIMEOUT", "联网检索超过总时限", True)
             ) from error
 
-    async def _select_results(self, hits: list[SearchHit]) -> list[tuple[SearchHit, str]]:
+    @staticmethod
+    def _select_results(hits: list[SearchHit]) -> list[tuple[SearchHit, str]]:
         selected = []
         seen: set[str] = set()
         for hit in hits:
-            try:
-                parsed = urlsplit(hit.url)
-                url = urlunsplit(
-                    (
-                        parsed.scheme.lower(),
-                        parsed.netloc.lower(),
-                        parsed.path,
-                        parsed.query,
-                        "",
-                    )
-                )
-            except ValueError:
-                continue
-            if url not in seen and await self.policy.allowed(url):
+            url = public_result_url(hit.url)
+            if url and url not in seen:
                 selected.append((hit, url))
                 seen.add(url)
             if len(selected) == 3:

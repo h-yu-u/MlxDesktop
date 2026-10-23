@@ -12,6 +12,7 @@ interface Submission {
   text: string
   mode: CodingMode
   queue: boolean
+  verifyAfter?: boolean
   selection?: ExtensionSelection
 }
 interface Dependencies {
@@ -23,7 +24,11 @@ interface Dependencies {
 export async function submitCodingRun(input: Submission, deps: Dependencies): Promise<CodingRun> {
   await deps.ensure(input.modelId)
   const { sessionId, ...fields } = input
-  const request = { ...fields, submissionId: deps.createId() }
+  const request = {
+    ...fields,
+    verifyAfter: fields.verifyAfter ?? false,
+    submissionId: deps.createId(),
+  }
   try {
     return await deps.gateway.submit(sessionId, request)
   } catch (cause) {

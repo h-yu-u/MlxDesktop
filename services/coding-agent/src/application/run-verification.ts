@@ -1,4 +1,5 @@
-import type { PiSession } from './ports.js'
+import type { PiSession, RepositoryPort, RunPorts } from './ports.js'
+import { completedRunPatch } from '../domain/verification.js'
 import type { Run, Project } from '../domain/types.js'
 import { randomUUID } from 'node:crypto'
 import { checkModel } from './model-result.js'
@@ -25,12 +26,23 @@ export async function promptAndVerify(input: {
   }
   for (
     let repair = 0;
-    (probe || verifyOnly) && !abort.signal.aborted && commands.length && run.mode === 'develop';
+    !abort.signal.aborted && commands.length && run.mode === 'develop';
     repair++
   ) {
     let passed = true
     for (const command of commands) {
-      const result = await input.command(`verify-${randomUUID()}`, command, abort.signal, probe)
+      let result
+      try {
+        result = await input.command(`verify-${randomUUID()}`, command, abort.signal, probe)
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          (error.message === 'VERIFICATION_PLAN_CHANGED' ||
+            (error.message === 'APPROVAL_DENIED' && !verifyOnly))
+        )
+          return
+        throw error
+      }
       if (result.exitCode !== 0) passed = false
     }
     if (passed || repair >= run.maxRepairRounds || verifyOnly) break
@@ -41,4 +53,18 @@ export async function promptAndVerify(input: {
   }
   if (abort.signal.aborted) throw new Error('CANCELLED')
   if (!verifyOnly) checkModel(pi)
+}
+
+export async function finalizeRun(input: {
+  repo: RepositoryPort
+  ports: RunPorts
+  run: Run
+  root: string
+}): Promise<Partial<Run>> {
+  const fingerprint = await input.ports.fingerprint(input.root)
+  return completedRunPatch(
+    input.repo.get('run', input.run.id),
+    input.repo.checksForRun(input.run.id),
+    fingerprint,
+  )
 }

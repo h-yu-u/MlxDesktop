@@ -21,6 +21,7 @@ export interface ChatState {
   messages: ChatMessage[]
   activeJobId: string | null
   status: 'idle' | 'loading' | 'sending' | 'error'
+  errorCode?: string
   error: string | null
 }
 
@@ -29,7 +30,7 @@ export type ChatEvent =
   | { type: 'generation.delta'; jobId: string; text: string }
   | { type: 'generation.completed'; jobId: string; finishReason?: 'length' }
   | { type: 'generation.cancelled'; jobId: string }
-  | { type: 'generation.failed'; jobId: string; message: string }
+  | { type: 'generation.failed'; jobId: string; message: string; code?: string }
   | { type: 'conversation.loaded'; messages: ChatMessage[] }
   | { type: 'reset' }
 
@@ -85,6 +86,7 @@ export function reduceChatState(state: ChatState, event: ChatEvent): ChatState {
         activeJobId: null,
         status: 'error',
         error: event.message,
+        errorCode: event.code,
         messages: state.messages.map((message) =>
           message.id === event.jobId ? { ...message, state: 'error' } : message,
         ),

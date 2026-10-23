@@ -1,3 +1,5 @@
+import { evaluateToolPolicy } from '../domain/tool-policy.js'
+import { approvalBinding } from './approval-binding.js'
 import { ToolGateway } from './tool-gateway.js'
 import type { Tool } from '../extensions/domain/types.js'
 import type { Project, Run } from '../domain/types.js'
@@ -65,8 +67,9 @@ export class RunPolicy {
   ): Promise<void> {
     this.check()
     const { run, project, approvals, abort, update } = this.input
-    if (tool.risk === 'read') return
-    if (run.mode !== 'develop') throw new Error('READ_ONLY_MODE')
+    const policy = evaluateToolPolicy({ mode: run.mode, risk: tool.risk })
+    if (policy.decision === 'deny') throw new Error(policy.code)
+    if (policy.decision === 'allow') return
     update({ status: 'awaiting_approval' })
     const allowed = await approvals.request(
       {
@@ -74,7 +77,7 @@ export class RunPolicy {
         sessionId: run.sessionId,
         toolCallId: id,
         action: 'mcp',
-        parameters: { toolId: tool.id, schemaDigest: tool.schemaDigest, args },
+        parameters: approvalBinding(tool, args, run.capabilitySnapshot),
         command: `MCP ${tool.serverId} / ${tool.originalName}`,
         cwd: project.path,
       },

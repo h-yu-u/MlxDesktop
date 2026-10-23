@@ -1,3 +1,4 @@
+import { modelFixture } from '../../../test-fixtures/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { ref } from 'vue'
 import { RuntimeError } from '@mlx-studio/api-client'
@@ -103,7 +104,7 @@ function fixture() {
     observe = vi.fn(() => release)
   const controller = createCodingController({
     gateway,
-    models: ref([]),
+    models: ref([modelFixture({ id: 'fake' })]),
     refreshModels: vi.fn(async () => {}),
     pickDirectory: vi.fn(async () => null),
     observe,

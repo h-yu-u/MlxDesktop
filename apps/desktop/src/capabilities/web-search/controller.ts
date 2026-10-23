@@ -14,6 +14,9 @@ type Verification =
       revision: number
       elapsedMs?: number
       message?: string
+      partial?: boolean
+      sourceCount?: number
+      readCount?: number
     }
 export function createWebSearchController(gateway: WebSearchGateway) {
   const settings = ref<WebSettings | null>(null),
@@ -102,6 +105,9 @@ export function createWebSearchController(gateway: WebSearchGateway) {
         configId: config.id,
         revision: config.revision,
         elapsedMs: result.elapsedMs,
+        partial: result.partial === true,
+        sourceCount: result.sourceCount ?? undefined,
+        readCount: result.readCount ?? undefined,
       }
       if (!result.ok) error.value = '此配置测试失败'
       return result.ok

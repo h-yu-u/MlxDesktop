@@ -23,6 +23,7 @@ class Queries:
         lifecycle: JobLifecycle,
         image_path: Callable[[str], Path],
         contexts: ChatContexts | None = None,
+        thumbnail_path: Callable[[str], Path] | None = None,
     ) -> None:
         self.conversations = conversations
         self.jobs = jobs
@@ -30,11 +31,15 @@ class Queries:
         self.lifecycle = lifecycle
         self.image_path = image_path
         self.contexts = contexts
+        self.thumbnail_path = thumbnail_path
 
-    def conversation(self, conversation_id: str) -> dict[str, Any]:
-        item = self.conversations.get(conversation_id)
+    def conversation(
+        self, conversation_id: str, before: str | None = None, limit: int = 50
+    ) -> dict[str, Any]:
+        item = self.conversations.page(conversation_id, before, limit)
         if item is None:
             raise RuntimeFault(RuntimeErrorInfo("CONVERSATION_NOT_FOUND", "找不到此会话"))
+        item["activeJobId"] = self.contexts.busy(conversation_id) if self.contexts else None
         return item
 
     def rename(self, conversation_id: str, title: str) -> dict[str, Any]:
@@ -80,6 +85,11 @@ class Queries:
                 ]
             except RuntimeFault:
                 pass  # Legacy/unfinished jobs have no context yet.
+        item["request"] = {
+            key: value
+            for key, value in request.items()
+            if key not in {"acceptedSnapshot", "content"}
+        }
         result_text = item.pop("resultText", "")
         return dict(
             item,
@@ -94,6 +104,9 @@ class Queries:
     def list_jobs(self) -> list[dict[str, Any]]:
         return self.jobs.list()
 
+    def task_summaries(self) -> list[dict[str, Any]]:
+        return self.jobs.task_summaries()
+
     def history(self, limit: int, offset: int) -> list[dict[str, Any]]:
         return self.images.list_artifacts(limit, offset)
 
@@ -103,5 +116,6 @@ class Queries:
             raise RuntimeFault(RuntimeErrorInfo("IMAGE_ARTIFACT_NOT_FOUND", "找不到此作品"))
         return item
 
-    def image_content(self, artifact_id: str) -> Path:
-        return self.image_path(str(self.image_artifact(artifact_id)["relative_path"]))
+    def image_content(self, artifact_id: str, thumbnail: bool = False) -> Path:
+        read = self.thumbnail_path if thumbnail and self.thumbnail_path else self.image_path
+        return read(str(self.image_artifact(artifact_id)["relative_path"]))

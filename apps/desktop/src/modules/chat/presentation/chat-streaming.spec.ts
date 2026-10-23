@@ -1,3 +1,4 @@
+import { modelFixture } from '../../../test-fixtures/runtime'
 import { ref } from 'vue'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { RuntimeEvent } from '@mlx-studio/api-client'
@@ -35,7 +36,7 @@ function setup() {
   }
   const controller = createChatController({
     gateway,
-    models: ref([]),
+    models: ref([modelFixture({ id: 'model' })]),
     refreshModels: vi.fn(),
     exportText: vi.fn(),
     observe: (_id, _after, event) => {
@@ -121,7 +122,7 @@ it('flushes pending text before cancellation and stops late output', async () =>
 })
 it('preserves truncation metadata when replacing the stream with persisted messages', async () => {
   const { controller, receive } = setup()
-  expect(controller.maxTokens.value).toBe(4096)
+  expect(controller.maxTokens.value).toBe(1024)
   await controller.send('hello')
   receive({ type: 'generation.delta', seq: 1, payload: { job_id: 'job', text: 'AB' } })
   receive({ type: 'job.succeeded', seq: 2, payload: { job_id: 'job', finish_reason: 'length' } })

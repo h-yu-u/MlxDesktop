@@ -50,7 +50,7 @@ it('explains truncation and offers continuing only when allowed', async () => {
   await wrapper.get('button').trigger('click')
   expect(wrapper.emitted('continue')).toHaveLength(1)
   await wrapper.setProps({ canContinue: false })
-  expect(wrapper.find('button').exists()).toBe(false)
+  expect(wrapper.findAll('button').some((button) => button.text().includes('继续'))).toBe(false)
   wrapper.unmount()
 })
 it('keeps unsafe HTML escaped after throttling', () => {

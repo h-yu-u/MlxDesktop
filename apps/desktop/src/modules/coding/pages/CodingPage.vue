@@ -60,7 +60,15 @@ function removeSession(item: CodingSession): void {
     content: `删除「${item.title}」的记录？项目文件会保留。`,
     positiveText: '删除',
     negativeText: '取消',
-    onPositiveClick: () => coding.removeSession(item.id),
+    onPositiveClick: async () => {
+      await coding.removeSession(item.id)
+      if (!coding.error && route.params.sessionId === item.id) {
+        const next = coding.sessions[0]
+        await router.replace(
+          next ? sessionUrl(next) : { path: '/coding', query: { projectId: item.projectId } },
+        )
+      }
+    },
   })
 }
 async function submit(): Promise<void> {
@@ -76,7 +84,10 @@ function routeText(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 onMounted(() => {
-  void coding.loadWorkspace(routeText(route.params.projectId), routeText(route.params.sessionId))
+  void coding.loadWorkspace(
+    routeText(route.params.projectId ?? route.query.projectId),
+    routeText(route.params.sessionId),
+  )
 })
 watch(
   () => route.params.sessionId,
@@ -179,12 +190,14 @@ onUnmounted(() => coding.dispose())
               :active-status="coding.active?.status"
               :models="coding.models"
               :model-id="coding.selectedModelId"
+              :verify-after="coding.verifyAfter"
               :mode="coding.mode"
               :ready="!!coding.selectedModelId"
               :busy="coding.busy"
               :pending="coding.pending"
               :enabled="!!coding.sessionId && !coding.snapshot?.session.archived"
               :current-session-active="currentSessionActive"
+              @verify="coding.verifyAfter = $event"
               @model="coding.selectedModelId = $event"
               @mode="coding.mode = $event"
               @submit="submit"
@@ -198,8 +211,10 @@ onUnmounted(() => coding.dispose())
                     kind: 'project',
                     scopeId: coding.projectId || 'unselected',
                   }"
+                  :verify-after="coding.verifyAfter"
                   :mode="coding.mode"
                   :disabled="coding.pending || !coding.projectId"
+                  @verify="coding.verifyAfter = $event"
                   @change="selection = $event" /></template
             ></CodingComposer>
           </template>

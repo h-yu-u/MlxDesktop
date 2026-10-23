@@ -49,6 +49,18 @@ export class RunCommands {
     if (signal.aborted) throw new Error('CANCELLED')
     this.input.update(id, { status: 'running' })
     if (!allowed) throw new Error('APPROVAL_DENIED')
+    const plan = run.verificationPlan
+    if (
+      verification &&
+      plan &&
+      (await this.input.ports.verificationManifest?.(project.path)) !== plan.manifestDigest
+    ) {
+      this.input.update(id, {
+        verificationPlan: { ...plan, invalid: true },
+        verification: 'partial',
+      })
+      throw new Error('VERIFICATION_PLAN_CHANGED')
+    }
     const before = await this.input.ports.fingerprint(project.path)
     const result = await this.input.ports.commands.run(command, project.path, signal)
     const after = await this.input.ports.fingerprint(project.path)
@@ -59,8 +71,16 @@ export class RunCommands {
       runId: id,
       command,
       ...result,
+      planDigest: plan?.digest,
       fingerprint: before,
-      stale: before !== after,
+      stale:
+        before !== after ||
+        !!(
+          verification &&
+          plan &&
+          (plan.manifestDigest.startsWith('partial:') ||
+            (await this.input.ports.verificationManifest?.(project.path)) !== plan.manifestDigest)
+        ),
     }
     this.input.repo.save('verification', check, 'verification.finished', result.output)
     this.input.update(id, {

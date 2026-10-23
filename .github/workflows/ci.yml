@@ -37,6 +37,8 @@ jobs:
 
   rust:
     runs-on: macos-14
+    env:
+      TAURI_CONFIG: '{"bundle":{"externalBin":[],"resources":[]}}'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

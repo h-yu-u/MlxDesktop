@@ -24,6 +24,9 @@ class ModelRuntime:
         self.create_worker = create_worker
         self.worker: InferenceWorker | None = None
         self.active_model_id: str | None = None
+        self.loading_model_id: str | None = None
+        self.epoch = 0
+        self.phase = "stopped"
         self.state = RuntimeState.READY
         self.worker_restarts = 0
 
@@ -73,35 +76,62 @@ class ModelRuntime:
         if self.active_model_id == model_id and self.worker is not None:
             return {"modelId": model_id, "state": "loaded"}
         await self.stop()
+        self.loading_model_id = model_id
+        self.phase = "loading"
+        self.epoch += 1
+        epoch = self.epoch
         self.repository.update_state(model_id, "loading")
         await self.events.publish("model.loading", {"model_id": model_id})
         worker = self.create_worker()
         self.worker = worker
         try:
             await worker.load(manifest.to_dict())
-        except Exception as error:
-            await worker.stop()
-            if self.worker is worker:
-                self.worker = None
-            self.repository.update_state(model_id, "error")
-            self.state = RuntimeState.DEGRADED
-            await self.events.publish("runtime.degraded", {"reason": "worker_load_failed"})
+        except BaseException as error:
+            await self.stop(worker)
+            if not isinstance(error, Exception):
+                if self.epoch == epoch and self.worker is None:
+                    self.state = RuntimeState.READY
+                raise
+            if self.epoch == epoch:
+                self.repository.update_state(model_id, "error")
+                self.state = RuntimeState.DEGRADED
+                self.phase = "failed"
+                await self.events.publish("runtime.degraded", {"reason": "worker_load_failed"})
             code = str(getattr(error, "code", "MODEL_LOAD_FAILED"))
             if code == "WORKER_COMMAND_FAILED":
                 code = "MODEL_LOAD_FAILED"
             raise RuntimeFault(RuntimeErrorInfo(code, "模型加载失败", True)) from error
+        if self.worker is not worker or self.epoch != epoch:
+            raise RuntimeFault(RuntimeErrorInfo("WORKER_REPLACED", "加载已被中断"))
+        self.loading_model_id = None
+        self.phase = "ready"
         self.active_model_id = model_id
         self.repository.update_state(model_id, "loaded")
         self.state = RuntimeState.READY
         await self.events.publish("model.loaded", {"model_id": model_id})
         return {"modelId": model_id, "state": "loaded"}
 
-    async def stop(self) -> None:
-        model_id = self.active_model_id
-        if self.worker:
-            await self.worker.stop()
+    async def stop(self, expected: InferenceWorker | None = None) -> None:
+        worker = self.worker
+        if expected is not None and worker is not expected:
+            await expected.stop()
+            return
+        model_id = self.active_model_id or self.loading_model_id
+        if worker:
+            self.phase = "stopping"
+            try:
+                await worker.stop()
+            except BaseException:
+                if self.worker is worker:
+                    self.state = RuntimeState.DEGRADED
+                    self.phase = "failed"
+                raise
+        if self.worker is not worker:
+            return
         self.worker = None
         self.active_model_id = None
+        self.loading_model_id = None
+        self.phase = "stopped"
         if model_id:
             self.repository.update_state(model_id, "available")
             await self.events.publish("model.unloaded", {"model_id": model_id})

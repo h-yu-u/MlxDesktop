@@ -1,3 +1,5 @@
+import { rpcSchema } from '../protocol/generated/schema.js'
+const limits = rpcSchema.$defs.CodingSettings.properties
 export interface Settings {
   id: string
   defaultModelId: string
@@ -7,7 +9,7 @@ export interface Settings {
 export const defaultSettings: Settings = {
   id: 'coding',
   defaultModelId: '',
-  contextBudget: 32768,
+  contextBudget: 1048576,
   maxRepairRounds: 2,
 }
 export function validateSettings(value: Record<string, unknown>): Settings {
@@ -18,11 +20,11 @@ export function validateSettings(value: Record<string, unknown>): Settings {
     typeof contextBudget !== 'number' ||
     !Number.isInteger(contextBudget) ||
     contextBudget < 4096 ||
-    contextBudget > 32768 ||
+    contextBudget > limits.contextBudget.maximum ||
     typeof maxRepairRounds !== 'number' ||
     !Number.isInteger(maxRepairRounds) ||
     maxRepairRounds < 0 ||
-    maxRepairRounds > 2
+    maxRepairRounds > limits.maxRepairRounds.maximum
   )
     throw new Error('INVALID_SETTINGS')
   return { id: 'coding', defaultModelId, contextBudget, maxRepairRounds }

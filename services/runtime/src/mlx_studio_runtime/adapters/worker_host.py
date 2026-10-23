@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from mlx_studio_runtime import PROTOCOL_VERSION
+from mlx_studio_runtime.domain.worker_protocol import LIMITS, MAX_FRAME_BYTES, MAX_RESULT_BYTES
 
 
 class WorkerProtocolError(RuntimeError):
@@ -30,7 +31,9 @@ class WorkerHost:
         self.audio_root = audio_root
         self.process: asyncio.subprocess.Process | None = None
         self.write_lock = asyncio.Lock()
+        self.stop_lock = asyncio.Lock()
         self.reader_task: asyncio.Task[None] | None = None
+        self.epoch: str | None = None
         self.last_sequence = 0
         self.active_job_id: str | None = None
 
@@ -63,10 +66,17 @@ class WorkerHost:
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             env=env,
+            limit=MAX_FRAME_BYTES + 1,
         )
         self.last_sequence = 0
+        self.epoch = None
         self.reader_task = asyncio.create_task(self._drain_stderr())
         event = await asyncio.wait_for(self._read_event(), timeout=10)
+        if event["payload"].get("limits") != LIMITS:
+            raise WorkerProtocolError("worker protocol limits mismatch")
+        self.epoch = event.get("worker_epoch")
+        if not self.epoch:
+            raise WorkerProtocolError("worker epoch missing")
         if event["type"] != "worker.ready":
             raise WorkerProtocolError("worker failed readiness handshake")
 
@@ -135,19 +145,23 @@ class WorkerHost:
             yield event
 
     async def stop(self) -> None:
+        async with self.stop_lock:
+            await self._stop()
+
+    async def _stop(self) -> None:
         if self.process is None:
             return
         if self.process.returncode is None:
             try:
                 await self._send("worker.shutdown", {})
                 await asyncio.wait_for(self.process.wait(), timeout=3)
-            except (TimeoutError, BrokenPipeError, WorkerProtocolError):
+            except (TimeoutError, BrokenPipeError, ConnectionResetError, WorkerProtocolError):
                 self.process.terminate()
                 try:
                     await asyncio.wait_for(self.process.wait(), timeout=2)
                 except TimeoutError:
                     self.process.kill()
-                    await self.process.wait()
+                    await asyncio.wait_for(self.process.wait(), timeout=2)
         if self.reader_task:
             await self.reader_task
         self.process = None
@@ -177,7 +191,10 @@ class WorkerHost:
                 "audio.start",
             }:
                 self.active_job_id = str(payload["job_id"])
-            self.process.stdin.write((json.dumps(frame) + "\n").encode())
+            serialized = (json.dumps(frame, ensure_ascii=False) + "\n").encode()
+            if len(serialized) > MAX_FRAME_BYTES:
+                raise WorkerProtocolError("worker command is too large", "WORKER_FRAME_TOO_LARGE")
+            self.process.stdin.write(serialized)
             await self.process.stdin.drain()
         return frame["id"]
 
@@ -185,6 +202,8 @@ class WorkerHost:
         if self.process is None or self.process.stdout is None:
             raise WorkerProtocolError("worker stdout is unavailable")
         line = await self.process.stdout.readline()
+        if len(line) > MAX_FRAME_BYTES:
+            raise WorkerProtocolError("worker frame too large", "WORKER_FRAME_TOO_LARGE")
         if not line:
             raise WorkerProtocolError("worker exited without an event")
         try:
@@ -195,6 +214,8 @@ class WorkerHost:
             raise WorkerProtocolError("worker event must be an object")
         if event.get("protocol_version") != PROTOCOL_VERSION:
             raise WorkerProtocolError("worker protocol version mismatch")
+        if self.epoch is not None and event.get("worker_epoch") != self.epoch:
+            raise WorkerProtocolError("stale worker epoch")
         if event.get("seq") != self.last_sequence + 1:
             raise WorkerProtocolError("worker event sequence is not monotonic")
         if not isinstance(event.get("payload"), dict) or not isinstance(event.get("type"), str):
@@ -206,6 +227,8 @@ class WorkerHost:
         while True:
             event = await asyncio.wait_for(self._read_event(), timeout=120)
             self._check_failure(event, command_id)
+            if event.get("attempt_id") != command_id:
+                raise WorkerProtocolError("stale worker attempt")
             if event["type"] == event_type:
                 return event
 
@@ -227,12 +250,33 @@ class WorkerHost:
         command_id: str | None = None,
     ) -> AsyncIterator[dict[str, Any]]:
         terminal = {"generation.completed", "generation.cancelled", "generation.failed"}
+        result_parts: list[str] = []
+        result_bytes = 0
         while True:
             event = await self._read_event()
             self._check_failure(event, command_id)
+            if command_id is not None and event.get("attempt_id") != command_id:
+                raise WorkerProtocolError("stale worker attempt")
             payload = event["payload"]
             if payload.get("job_id") != job_id:
                 raise WorkerProtocolError("Worker returned an event for another job")
+            if event["type"] == "generation.result.part":
+                part = str(payload["text"])
+                result_bytes += len(part.encode())
+                if result_bytes > MAX_RESULT_BYTES:
+                    raise WorkerProtocolError("result too large", "INFERENCE_RESULT_TOO_LARGE")
+                result_parts.append(part)
+                continue
+            if event["type"] == "generation.result.end":
+                try:
+                    event = {
+                        **event,
+                        "type": "generation.result",
+                        "payload": json.loads("".join(result_parts)),
+                    }
+                except json.JSONDecodeError as error:
+                    raise WorkerProtocolError("invalid result fragments") from error
+                result_parts = []
             yield event
             if event["type"] in terminal:
                 if self.active_job_id == job_id:

@@ -2,7 +2,7 @@
 
 [文档入口](./README.md) · [使用说明](./getting-started.md) · [架构](./architecture.md)
 
-本文根据当前实现与 2026-10-15 至 2026-10-19 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
+本文根据当前实现与 2026-10-15 至 2026-10-22 的本地验收结果整理。功能实现、FakeEngine 自动化和真实模型验证分别看待，不将单机结果扩展为全模型或正式发布结论。
 
 ## 已有实现
 
@@ -23,6 +23,45 @@
 实时指标更新已通过 `pnpm check`、前端 62 项和 Runtime 81 项测试、API 类型重复生成一致性与实际 App 构建。发布 Sidecar 验证系统总量/已用/可用一致、Worker 加载后占用大于零、卸载后归零；本机 64 MiB 映射申请/释放实验证明进程计数随当前占用升降。UI 已检查实时卡片、真实进度条、设置页同步及短窗口布局。证据位于忽略的 `.build/memory-validation/evidence.json`，App 内 Sidecar 与测试二进制哈希一致；没有新增依赖。
 
 本次架构重构的阶段 0–8 实施、数据兼容策略及完整本机证据见[重构验收记录](./refactor-2026-10-15.md)。用户已确认正式签名、公证和干净机器验收另行执行。
+
+## 产品与架构优化验收（2026-10-22）
+
+按《MlxDesktop 产品与架构优化技术方案》的 PR 0–9 完成代码落点，保留既有进程边界与数据所有权，未自动提交或推送。实现机制见[架构](./architecture.md#产品与架构优化2026-10-22)。
+
+| 批次 | 已实现与本轮验证 |
+|---|---|
+| PR 0 | NumPy 加入类型检查开发环境；Rust 静态 CI 禁用发行资源引用。开发资源配置下 fmt、clippy、Rust 测试通过。 |
+| PR 1 | 推理结果及成功状态共同提交；故障注入覆盖 result→EOF/failed、重复终态、落盘失败、取消竞争及大段中文/转义结果分片。 |
+| PR 2 | 统一预算和实际 usage、小窗口输出预留、Pi 压缩配置、可识别 overflow；长历史摘要保留早期约束与最近完整轮次，失败不替换原文，摘要可复用。 |
+| PR 3 | 加载中归属、epoch 隔离、取消回收、中断重启、降级接纳门禁。覆盖加载取消、旧实例清理和真实 Fake Worker 启停重启。 |
+| PR 4 | Pi 描述符在首轮 prompt 前保存；成功前校验已落盘叶节点，恢复校验身份、完整 JSONL 和父链；真实 Node 子进程首轮生成后 SIGKILL，恢复同一 Pi ID/文件，未完成 run 标记 interrupted。 |
+| PR 5 | Agent 游标增量观察、SQL 稳定分页与不可变消息引用。10001 条同秒消息遍历无重复；重新生成后旧正文仍能供排队上下文与消息转换读取。 |
+| PR 6 | 2001 文件可浏览，超大/不完整证据为 partial；外部编辑使证据过期。逐轮冻结 AGENTS；验证计划绑定配置摘要，配置变化或审批拒绝不误报 passed。 |
+| PR 7 | 统一 readiness、应用级任务中心、聊天页内工具助手入口、消息转换预览、生成中浏览其他会话、按错误类型恢复；工具助手不单列主菜单，任务中心保留会话直达；无扩展的普通消息可走空能力快照。 |
+| PR 8 | 实际增量文本、有限队列背压、失败不发成功 finish；真实 Pi SDK 接收部分文本后失败仍判断 error。图片按可见区域读取缩略图，原图独立缓存；浏览器验证 24→48→70 张及末页预览，缓存淘汰重取有自动化覆盖。 |
+| PR 9 | 固定 revision 下载、实际停止后暂停、重启对账、独立 I/O 队列；存储占用、显式清理、跨所有者保护、图片回收与恢复；各所有者一致快照、Pi 正文与文件 hash、独立 profile 恢复及幂等切换/回滚；普通任务可选择验证并有限修复。 |
+
+本轮质量检查包含 `pnpm check`、`pnpm test`（前端 236、Runtime 194、Coding Host 53、验收工具 8）、`pnpm build:web`、OpenAPI 重复生成与内部 RPC 漂移检查。Rust 使用 `TAURI_CONFIG='{"bundle":{"externalBin":[],"resources":[]}}'` 运行 fmt、clippy 和测试。Web 构建保留现有大 chunk 提示。
+
+任务中心入口位于主导航末尾，随导航参与页面布局；进行中和待批准任务通过角标及名称提示显示。桌面浏览器已验证状态栏无遮挡、点击可打开全局任务面板，小屏导航同步使用紧凑尺寸。
+
+任务聚合直接查询 SQL 摘要，不再重建历史聊天资料，兼容缺少 `turnId` 的旧任务且不读取提示词或回答正文。界面区分首次加载、读取失败和成功空列表；错误提供中文提示与重试，保留上次成功结果并说明状态可能过期。手动刷新复用当前请求并替换轮询计时器，旧观察者的迟到结果不覆盖新状态；模型目录刷新失败也不丢失任务列表。隔离浏览器已验证故障提示与重试恢复，本机开发 Runtime 需重新启动以加载后端修改。
+
+2026-10-23 任务中心按会话标识归并为卡片，用实际会话标题、所属工作区、最近记录时间和主任务状态描述任务，每张卡片仅保留一个打开入口。SQLite 通过持久化 dispatch 关联 Coding/Agent 父任务，内部推理步骤归入同一卡片并默认折叠；未关联的已结束历史推理不作为独立用户任务展示，活跃孤立任务仍可见。同名的不同会话不合并，旧失败步骤不覆盖主任务成功状态，角标与筛选按归并后的任务计数；列表初始展示 10 个任务，支持继续展开。隔离浏览器验证了 14 条记录归并为 3 张卡片、折叠展开与进行中筛选；源码后端及 Coding Host 变更需重启开发应用生效。本次未新增依赖。
+
+联网配置测试修复了代理 DNS 将有效摘要全部过滤的问题：正文读取保持公网 DNS 校验，搜索摘要单独校验引用地址，读取受限时明确标记仅摘要可用。本机已保存 Tavily 配置只读实测取得 3 条摘要来源、0 条正文，隔离界面显示连接成功及正文受限提示；未改动用户密钥或配置。实现与验收边界见[聊天附件与联网搜索](./chat-attachments-web.md)。
+
+只新增 NumPy 开发依赖，未升级 Pi SDK 或增加生产依赖。桌面备份走固定认证 Runtime 地址到原生保存对话框的流式写入，避免普通媒体 64 MiB IPC 上限；浏览器调试路径使用下载。备份当前上限为压缩 4 GiB、展开 20 GiB，模型权重与 Keychain 凭据不纳入备份。恢复前校验，重启后使用新资料库，原资料库保留；外部模型路径与凭据可能需重新配置。跨所有者消息附件采用保守保护，未确认释放前不清理。
+
+主要文件落点：
+
+- Runtime：`application/inference_service.py`、`context_compaction.py`、`model_runtime.py`、`runtime_control.py`；`adapters/worker_host.py`、`text_engines/structured_input.py`、`persistence/context_revisions.py`、`download_transfer.py`、`backup_bundle.py`、`data_profiles.py`；对应的 `entrypoints/http` 和 Worker 协议。
+- Coding Host：`adapters/pi-session.ts`、`transcript.ts`、`workspace-version.ts`、`data-export.ts`、`data-restore.ts`；`application/runs.ts`、`run-verification.ts`、`run-instructions.ts`、`verification-plan.ts` 与 Agent 事件查询。
+- 桌面：`capabilities/tasks`、`capabilities/data`、`capabilities/models/task-readiness.ts`、媒体缓存及可见性适配；聊天、Coding、工具助手、图片和隐私设置界面；原生保存边界 `src-tauri/src/commands/backup.rs`。
+- 契约与环境：`packages/coding-protocol/schema.json`、OpenAPI/RPC 生成文件、`scripts/generate_coding_rpc.py`、`.github/workflows/ci.yml`、`services/runtime/pyproject.toml` 及 uv 锁文件。
+- 回归：`tests/test_inference_reliability.py`、`test_context_compaction.py`、`test_history_revisions.py`、`test_load_cancellation.py`、`test_download_lifecycle.py`、`test_data_recovery.py`，Node `tests/reliability.test.mjs` 及前端 readiness/媒体缓存测试。
+
+隔离数据和界面证据位于忽略目录 `.build/optimization-validation/`，未操作正式会话数据库。下列内容仍未由本轮验证：真实 MLX 模型的新预算/压缩/工具解析和流式故障路径、实际 HF 网络断点恢复、大容量备份压力测试、原生备份保存对话框端到端、强化 Sidecar 打包、签名公证、干净机器及长期内存稳定性。下文的真实模型记录是此前的具体环境结果，不能视为本次变更已复验。
 
 ## 真实模型验证
 

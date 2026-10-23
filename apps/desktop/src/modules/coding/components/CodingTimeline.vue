@@ -59,6 +59,10 @@ const entries = computed(() => timelineEntries(props.events))
     <footer v-for="run in runs" :key="run.id">
       <NTag v-if="run.status !== 'completed'" size="small">{{ statusLabel(run.status) }}</NTag>
       <span v-else>已完成</span>
+      <small v-if="run.verificationPlan">
+        · 验证范围：{{ run.verificationPlan.scope }}
+        <span v-if="run.verificationPlan.invalid">（配置已变更，未验证）</span></small
+      >
       <span v-if="run.error"> · {{ codingRunErrorText(run.error) }}</span>
     </footer>
   </section>

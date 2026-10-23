@@ -180,6 +180,19 @@ class ExtensionGateway:
     async def text_skills(
         self, scope: dict[str, Any], selection: dict[str, Any] | None
     ) -> dict[str, Any]:
+        if selection is not None and not selection.get("skillIds") and not selection.get("toolIds"):
+            snapshot = {
+                "schemaVersion": 1,
+                "workspace": scope["workspace"],
+                "mode": "analyze",
+                "catalogRevision": 0,
+                "policyEpoch": 0,
+                "skills": [],
+                "servers": [],
+                "tools": [],
+            }
+            snapshot["snapshotDigest"] = "empty-capability-v1"
+            return {"snapshot": snapshot, "loaded": []}
         params: dict[str, object] = {"scope": scope}
         if selection is not None:
             params["selection"] = selection
@@ -201,6 +214,10 @@ class ExtensionGateway:
         return {"snapshot": snapshot, "loaded": loaded}
 
     async def validate_text(self, snapshot: dict[str, Any]) -> None:
+        if snapshot.get("snapshotDigest") == "empty-capability-v1" and not any(
+            snapshot.get(key) for key in ("skills", "servers", "tools")
+        ):
+            return
         if any(skill["id"] in self.revoking for skill in snapshot["skills"] + snapshot["servers"]):
             raise RuntimeFault(RuntimeErrorInfo("CAPABILITY_REVOKED", "技能授权已撤销"))
         await self.coding.call("extensions.check", {"snapshot": snapshot})

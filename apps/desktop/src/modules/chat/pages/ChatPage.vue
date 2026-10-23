@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { createChatHandoff } from '../presentation/chat-handoff'
 import { phaseLabel } from '../domain/phase-label'
 import {
   AgentChat,
@@ -8,7 +9,7 @@ import {
 import { NButton, NDrawer, NDrawerContent, NSelect, useMessage } from 'naive-ui'
 import { storeToRefs } from 'pinia'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { RuntimeStatusBanner as RuntimeStatus } from '../../../capabilities/runtime'
 import StudioIcon from '../../../shared/components/StudioIcon.vue'
 import ChatComposer from '../components/ChatComposer.vue'
@@ -21,12 +22,19 @@ import ChatInspector from '../components/ChatInspector.vue'
 import ChatMessageList from '../components/ChatMessageList.vue'
 import { useRuntimeStore } from '../../../capabilities/runtime'
 import { useChatStore } from '../stores/chat.store'
-
-const selection = ref<ExtensionSelection | undefined>()
+const selection = ref<ExtensionSelection>({ skillIds: [], toolIds: [] })
 const store = useChatStore()
 const runtime = useRuntimeStore()
 const message = useMessage()
+const handoff = createChatHandoff(storeToRefs(store).conversationId, (text) => message.error(text))
 const router = useRouter()
+const route = useRoute()
+watch(
+  () => route.query.conversationId,
+  (id) => {
+    if (typeof id === 'string' && id !== store.conversationId) void store.openConversation(id)
+  },
+)
 const { state, models, selectedModelId, busy, pending, maxTokens, temperature } = storeToRefs(store)
 const drafts =
   store.drafts ??
@@ -157,8 +165,10 @@ const imageLimit = computed(
         : 1
       : 0),
 )
-onMounted(() => {
-  void store.loadWorkspace()
+onMounted(async () => {
+  await store.loadWorkspace()
+  if (typeof route.query.conversationId === 'string')
+    await store.openConversation(route.query.conversationId)
 })
 onBeforeUnmount(() => store.dispose())
 
@@ -205,6 +215,7 @@ async function continueReply(): Promise<void> {
       </div>
     </header>
     <section class="chat-stage" :class="{ 'is-new': !state.messages.length }" aria-label="对话">
+      <NButton v-if="store.nextCursor" @click="store.loadMore">加载更早消息</NButton>
       <ChatMessageList
         :messages="state.messages"
         :total-count="state.messages.length"
@@ -216,19 +227,34 @@ async function continueReply(): Promise<void> {
         @preview="openSource"
         @attachment="openAttachment"
         @regenerate="retryAnswer('local_only', $event)"
+        @handoff="handoff.choose"
       />
       <p v-if="busy" role="status">{{ phaseText }}</p>
       <div v-if="state.status === 'error' && state.messages.some((item) => item.role === 'user')">
-        <NButton :disabled="busy || pending" @click="retryAnswer('refresh_web')">重试联网</NButton>
-        <NButton :disabled="busy || pending" @click="retryAnswer('local_only')"
+        <NButton
+          v-if="state.errorCode?.startsWith('WEB_')"
+          :disabled="busy || pending"
+          @click="retryAnswer('refresh_web')"
+          >重试联网</NButton
+        >
+        <NButton
+          v-if="state.errorCode?.startsWith('WEB_')"
+          :disabled="busy || pending"
+          @click="retryAnswer('local_only')"
           >使用本地资料回答</NButton
         >
       </div>
+      <p v-if="state.errorCode?.includes('CONTEXT')" role="status">
+        请减少资料、调整输出长度或选择更大上下文的模型。
+      </p>
+      <NButton v-if="state.errorCode?.startsWith('MODEL_')" @click="router.push('/models')"
+        >选择或重新加载模型</NButton
+      >
       <ChatComposer
         v-model:draft="draft"
         :attachments="drafts.draft.attachments"
         :web-enabled="drafts.draft.webSearchEnabled"
-        :disabled-reason="eligibility.reason"
+        :disabled-reason="store.readiness.blockers[0]?.recovery || eligibility.reason"
         :history-image-count="historyImages"
         :history-verified="selectedModel?.capabilities.historyImages === true"
         :thumbnails="drafts.thumbnailUrls"
@@ -245,7 +271,12 @@ async function continueReply(): Promise<void> {
         @cancel="cancel"
       >
         <template #capabilities
-          ><AgentChat :text="draft" :disabled="busy || pending" />
+          ><AgentChat
+            :text="draft"
+            :disabled="busy || pending"
+            :handoff="handoff.selected.value?.request"
+            :preview-text="handoff.selected.value?.preview"
+            @closed="handoff.selected.value = null" />
           <CapabilityPicker
             :scope="{ workspace: 'chat', kind: 'workspace', scopeId: 'default' }"
             :disabled="busy || pending"

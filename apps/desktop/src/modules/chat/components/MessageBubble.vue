@@ -13,6 +13,7 @@ defineEmits<{
   continue: []
   preview: [source: MessageSource]
   regenerate: []
+  handoff: []
   attachment: [file: NonNullable<ChatMessage['attachments']>[number]]
 }>()
 const prefix = computed(() => `source-${encodeURIComponent(props.message.id)}-`)
@@ -67,6 +68,9 @@ const { copyState, copyCode } = useMarkdownCopy(copyText)
         继续回答
       </NButton>
     </div>
+    <NButton v-if="message.state !== 'streaming'" text size="tiny" @click="$emit('handoff')"
+      >创建工具任务</NButton
+    >
   </article>
 </template>
 

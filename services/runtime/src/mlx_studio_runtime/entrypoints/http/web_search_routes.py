@@ -34,6 +34,9 @@ class WebSettingsTest(BaseModel):
 class WebTestView(WebSettingsView):
     ok: bool
     elapsedMs: int
+    partial: bool | None = None
+    sourceCount: int | None = None
+    readCount: int | None = None
 
 
 def register_web_search_routes(

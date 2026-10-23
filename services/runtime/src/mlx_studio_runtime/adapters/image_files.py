@@ -100,3 +100,24 @@ class ImageFiles:
         if not path.is_file():
             raise RuntimeFault(RuntimeErrorInfo("IMAGE_FILE_NOT_FOUND", "作品文件已不存在"))
         return path
+
+    def thumbnail(self, relative: str) -> Path:
+        import os
+        import uuid
+
+        from PIL import Image
+
+        source = self.read(relative)
+        directory = self.root / "images" / ".thumbnails"
+        directory.mkdir(parents=True, exist_ok=True)
+        target = directory / source.name
+        if not target.is_file():
+            temporary = directory / f"{uuid.uuid4()}.png"
+            try:
+                with Image.open(source) as image:
+                    image.thumbnail((384, 384))
+                    image.convert("RGB").save(temporary, "PNG")
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
+        return target

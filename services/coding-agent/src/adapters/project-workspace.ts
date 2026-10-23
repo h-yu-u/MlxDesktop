@@ -1,3 +1,4 @@
+import { currentVersion } from './workspace-version.js'
 import { mkdtemp, writeFile, rm, unlink } from 'node:fs/promises'
 import { join } from 'node:path'
 import {
@@ -13,6 +14,7 @@ import {
 import type { ProjectPort, RepositoryPort } from '../application/ports.js'
 export function projectWorkspace(repo: RepositoryPort): ProjectPort {
   return {
+    version: currentVersion,
     register: registerProject,
     fingerprint,
     files,

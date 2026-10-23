@@ -35,7 +35,7 @@ watch(
 )
 
 async function navigateConversation(id?: string): Promise<void> {
-  if (chat.busy || pending.value || navigating.value) return
+  if (pending.value || navigating.value) return
   navigating.value = true
   try {
     if (id) await chat.openConversation(id)
@@ -113,7 +113,7 @@ function toggleSearch(): void {
       <NButton
         quaternary
         class="new-conversation"
-        :disabled="chat.busy || pending || navigating"
+        :disabled="pending || navigating"
         @click="navigateConversation()"
       >
         <StudioIcon name="compose" :size="20" />新对话
@@ -135,7 +135,7 @@ function toggleSearch(): void {
             v-if="!chat.conversations.length"
             quaternary
             class="conversation-link"
-            :disabled="chat.busy || pending || navigating"
+            :disabled="pending || navigating"
             @click="navigateConversation()"
           >
             <StudioIcon name="chat" :size="17" />新的对话
@@ -145,7 +145,7 @@ function toggleSearch(): void {
             :key="item.id"
             :conversation="item"
             :active="chat.conversationId === item.id"
-            :disabled="chat.busy || pending || navigating"
+            :disabled="pending || navigating"
             @open="navigateConversation(item.id)"
             @rename="openRename(item)"
             @remove="confirmDelete(item)"

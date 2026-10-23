@@ -41,6 +41,23 @@ export async function exportBlob(blob: Blob, filename: string): Promise<FileExpo
   }
 }
 
+export async function exportBackup(download: () => Promise<Blob>): Promise<FileExportResult> {
+  if (isTauri()) {
+    try {
+      return (await invoke<boolean>('export_backup'))
+        ? { kind: 'saved', filename: 'mlx-studio-backup.zip' }
+        : { kind: 'cancelled' }
+    } catch {
+      return {
+        kind: 'failed',
+        code: 'write-failed',
+        message: '备份未完成，请确认任务已结束并检查可用磁盘',
+      }
+    }
+  }
+  return exportBlob(await download(), 'mlx-studio-backup.zip')
+}
+
 export async function pickProjectDirectory(): Promise<string | null> {
   const path = await open({ directory: true, multiple: false, title: '选择开发项目' })
   return typeof path === 'string' ? path : null

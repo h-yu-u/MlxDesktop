@@ -13,7 +13,12 @@ onMounted(() => {
   if (!store.catalog.length && !store.catalogLoading) void store.searchCatalog()
 })
 async function download(): Promise<void> {
-  if (await store.pullModel()) message.success('下载完成，模型已加入本地模型库')
+  if (await store.pullModel())
+    message.success(
+      store.downloadQueuedRepoId
+        ? '下载任务已接纳，可在全局任务中查看进度'
+        : '下载完成，模型已加入本地模型库',
+    )
 }
 </script>
 <template>

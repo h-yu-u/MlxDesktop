@@ -47,6 +47,19 @@ export function decodeSession(value: unknown): CodingSession {
     piPath: nullableText(p.piPath),
   }
 }
+function decodePlan(value: unknown): NonNullable<CodingRun['verificationPlan']> {
+  const p = record(value)
+  return {
+    digest: text(p.digest),
+    commands: list(p.commands, text),
+    cwd: text(p.cwd),
+    manifestDigest: text(p.manifestDigest),
+    repairLimit: number(p.repairLimit),
+    timeoutMs: number(p.timeoutMs),
+    scope: text(p.scope),
+    invalid: p.invalid === true,
+  }
+}
 export function decodeRun(value: unknown): CodingRun {
   const p = record(value)
   return {
@@ -74,6 +87,7 @@ export function decodeRun(value: unknown): CodingRun {
     baseline: text(p.baseline),
     fingerprint: nullableText(p.fingerprint),
     maxRepairRounds: number(p.maxRepairRounds),
+    ...(p.verificationPlan ? { verificationPlan: decodePlan(p.verificationPlan) } : {}),
     ...(p.capabilitySnapshot
       ? { capabilitySnapshot: decodeExtensionSnapshot(p.capabilitySnapshot) }
       : {}),
@@ -100,6 +114,7 @@ export function decodeApproval(value: unknown): CodingApproval {
 export function decodeVerification(value: unknown): CodingVerification {
   const p = record(value)
   return {
+    planDigest: nullableText(p.planDigest),
     purpose: p.purpose === undefined ? 'command' : choice(p.purpose, ['command', 'verification']),
     id: text(p.id),
     runId: text(p.runId),
@@ -181,6 +196,7 @@ export function decodeCodingSettings(value: unknown): CodingSettings {
     defaultModelId: text(p.defaultModelId),
     contextBudget: number(p.contextBudget),
     maxRepairRounds: number(p.maxRepairRounds),
+    ...(p.verificationPlan ? { verificationPlan: decodePlan(p.verificationPlan) } : {}),
     ...(p.capabilitySnapshot
       ? { capabilitySnapshot: decodeExtensionSnapshot(p.capabilitySnapshot) }
       : {}),

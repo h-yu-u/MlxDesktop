@@ -1,6 +1,6 @@
 import type { Transport } from './transport/ports'
 import type { components } from './generated-schema'
-import { record, text, list, nullableText } from './decoders'
+import { record, text, list, nullableText, number } from './decoders'
 import { decodeRun, decodeApproval, decodeCodingEvent } from './coding-decoders'
 export type AgentSession = components['schemas']['AgentSessionView']
 export type AgentChatSnapshot = components['schemas']['AgentChatSnapshot']
@@ -12,6 +12,7 @@ function session(value: unknown): AgentSession {
 function snapshot(value: unknown): AgentChatSnapshot {
   const v = record(value)
   return {
+    watermark: typeof v.watermark === 'number' ? v.watermark : 0,
     session: session(v.session),
     runs: list(v.runs, decodeRun),
     approvals: list(v.approvals, decodeApproval),
@@ -22,6 +23,10 @@ export function agentChatEndpoints(transport: Pick<Transport, 'get' | 'post'>) {
   const root = '/internal/v1/agent-chat',
     id = encodeURIComponent
   return {
+    events: async (after: number, signal?: AbortSignal) => {
+      const batch = record(await transport.get(`${root}/events/poll?after=${after}`, signal))
+      return { events: list(batch.events, decodeCodingEvent), watermark: number(batch.watermark) }
+    },
     sessions: async () => list(await transport.get(`${root}/sessions`), session),
     create: async (title = '工具助手') =>
       session(await transport.post(`${root}/sessions`, { title })),

@@ -1,5 +1,8 @@
 """Conversation and message persistence."""
 
+from __future__ import annotations
+
+import base64
 import json
 import sqlite3
 import time
@@ -32,7 +35,9 @@ class ConversationRepository:
         ).fetchall()
         return [_conversation(row) for row in rows]
 
-    def get(self, conversation_id: str) -> dict[str, Any] | None:
+    def get(
+        self, conversation_id: str, limit: int | None = None, before: str | None = None
+    ) -> dict[str, Any] | None:
         row = self.database.connection.execute(
             "SELECT id,title,model_id,parameters_json,created_at,updated_at,pinned,"
             "web_search_enabled "
@@ -42,11 +47,40 @@ class ConversationRepository:
         if row is None:
             return None
         conversation = _conversation(row)
+        cursor = None
+        if before:
+            try:
+                cursor = json.loads(base64.urlsafe_b64decode(before))
+                if (
+                    not isinstance(cursor, list)
+                    or len(cursor) != 2
+                    or not all(isinstance(x, int) for x in cursor)
+                ):
+                    raise ValueError("cursor")
+            except (ValueError, TypeError) as error:
+                raise RuntimeFault(RuntimeErrorInfo("INVALID_CURSOR", "历史游标无效")) from error
+        if limit is not None and not 1 <= limit <= 100:
+            raise RuntimeFault(RuntimeErrorInfo("INVALID_LIMIT", "每页最多 100 条"))
         rows = self.database.connection.execute(
-            "SELECT id,role,content,model_snapshot_json,parameters_json,created_at,turn_id "
-            "FROM messages WHERE conversation_id=? ORDER BY created_at, rowid",
-            (conversation_id,),
+            "SELECT id,role,content,model_snapshot_json,parameters_json,created_at,turn_id,rowid "
+            "FROM messages WHERE conversation_id=? AND is_active=1 "
+            + ("AND (created_at,rowid)<(?,?) " if cursor else "")
+            + (
+                "ORDER BY created_at DESC,rowid DESC LIMIT ?"
+                if limit
+                else "ORDER BY created_at,rowid"
+            ),
+            (conversation_id, *(cursor or []), *([limit + 1] if limit else [])),
         ).fetchall()
+        next_cursor = None
+        if limit:
+            if len(rows) > limit:
+                last = rows[limit - 1]
+                next_cursor = base64.urlsafe_b64encode(
+                    json.dumps([last[5], last[7]]).encode()
+                ).decode()
+            rows = list(reversed(rows[:limit]))
+        conversation["nextCursor"] = next_cursor
         messages = [
             {
                 "id": item[0],
@@ -67,6 +101,40 @@ class ConversationRepository:
                 attachment["preparationId"] = versions.get(attachment["id"])
         conversation["messages"] = order_messages_by_turn(messages)
         return conversation
+
+    def page(
+        self, conversation_id: str, before: str | None = None, limit: int = 50
+    ) -> dict[str, Any] | None:
+        item = self.get(conversation_id, limit, before)
+        if item:
+            for message in item["messages"]:
+                message["parameters"] = {
+                    key: value
+                    for key, value in message["parameters"].items()
+                    if key not in {"acceptedSnapshot", "acceptedContextJobId", "contextHead"}
+                }
+        return item
+
+    def handoff_messages(
+        self, conversation_id: str, identifiers: list[str]
+    ) -> list[dict[str, Any]]:
+        messages: list[dict[str, Any]] = []
+        for identifier in identifiers:
+            row = self.database.connection.execute(
+                "SELECT id,role,content FROM messages WHERE conversation_id=? AND id=?",
+                (conversation_id, identifier),
+            ).fetchone()
+            if row is None:
+                raise RuntimeFault(RuntimeErrorInfo("MESSAGE_NOT_FOUND", "来源消息不存在"))
+            messages.append(
+                {
+                    "id": row[0],
+                    "role": row[1],
+                    "content": row[2],
+                    "attachments": self.attachments.for_message(row[0]),
+                }
+            )
+        return messages
 
     def save(self, item: dict[str, Any]) -> None:
         now = int(time.time())
@@ -130,7 +198,7 @@ class ConversationRepository:
 
     def last_assistant_message_id(self, conversation_id: str) -> str | None:
         row = self.database.connection.execute(
-            "SELECT id FROM messages WHERE conversation_id=? AND role='assistant' "
+            "SELECT id FROM messages WHERE conversation_id=? AND role='assistant' AND is_active=1 "
             "ORDER BY created_at DESC, rowid DESC LIMIT 1",
             (conversation_id,),
         ).fetchone()
@@ -141,7 +209,7 @@ class ConversationRepository:
         if message_id is None:
             return False
         with self.database.transaction() as connection:
-            connection.execute("DELETE FROM messages WHERE id=?", (message_id,))
+            connection.execute("UPDATE messages SET is_active=0 WHERE id=?", (message_id,))
         return True
 
     def save_message(
@@ -174,7 +242,8 @@ class ConversationRepository:
                 )
             if replace_message_id:
                 connection.execute(
-                    "DELETE FROM messages WHERE id=? AND conversation_id=? AND role='assistant'",
+                    "UPDATE messages SET is_active=0 WHERE id=? AND conversation_id=? "
+                    "AND role='assistant'",
                     (replace_message_id, item["conversationId"]),
                 )
             connection.execute(

@@ -525,6 +525,9 @@ export const rpcSchema = {
               ],
               "additionalProperties": false
             }
+          },
+          "verifyAfter": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1343,6 +1346,9 @@ export const rpcSchema = {
               ],
               "additionalProperties": false
             }
+          },
+          "verifyAfter": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1561,6 +1567,10 @@ export const rpcSchema = {
               ],
               "additionalProperties": false
             }
+          },
+          "handoff": {
+            "type": "object",
+            "additionalProperties": true
           }
         },
         "required": [
@@ -1692,6 +1702,184 @@ export const rpcSchema = {
       "result": {
         "$ref": "#/$defs/SkillInspection"
       }
+    },
+    "agent.events.wait": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "after": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CodingEventView"
+            }
+          },
+          "watermark": {
+            "type": "integer",
+            "minimum": 0
+          }
+        },
+        "required": [
+          "events",
+          "watermark"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "agent.events.list": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "before": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100,
+            "default": 50
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/$defs/CodingEventView"
+            }
+          },
+          "watermark": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "events",
+          "watermark"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "data.export": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "directory": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "directory"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "tasks.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "agent.tasks.list": {
+      "params": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "additionalProperties": true
+        }
+      }
+    },
+    "agent.runs.find": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string"
+          },
+          "submissionId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "sessionId",
+          "submissionId"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "anyOf": [
+          {
+            "type": "null"
+          },
+          {
+            "$ref": "#/$defs/CodingRunView"
+          }
+        ]
+      }
+    },
+    "data.restore.profile": {
+      "params": {
+        "type": "object",
+        "properties": {
+          "identifier": {
+            "type": "string",
+            "pattern": "^[0-9a-f-]{36}$"
+          }
+        },
+        "required": [
+          "identifier"
+        ],
+        "additionalProperties": false
+      },
+      "result": {
+        "type": "object",
+        "properties": {
+          "imported": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "imported"
+        ],
+        "additionalProperties": false
+      }
     }
   },
   "$defs": {
@@ -1711,7 +1899,7 @@ export const rpcSchema = {
         },
         "contextBudget": {
           "type": "integer",
-          "maximum": 32768.0,
+          "maximum": 1048576,
           "minimum": 4096.0,
           "title": "Contextbudget",
           "default": 32768
@@ -1924,6 +2112,54 @@ export const rpcSchema = {
         },
         "selection": {
           "$ref": "#/$defs/ExtensionSelection"
+        },
+        "verificationPlan": {
+          "anyOf": [
+            {
+              "type": "null"
+            },
+            {
+              "type": "object",
+              "properties": {
+                "digest": {
+                  "type": "string"
+                },
+                "commands": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "cwd": {
+                  "type": "string"
+                },
+                "manifestDigest": {
+                  "type": "string"
+                },
+                "repairLimit": {
+                  "type": "integer"
+                },
+                "timeoutMs": {
+                  "type": "integer"
+                },
+                "scope": {
+                  "type": "string"
+                },
+                "invalid": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "digest",
+                "commands",
+                "cwd",
+                "manifestDigest",
+                "repairLimit",
+                "timeoutMs",
+                "scope"
+              ]
+            }
+          ]
         }
       },
       "type": "object",
@@ -2071,6 +2307,16 @@ export const rpcSchema = {
         "stale": {
           "type": "boolean",
           "title": "Stale"
+        },
+        "planDigest": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "type": "object",
@@ -3436,6 +3682,10 @@ export const rpcSchema = {
           "items": {
             "$ref": "#/$defs/CodingEventView"
           }
+        },
+        "watermark": {
+          "type": "integer",
+          "default": 0
         }
       },
       "required": [

@@ -1,3 +1,4 @@
+import { contextSettings } from '../../domain/context-budget.js'
 import {
   emptySelection,
   scopeKey,
@@ -95,7 +96,8 @@ export class ResourceResolver {
       ) +
         JSON.stringify(tools).length * 3,
     )
-    if (estimatedContextTokens + 4096 > budget) throw new Error('EXTENSION_CONTEXT_BUDGET_EXCEEDED')
+    if (estimatedContextTokens + contextSettings(budget).output + 128 > budget)
+      throw new Error('EXTENSION_CONTEXT_BUDGET_EXCEEDED')
     const payload = {
       ...(selection.mediaBindings ? { mediaBindings: selection.mediaBindings } : {}),
       mode: mode as 'analyze' | 'develop' | 'review',

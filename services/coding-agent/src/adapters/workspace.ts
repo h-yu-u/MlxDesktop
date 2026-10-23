@@ -1,3 +1,4 @@
+import { beginCapture, captureFile } from './workspace-version.js'
 import { constants } from 'node:fs'
 import { open, lstat, realpath, readdir, mkdir } from 'node:fs/promises'
 import { resolve, relative, isAbsolute, dirname, join } from 'node:path'
@@ -62,19 +63,19 @@ export async function files(root: string, path = '.', strict = false): Promise<s
   const directory = path === '.' ? root : await safePath(root, path)
   const found: string[] = []
   async function walk(folder: string, depth: number): Promise<void> {
-    if (strict && (depth > 32 || found.length >= 2000))
+    if (strict && (depth > 32 || found.length >= 100000))
       throw new Error('WORKSPACE_FINGERPRINT_LIMIT')
-    if (depth > (strict ? 32 : 6) || found.length >= 2000) return
+    if (depth > (strict ? 32 : 6) || found.length >= 100000) return
     for (const entry of await readdir(folder, { withFileTypes: true })) {
       if (blocked.test(entry.name) || entry.isSymbolicLink()) continue
       const child = join(folder, entry.name)
       if (entry.isDirectory()) await walk(child, depth + 1)
       else if (entry.isFile()) found.push(relative(root, child))
-      if (found.length >= 2000) break
+      if (found.length >= 100000) break
     }
   }
   await walk(directory, 0)
-  if (strict && found.length >= 2000) throw new Error('WORKSPACE_FINGERPRINT_LIMIT')
+  if (strict && found.length >= 100000) throw new Error('WORKSPACE_FINGERPRINT_LIMIT')
   return found
 }
 export async function git(
@@ -98,17 +99,27 @@ export async function git(
     root: ['rev-parse', '--show-toplevel'],
   }[action]
   const query = async (parameters: string[]): Promise<string> => {
-    const result = await execute(
-      '/usr/bin/git',
-      ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...parameters],
-      {
-        cwd: root,
-        env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
-        maxBuffer: 512 * 1024,
-        timeout: 10000,
-      },
-    )
-    return result.stdout.trim()
+    try {
+      const result = await execute(
+        '/usr/bin/git',
+        ['-c', 'core.fsmonitor=false', '-c', 'core.hooksPath=/dev/null', ...parameters],
+        {
+          cwd: root,
+          env: { PATH: '/usr/bin:/bin', GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: '/dev/null' },
+          maxBuffer: 512 * 1024,
+          timeout: 10000,
+        },
+      )
+      return result.stdout.trim()
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ERR_CHILD_PROCESS_STDIO_MAXBUFFER'
+      )
+        return 'partial:GIT_OUTPUT_LIMIT'
+      throw error
+    }
   }
   if (action === 'diff') {
     try {
@@ -155,25 +166,44 @@ export async function registerProject(path: string): Promise<Project> {
   }
 }
 export async function fingerprint(root: string): Promise<string> {
+  const capture = beginCapture(root)
   const digest = createHash('sha256')
-  for (const path of (await files(root, '.', true)).sort()) {
-    const target = await safePath(root, path)
-    const file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)
+  let paths: string[]
+  try {
+    paths = (await files(root, '.', true)).sort()
+  } catch (error) {
+    if (error instanceof Error && error.message === 'WORKSPACE_ROOT_CHANGED') throw error
+    return capture('partial:index-unavailable')
+  }
+  if (paths.length >= 100000) return capture('partial:file-limit')
+  let bytesRead = 0
+  for (const path of paths) {
+    let target: string, file
+    try {
+      target = await safePath(root, path)
+      file = await open(target, constants.O_RDONLY | constants.O_NOFOLLOW)
+    } catch {
+      return capture('partial:file-unavailable')
+    }
     try {
       const info = await file.stat()
-      if (!info.isFile() || info.size > 64 * 1024 * 1024)
-        throw new Error('WORKSPACE_FINGERPRINT_LIMIT')
+      bytesRead += info.size
+      if (!info.isFile() || info.size > 64 * 1024 * 1024 || bytesRead > 256 * 1024 * 1024)
+        return capture(`partial:${digest.digest('hex')}`)
       const content = createHash('sha256')
       for await (const bytes of file.createReadStream({ autoClose: false })) content.update(bytes)
       const after = await file.stat()
       if (after.mtimeMs !== info.mtimeMs || after.size !== info.size)
         throw new Error('FILE_VERSION_CONFLICT')
+      await captureFile(root, target, after)
       digest.update(path).update(content.digest('hex'))
+    } catch {
+      return capture('partial:file-changed')
     } finally {
       await file.close()
     }
   }
-  return digest.digest('hex')
+  return capture(digest.digest('hex'))
 }
 export class Workspace {
   constructor(
@@ -230,5 +260,14 @@ export class Workspace {
     }
     this.repo.save('change', { ...change, state: 'written' }, 'file.changed', path)
     return hash(content)
+  }
+}
+
+export async function instructions(root: string): Promise<string> {
+  try {
+    return await read(root, 'AGENTS.md')
+  } catch (error) {
+    if (error instanceof Error && 'code' in error && error.code === 'ENOENT') return ''
+    throw error
   }
 }

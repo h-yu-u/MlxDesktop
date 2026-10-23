@@ -77,6 +77,9 @@ class SQLiteDatabase:
               WHERE kind='image' AND json_extract(request_json, '$.clientRequestId') IS NOT NULL;
             INSERT OR IGNORE INTO schema_migrations(version, applied_at)
               VALUES (3, CAST(strftime('%s','now') AS INTEGER));
+            CREATE TABLE IF NOT EXISTS inference_results (
+              job_id TEXT PRIMARY KEY REFERENCES jobs(id), result_json TEXT NOT NULL
+            );
             CREATE TABLE IF NOT EXISTS artifacts (
               id TEXT PRIMARY KEY, job_id TEXT REFERENCES jobs(id), kind TEXT NOT NULL,
               relative_path TEXT NOT NULL, metadata_json TEXT NOT NULL, created_at INTEGER NOT NULL
@@ -109,8 +112,17 @@ class SQLiteDatabase:
         columns = {
             row[1] for row in self.connection.execute("PRAGMA table_info(messages)").fetchall()
         }
+        if "is_active" not in columns:
+            self.connection.execute(
+                "ALTER TABLE messages ADD COLUMN is_active INTEGER NOT NULL DEFAULT 1"
+            )
         if "turn_id" not in columns:
             self.connection.execute("ALTER TABLE messages ADD COLUMN turn_id TEXT")
+        artifact_columns = {
+            row[1] for row in self.connection.execute("PRAGMA table_info(artifacts)")
+        }
+        if "recycled_at" not in artifact_columns:
+            self.connection.execute("ALTER TABLE artifacts ADD COLUMN recycled_at INTEGER")
         conversation_columns = {
             row[1] for row in self.connection.execute("PRAGMA table_info(conversations)").fetchall()
         }

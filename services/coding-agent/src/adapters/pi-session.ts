@@ -1,3 +1,5 @@
+import { contextSettings } from '../domain/context-budget.js'
+import { checkpoint, validateTranscript } from './transcript.js'
 import { toolEvidence } from './extensions/tool-evidence.js'
 import { builtinDefinitions } from './extensions/builtin-tools.js'
 import type { ActiveCapability } from '../application/ports.js'
@@ -35,7 +37,7 @@ type PiInput = {
       workspace: 'chat'
       root: string
       instructions: string
-      transcript: { id: string; piPath: string | null }
+      transcript: Pick<Session, 'id' | 'piPath' | 'transcript'>
     }
 )
 export async function openPi(
@@ -66,7 +68,7 @@ export async function openPi(
         input: ['text'],
         cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
         contextWindow: input.provider.contextWindow,
-        maxTokens: 4096,
+        maxTokens: contextSettings(input.provider.contextWindow).output,
         compat: {
           supportsDeveloperRole: false,
           supportsStore: false,
@@ -79,7 +81,11 @@ export async function openPi(
   if (!model) throw new Error('MODEL_NOT_FOUND')
   const settings = SettingsManager.inMemory({
     retry: { enabled: false },
-    compaction: { enabled: true },
+    compaction: {
+      enabled: true,
+      reserveTokens: contextSettings(input.provider.contextWindow).reserveTokens,
+      keepRecentTokens: contextSettings(input.provider.contextWindow).keepRecentTokens,
+    },
     defaultThinkingLevel: 'off',
   })
   const mcp =
@@ -108,6 +114,7 @@ export async function openPi(
     extendResources: () => {},
     reload: async () => {},
   }
+  if (transcript.piPath) await validateTranscript(transcript.piPath, cwd, transcript.transcript)
   const manager = transcript.piPath
     ? SessionManager.open(transcript.piPath, sessionDir, cwd)
     : SessionManager.create(cwd, sessionDir)
@@ -155,15 +162,18 @@ export async function openPi(
   const session: PiSession = {
     prompt: async (text) => {
       input.snapshot && input.extensions?.check(input.snapshot)
-      const contextSize =
-        Buffer.byteLength(JSON.stringify(pi.messages)) +
-        Buffer.byteLength(loader.getSystemPrompt() ?? '') +
-        Buffer.byteLength(JSON.stringify(pi.getAllTools())) +
-        text.length
-      if (contextSize + 4096 > input.provider.contextWindow)
-        throw new Error('EXTENSION_CONTEXT_BUDGET_EXCEEDED')
       await pi.prompt(text, { expandPromptTemplates: false })
     },
+    checkpoint: async () => ({
+      ...(await checkpoint(manager, transcript.id)),
+      sourceCwd: transcript.transcript?.sourceCwd,
+      restoredCwd: transcript.transcript?.restoredCwd,
+    }),
+    compact: async () => {
+      if (!pi.isIdle) throw new Error('SESSION_BUSY')
+      await pi.compact()
+    },
+    contextUsage: () => pi.getContextUsage(),
     steer: (text) => pi.sendUserMessage(text, { deliverAs: 'steer', expandPromptTemplates: false }),
     abort: () => pi.abort(),
     close,
@@ -177,6 +187,8 @@ export async function openPi(
     },
     subscribe: (callback) => {
       pi.subscribe((event) => {
+        if (event.type === 'compaction_start' || event.type === 'compaction_end')
+          callback({ type: event.type, text: '', data: event })
         if (event.type === 'message_end' && event.message.role === 'assistant')
           callback({
             type: 'assistant.message',

@@ -256,6 +256,47 @@ class WebRetrievalTests(unittest.IsolatedAsyncioTestCase):
         ]:
             self.assertFalse(await policy.allowed(url))
 
+    async def test_proxy_dns_retains_search_snippets_without_fetching_blocked_addresses(
+        self,
+    ):
+        retrieval = self.preparation.retrieval
+        retrieval.policy = PublicResultPolicy()
+        addresses = [(2, 1, 6, "", ("198.18.0.17", 443))]
+        with patch.object(
+            asyncio.get_running_loop(), "getaddrinfo", AsyncMock(return_value=addresses)
+        ):
+            result = await retrieval.retrieve("MLX", self.config, AsyncMock())
+        self.assertEqual(len(result["sources"]), 1)
+        self.assertEqual(result["sources"][0]["representation"], "snippet_only")
+        self.assertEqual(result["sources"][0]["text"], "Search summary")
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["readCount"], 0)
+        self.assertEqual(self.provider.reads, [])
+
+    async def test_private_literal_urls_cannot_become_snippet_sources(self):
+        self.provider.search = AsyncMock(
+            return_value=[
+                SearchHit("Private", "http://127.0.0.1/", "not a public source")
+            ]
+        )
+        with self.assertRaises(RuntimeFault):
+            await self.preparation.retrieval.retrieve("MLX", self.config, AsyncMock())
+        self.assertEqual(self.provider.reads, [])
+
+    async def test_settings_test_reports_snippet_only_success(self):
+        self.preparation.retrieval.policy = PublicResultPolicy()
+        addresses = [(2, 1, 6, "", ("198.18.0.17", 443))]
+        with patch.object(
+            asyncio.get_running_loop(), "getaddrinfo", AsyncMock(return_value=addresses)
+        ):
+            result = await self.service.web_settings.test(
+                self.config.id, self.config.revision
+            )
+        self.assertTrue(result["ok"])
+        self.assertTrue(result["partial"])
+        self.assertEqual(result["sourceCount"], 1)
+        self.assertEqual(result["readCount"], 0)
+
     async def test_provider_redirect_cannot_forward_credentials(self):
         request = httpx.Request("POST", "https://api.tavily.com/search")
         response = httpx.Response(

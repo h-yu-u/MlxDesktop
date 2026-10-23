@@ -18,7 +18,15 @@ const props = defineProps<{
   sourceUrl?: string
   editingLocked?: boolean
 }>()
-defineEmits<{ cancel: []; save: []; reuse: []; edit: []; retryImage: []; reconnect: [] }>()
+defineEmits<{
+  remove: []
+  cancel: []
+  save: []
+  reuse: []
+  edit: []
+  retryImage: []
+  reconnect: []
+}>()
 const compare = ref(true)
 const active = computed(() => props.submitting || (!!props.job && !isTerminal(props.job)))
 const task = computed(() =>
@@ -95,6 +103,7 @@ const task = computed(() =>
         </div>
       </div>
       <div class="preview-actions">
+        <NButton :disabled="active" @click="$emit('remove')">移入回收站</NButton>
         <NButton secondary :disabled="editingLocked || !url" @click="$emit('edit')"
           >继续编辑</NButton
         >

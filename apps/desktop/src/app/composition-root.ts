@@ -1,3 +1,8 @@
+import { dataEndpoints } from '@mlx-studio/api-client'
+import { configureTaskCenter } from '../capabilities/tasks/store'
+import { createTaskCenter } from '../capabilities/tasks/controller'
+import { configureDataManagement } from '../capabilities/data/configuration'
+import { createDataController } from '../capabilities/data/controller'
 import { configureMediaAssets } from '../capabilities/media'
 import { createAssetCatalog } from '../capabilities/media/infrastructure/asset-catalog'
 import { createAgentDraftMemory } from '../capabilities/extensions/presentation/agent-draft-memory'
@@ -28,7 +33,11 @@ import { createRuntimeController } from '../capabilities/runtime/controller'
 import { createRuntimeGateway } from '../capabilities/runtime/gateway'
 import { toRef } from 'vue'
 import { createEndpoints } from '@mlx-studio/api-client'
-import { runtimeClient } from '../platform/runtime-bridge'
+import {
+  runtimeClient,
+  restartRuntimeProcess,
+  runtimeConnectionStatus,
+} from '../platform/runtime-bridge'
 import { useModelDirectory } from '../capabilities/models'
 import { JobObserver } from '../capabilities/jobs/job-observer'
 import { createChatGateway } from '../modules/chat/infrastructure/chat-gateway'
@@ -37,7 +46,12 @@ import { createImageGateway } from '../modules/image-studio/infrastructure/image
 import { createImageController } from '../modules/image-studio/presentation/image-controller'
 import { createModelsGateway } from '../modules/models/infrastructure/models-gateway'
 import { createModelsController } from '../modules/models/presentation/models-controller'
-import { exportBlob, pickModelDirectory, pickProjectDirectory } from '../platform/files'
+import {
+  exportBackup,
+  exportBlob,
+  pickModelDirectory,
+  pickProjectDirectory,
+} from '../platform/files'
 import { createAttachmentGateway } from '../modules/chat/infrastructure/attachment-gateway'
 import { createChatDraftController } from '../modules/chat/presentation/chat-draft-controller'
 import { configureWebSearch } from '../capabilities/web-search/store'
@@ -57,6 +71,7 @@ export function createChatWorkspace() {
   const { directory, refreshModels } = directoryDependencies()
   const gateway = createChatGateway(runtimeClient)
   return createChatController({
+    runtimeAvailable: () => runtimeConnectionStatus.value === 'ready',
     gateway,
     draftFactory: (conversation) =>
       createChatDraftController(
@@ -104,6 +119,7 @@ export function createRuntimeOverview() {
 export function createCodingWorkspace() {
   const { directory, refreshModels } = directoryDependencies()
   return createCodingController({
+    runtimeAvailable: () => runtimeConnectionStatus.value === 'ready',
     gateway: createCodingGateway(runtimeClient),
     models: toRef(directory, 'items'),
     refreshModels,
@@ -114,6 +130,26 @@ export function createCodingWorkspace() {
 }
 
 export function installWorkspaces(): void {
+  configureTaskCenter(() =>
+    createTaskCenter({
+      refreshModels: directoryDependencies().refreshModels,
+      tasks: async (signal) => dataEndpoints(await runtimeClient()).tasks(signal),
+      download: async (id, action) =>
+        dataEndpoints(await runtimeClient()).downloadAction(id, action),
+    }),
+  )
+  configureDataManagement(() =>
+    createDataController({
+      storage: async () => dataEndpoints(await runtimeClient()).storage(),
+      cleanup: async () => dataEndpoints(await runtimeClient()).cleanup(),
+      restore: async (id) => dataEndpoints(await runtimeClient()).restore(id),
+      inspect: async (file) => (await runtimeClient()).inspectBackup(file),
+      activate: async (id) => dataEndpoints(await runtimeClient()).activateProfile(id),
+      rollback: async () => dataEndpoints(await runtimeClient()).rollbackProfile(),
+      restart: restartRuntimeProcess,
+      backup: async () => exportBackup(async () => (await runtimeClient()).downloadBackup()),
+    }),
+  )
   configureMediaAssets(() => createAssetCatalog(runtimeClient))
   const extensionGateway = createExtensionsGateway(runtimeClient)
   const agentMemory = createAgentDraftMemory()
@@ -121,6 +157,7 @@ export function installWorkspaces(): void {
   configureExtensions({
     agent: () =>
       createAgentController({
+        runtimeAvailable: () => runtimeConnectionStatus.value === 'ready',
         memory: agentMemory,
         models: toRef(useModelDirectory(), 'items'),
         refreshModels: directoryDependencies().refreshModels,
@@ -131,6 +168,7 @@ export function installWorkspaces(): void {
             await endpoints.coding.verifyModel(id)
         },
         gateway: {
+          events: async (...args) => agentChatEndpoints(await runtimeClient()).events(...args),
           sessions: async () => agentChatEndpoints(await runtimeClient()).sessions(),
           create: async (...args) => agentChatEndpoints(await runtimeClient()).create(...args),
           snapshot: async (...args) => agentChatEndpoints(await runtimeClient()).snapshot(...args),

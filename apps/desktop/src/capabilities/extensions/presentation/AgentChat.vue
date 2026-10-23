@@ -1,7 +1,7 @@
 <script setup lang="ts">
-import { computed, ref, onUnmounted } from 'vue'
+import { computed, ref, onUnmounted, onMounted, watch } from 'vue'
 import { NAlert, NButton, NDrawer, NDrawerContent, NSelect, NSpace, NCard } from 'naive-ui'
-import type { ExtensionSelection } from '@mlx-studio/api-client'
+import type { ExtensionSelection, AgentChatRequest } from '@mlx-studio/api-client'
 import { createAgentChat } from '../configuration'
 import CapabilityPicker from './CapabilityPicker.vue'
 import TaskStatusPanel from '../../../shared/ui/TaskStatusPanel.vue'
@@ -11,14 +11,27 @@ import { useMarkdownCopy } from '../../../shared/ui/markdown-copy'
 import { copyText } from '../../../platform/clipboard'
 import { agentTaskStatus, agentEventLabel } from './agent-task-status'
 import ArtifactLinks from './ArtifactLinks.vue'
-const props = defineProps<{ text?: string; disabled?: boolean }>()
+const props = defineProps<{
+  text?: string
+  disabled?: boolean
+  standalone?: boolean
+  initialSessionId?: string
+  handoff?: AgentChatRequest['handoff']
+  previewText?: string
+}>()
+const emit = defineEmits<{ closed: [] }>()
 const state = createAgentChat(),
   open = ref(false),
   selection = ref<ExtensionSelection>({ skillIds: [], toolIds: [] })
 async function show() {
   open.value = true
   await state.load()
-  if (!state.text.value) state.text.value = props.text ?? ''
+  if (props.initialSessionId && props.initialSessionId !== state.sessionId.value)
+    await state.open(props.initialSessionId)
+  if (props.handoff) {
+    await state.create()
+    state.text.value = '请根据所选消息继续完成任务'
+  } else if (!state.text.value) state.text.value = props.text ?? ''
 }
 const { copyState, copyCode } = useMarkdownCopy(copyText)
 const primary = computed(() => ({
@@ -32,13 +45,34 @@ const primary = computed(() => ({
     !!selection.value.toolIds.length,
   pending: state.pending.value,
 }))
+onMounted(() => {
+  if (props.standalone) void show()
+})
+watch(
+  () => props.initialSessionId,
+  (id) => {
+    if (props.standalone && id) void state.open(id)
+  },
+)
+watch(
+  () => props.handoff,
+  (handoff) => {
+    if (handoff) void show()
+  },
+)
 onUnmounted(state.dispose)
 </script>
 <template>
   <NButton size="small" :disabled="disabled" @click="show">工具助手</NButton>
-  <NDrawer v-model:show="open" width="min(680px, 100vw)"
+  <NDrawer v-model:show="open" width="min(680px, 100vw)" @update:show="!$event && emit('closed')"
     ><NDrawerContent title="聊天 · 工具助手" closable>
       <NSpace vertical>
+        <NCard v-if="handoff" title="带入内容预览" size="small">
+          <pre style="max-height: 240px; overflow: auto; white-space: pre-wrap">{{
+            previewText
+          }}</pre>
+          <p>带入所选文字和附件引用。附件内容不作为已读取材料；执行权限按当前选择重新确认。</p>
+        </NCard>
         <p>
           独立的工具会话，可使用明确选择的 MCP 与本地创作工具。最多 48 次工具调用、4
           次媒体生成，运行上限 20 分钟。
@@ -146,7 +180,7 @@ onUnmounted(state.dispose)
           :primary="primary"
           label="工具助手任务"
           placeholder="描述需要工具完成的任务"
-          @action="state.send(selection)"
+          @action="state.send(selection, handoff)"
         />
       </NSpace> </NDrawerContent
   ></NDrawer>

@@ -132,9 +132,9 @@ def register_image_studio_routes(
         return ImageArtifactView.model_validate(service.queries.image_artifact(artifact_id))
 
     @app.get("/internal/v1/image-artifacts/{artifact_id}/content", dependencies=dependencies)
-    async def image_content(artifact_id: str) -> FileResponse:
+    async def image_content(artifact_id: str, thumbnail: bool = False) -> FileResponse:
         return FileResponse(
-            service.queries.image_content(artifact_id),
+            service.queries.image_content(artifact_id, thumbnail),
             media_type="image/png",
             filename=f"mlx-studio-{artifact_id}.png",
             content_disposition_type="inline",

@@ -4,6 +4,7 @@ export interface ModelsGateway {
   list(): Promise<ModelSummary[]>
   catalog(query: string): Promise<HubModelOption[]>
   import(path: string): Promise<unknown>
+  startDownload?(id: string): Promise<unknown>
   pull(id: string): Promise<unknown>
   deleteFiles(id: string): Promise<unknown>
   unload(id: string): Promise<unknown>

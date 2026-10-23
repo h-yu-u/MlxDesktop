@@ -45,4 +45,27 @@ describe('web settings commits and verification', () => {
     expect(state.verification.value).toMatchObject({ kind: 'failed', revision: 2 })
     expect(state.settings.value?.ready).toBe(true)
   })
+  it('preserves successful snippet-only diagnostics instead of showing a connection failure', async () => {
+    const state = createWebSearchController({
+      get: async () => saved,
+      save: async () => saved,
+      test: async () => ({
+        ...saved,
+        ok: true,
+        elapsedMs: 120,
+        partial: true,
+        sourceCount: 3,
+        readCount: 0,
+      }),
+    })
+    await state.load()
+    expect(await state.test()).toBe(true)
+    expect(state.error.value).toBe('')
+    expect(state.verification.value).toMatchObject({
+      kind: 'passed',
+      partial: true,
+      sourceCount: 3,
+      readCount: 0,
+    })
+  })
 })

@@ -50,7 +50,8 @@ export interface Message {
   sources?: MessageSource[]
 }
 export type ConversationPatch = components['schemas']['ConversationPatch']
-export interface Conversation extends Pick<components['schemas']['ConversationView'], 'pinned'> {
+export interface Conversation
+  extends Pick<components['schemas']['ConversationView'], 'pinned' | 'nextCursor' | 'activeJobId'> {
   id: string
   title: string
   modelId: string | null
@@ -64,6 +65,7 @@ export interface Submission {
   turnId?: string
 }
 export interface JobSnapshot {
+  errorCode?: string | null
   id: string
   state: string
   text: string
@@ -144,6 +146,8 @@ export function decodeConversation(value: unknown): Conversation {
   if (item.webSearchEnabled !== undefined && typeof item.webSearchEnabled !== 'boolean')
     throw malformed()
   return {
+    activeJobId: item.activeJobId == null ? null : text(item.activeJobId),
+    nextCursor: item.nextCursor == null ? null : text(item.nextCursor),
     pinned: item.pinned === true,
     id: text(item.id),
     title: text(item.title),
@@ -175,6 +179,7 @@ export function createEndpoints(transport: Transport) {
         return {
           id: text(item.id),
           state: text(item.state),
+          errorCode: nullableText(item.errorCode),
           text: text(item.text),
           event_sequence: number(item.event_sequence),
           instance_id: text(item.instance_id),
@@ -213,6 +218,13 @@ export function createEndpoints(transport: Transport) {
         list(await transport.get(`${root}/conversations`, signal), decodeConversation),
       get: async (id: string, signal?: AbortSignal) =>
         decodeConversation(await transport.get(`${root}/conversations/${idPath(id)}`, signal)),
+      page: async (id: string, before: string, signal?: AbortSignal) =>
+        decodeConversation(
+          await transport.get(
+            `${root}/conversations/${idPath(id)}?before=${encodeURIComponent(before)}`,
+            signal,
+          ),
+        ),
       create: async (model_id: string) =>
         decodeConversation(
           await transport.post(`${root}/conversations`, { title: '新对话', model_id }),

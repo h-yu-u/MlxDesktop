@@ -1,5 +1,9 @@
 import { RuntimeError } from '@mlx-studio/api-client'
 const labels: Record<string, string> = {
+  FIXED_CONTEXT_BUDGET_EXCEEDED: '系统规则或工具定义超过窗口，请减少技能/工具或更换模型。',
+  EXTENSION_CONTEXT_BUDGET_EXCEEDED: '上下文超过窗口，请压缩历史或更换更大窗口的模型。',
+  VERIFICATION_PLAN_CHANGED: '验证配置已改变，本轮验证已停止，请重新建立验证计划。',
+  TRANSCRIPT_CORRUPT: '会话日志校验失败，原记录已保留，请从备份恢复或新建会话。',
   MODEL_TOOLS_UNVERIFIED: '模型或模板发生变化，请重新验证工具能力。',
   RESTORE_CONFLICT: '文件已被人工或外部程序修改，无法撤销。当前内容已保留。',
   FILE_VERSION_CONFLICT: '文件版本发生变化，请重新读取后再修改。',

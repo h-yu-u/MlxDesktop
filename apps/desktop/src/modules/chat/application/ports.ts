@@ -10,6 +10,7 @@ import type { ChatSubmissionGateway } from './submit-chat'
 /** Read-only query models are shared contracts; submission rules remain independent. */
 export interface ChatGateway extends ChatSubmissionGateway {
   list(): Promise<Conversation[]>
+  page?(id: string, before: string, signal?: AbortSignal): Promise<Conversation>
   get(id: string, signal?: AbortSignal): Promise<Conversation>
   create(modelId: string): Promise<Conversation>
   update(id: string, patch: ConversationPatch): Promise<Conversation>

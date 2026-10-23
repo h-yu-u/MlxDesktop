@@ -83,7 +83,7 @@ onUnmounted(state.dispose)
   <NPopover v-model:show="open" trigger="click" placement="top-start">
     <template #trigger
       ><NButton size="small" :disabled="disabled"
-        >技能与工具（{{
+        >{{ scope.workspace === 'coding' || agent ? '技能与工具' : '技能' }}（{{
           state.selection.value.skillIds.length + state.selection.value.toolIds.length
         }}）</NButton
       ></template
@@ -105,6 +105,15 @@ onUnmounted(state.dispose)
           placeholder="选择本次技能"
       /></label>
       <template v-if="scope.workspace === 'coding' || agent">
+        <small
+          >已配置 {{ state.serverStates.value.length }} 个 MCP 服务；当前模式：{{
+            mode ?? 'develop'
+          }}。连接在任务启动时建立，有副作用调用仍需本轮批准。</small
+        >
+        <small v-for="server in state.serverStates.value" :key="server.id"
+          >{{ server.name }} · {{ server.enabled ? '启用' : '停用' }} ·
+          {{ server.tested ? '目录已校验' : '待连接测试' }} · 已选 {{ server.selected }} 项</small
+        >
         <label
           >工具<NSelect
             v-model:value="state.selection.value.toolIds"
@@ -121,7 +130,7 @@ onUnmounted(state.dispose)
                 disabled: mode !== 'develop',
               })),
             ]"
-            placeholder="选择已授权工具"
+            placeholder="选择本次可申请使用的工具"
         /></label>
         <label v-if="state.selection.value.toolIds.includes('builtin:image_generate')"
           >图片模型<NSelect

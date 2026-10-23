@@ -51,10 +51,13 @@ class WebSettings:
         async def phase(_: str) -> None:
             pass
 
-        await self.retrieval.retrieve("MLX", config, phase)
+        result = await self.retrieval.retrieve("MLX", config, phase)
         self.configs.mark_tested(config.id, config.revision)
         return {
             "ok": True,
             "elapsedMs": round((time.monotonic() - start) * 1000),
+            "partial": result["partial"],
+            "sourceCount": len(result["sources"]),
+            "readCount": result["readCount"],
             **self.public(config),
         }

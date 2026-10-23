@@ -12,7 +12,7 @@ from mlx_studio_runtime.application.ports import (
     SubmissionJournal,
     TextInference,
 )
-from mlx_studio_runtime.domain.errors import RuntimeErrorInfo, RuntimeFault
+from mlx_studio_runtime.domain.errors import ContextRebuildRequired, RuntimeErrorInfo, RuntimeFault
 from mlx_studio_runtime.domain.jobs import Job, JobEvent, JobState
 from mlx_studio_runtime.domain.models import ModelManifest
 
@@ -123,17 +123,28 @@ class ChatService:
     ) -> tuple[str, dict[str, Any]] | None:
         if snapshot.get("skillSnapshot") and self.preparation.extensions:
             await self.preparation.extensions.validate_text(snapshot["skillSnapshot"])
-        return await self._collect_reply(
-            job.id,
-            self.runtime.generate(
+        try:
+            return await self._collect_reply(
                 job.id,
-                snapshot["prompt"],
-                request["maxTokens"],
-                request["temperature"],
-                self.preparation.image_paths(snapshot),
-                snapshot["messages"],
-            ),
-        )
+                self.runtime.generate(
+                    job.id,
+                    snapshot["prompt"],
+                    request["maxTokens"],
+                    request["temperature"],
+                    self.preparation.image_paths(snapshot),
+                    snapshot["messages"],
+                ),
+            )
+        except RuntimeFault as error:
+            if (
+                error.info.code != "CONTEXT_BUDGET_EXCEEDED"
+                or bool(self.job_lifecycle.output_text(job.id))
+                or request.get("forceCompact")
+                or request["operation"] == "reuse_context"
+            ):
+                raise
+            request["forceCompact"] = True
+            raise ContextRebuildRequired from error
 
     async def _finalize(
         self,

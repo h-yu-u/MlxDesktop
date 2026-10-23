@@ -12,6 +12,7 @@ import type { ChangeService } from './changes.js'
 import type { CapabilityVerifier } from './capability-verifier.js'
 import { object, string, mode } from '../domain/types.js'
 import { Runs } from './runs.js'
+import { taskSummaries } from './task-summaries.js'
 export class CodingService {
   constructor(
     readonly repo: RepositoryPort,
@@ -22,10 +23,37 @@ export class CodingService {
     private extensions?: Extensions,
     private agent?: AgentChat,
     private closeAgentRepository?: () => void,
+    private backup?: () => Promise<{ directory: string }>,
+    private restoreProfile?: (id: string) => Promise<{ imported: boolean }>,
   ) {
     this.handlers = { ...this.handlers, ...sessions.handlers, ...changes.handlers }
   }
+  private exporting = false
   private handlers: Record<string, (p: Record<string, unknown>) => Promise<unknown>> = {
+    'data.restore.profile': async (p) => {
+      if (this.repo.active() || this.agent?.busy) throw new Error('BACKUP_BUSY')
+      if (!this.restoreProfile) throw new Error('RESTORE_NOT_AVAILABLE')
+      this.exporting = true
+      try {
+        return await this.restoreProfile(string(p.identifier))
+      } finally {
+        this.exporting = false
+      }
+    },
+    'data.export': async () => {
+      if (this.repo.active() || this.agent?.busy) throw new Error('BACKUP_BUSY')
+      if (!this.backup) throw new Error('BACKUP_NOT_AVAILABLE')
+      this.exporting = true
+      try {
+        return await this.backup()
+      } finally {
+        this.exporting = false
+      }
+    },
+    'tasks.list': async () => [
+      ...taskSummaries(this.repo, 'coding'),
+      ...(((await this.agent?.dispatch('agent.tasks.list', {})) as unknown[]) ?? []),
+    ],
     'settings.get': async (p) => {
       return this.repo.find('settings', 'coding') ?? defaultSettings
     },
@@ -119,6 +147,7 @@ export class CodingService {
           mode: mode(p.mode),
           provider,
           queue: p.queue === true,
+          verifyAfter: p.verifyAfter === true,
           selection: p.selection as Selection | undefined,
           connectionSecrets: p.connectionSecrets as Params['runs.submit']['connectionSecrets'],
         },
@@ -127,6 +156,7 @@ export class CodingService {
     }
   }
   async dispatch<M extends RpcMethod>(method: M, raw: RpcParamsMap[M]): Promise<RpcResultMap[M]> {
+    if (this.exporting) throw new Error('BACKUP_IN_PROGRESS')
     await this.extensions?.ready
     const key = rpcMethod(method)
     validateRpc(key, 'params', raw)

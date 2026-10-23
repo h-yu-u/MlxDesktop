@@ -35,7 +35,8 @@ class ImageRepository:
     def list_artifacts(self, limit: int = 24, offset: int = 0) -> list[dict[str, Any]]:
         rows = self.database.connection.execute(
             "SELECT id,job_id,relative_path,metadata_json,created_at FROM artifacts "
-            "WHERE kind='image' ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?",
+            "WHERE kind='image' AND recycled_at IS NULL "
+            "ORDER BY created_at DESC,rowid DESC LIMIT ? OFFSET ?",
             (limit, offset),
         ).fetchall()
         return [

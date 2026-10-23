@@ -9,6 +9,7 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
   history(offset: number, signal?: AbortSignal): Promise<T[]>
   artifact(id: string, signal?: AbortSignal): Promise<T>
   content(id: string, signal?: AbortSignal): Promise<Blob>
+  thumbnail?(id: string, signal?: AbortSignal): Promise<Blob>
   export(blob: Blob, id: string): Promise<FileExportResult>
 }) {
   const artifacts = shallowRef<T[]>([]),
@@ -29,9 +30,13 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
     nextOffset = 0,
     selectionRevision = 0
   const deleting = new Set<string>()
-  const media = new MediaCache(deps.content, () => {
-    urls.value = media.snapshot()
-  })
+  const changed = () => {
+    urls.value = { ...media.snapshot(), ...originals.snapshot() }
+  }
+  const media = new MediaCache(deps.thumbnail ?? deps.content, changed)
+  const originals = new MediaCache(deps.content, changed, 2)
+  const visible = new Map<string, () => void>()
+  let releaseSelected: (() => void) | undefined
   function message(cause: unknown): string {
     return cause instanceof Error ? cause.message : '读取作品失败'
   }
@@ -45,6 +50,8 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
     }
   }
   async function select(id: string, manual = true): Promise<void> {
+    releaseSelected?.()
+    releaseSelected = originals.retain(id)
     if (manual) selectionRevision++
     detailScope.reset()
     const owner = detailScope.owner
@@ -56,7 +63,9 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
       const item = await deps.artifact(id, detailScope.signal)
       if (!active || !detailScope.owns(owner)) return
       selectedArtifact.value = item
-      void loadMedia(id)
+      void originals.get(id).catch((cause: unknown) => {
+        if (active && detailScope.owns(owner)) mediaErrors.value[id] = message(cause)
+      })
     } catch (cause) {
       if (active && detailScope.owns(owner)) detailError.value = message(cause)
     } finally {
@@ -103,6 +112,7 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
     deleting.add(id)
     artifacts.value = artifacts.value.filter((item) => item.id !== id)
     media.evict(id)
+    originals.evict(id)
     if (selectedId.value === id) {
       detailScope.reset()
       selectedId.value = null
@@ -116,6 +126,10 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
     listScope.dispose()
     detailScope.dispose()
     exports.invalidate()
+    releaseSelected?.()
+    for (const release of visible.values()) release()
+    visible.clear()
+    originals.dispose()
     media.dispose()
     historyLoading.value = false
   }
@@ -142,6 +156,15 @@ export function createArtifactHistory<T extends { id: string }>(deps: {
     loadHistory,
     select,
     loadMedia,
+    visibility(id: string, shown: boolean) {
+      if (shown) {
+        if (!visible.has(id)) visible.set(id, media.retain(id))
+        void loadMedia(id)
+      } else {
+        visible.get(id)?.()
+        visible.delete(id)
+      }
+    },
     save,
     forget,
     dispose,

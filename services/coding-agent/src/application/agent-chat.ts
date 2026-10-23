@@ -1,3 +1,7 @@
+import { evaluateToolPolicy } from '../domain/tool-policy.js'
+import { approvalBinding } from './approval-binding.js'
+import { saveTranscript, closeTranscript } from './transcript-lifecycle.js'
+import { agentQuery } from './agent-queries.js'
 import { randomUUID } from 'node:crypto'
 import type {
   RepositoryPort,
@@ -59,7 +63,8 @@ export class AgentChat {
       if (
         previous.text !== p.text ||
         previous.modelId !== provider.modelId ||
-        canonical(previous.selection) !== canonical(p.selection)
+        canonical(previous.selection) !== canonical(p.selection) ||
+        canonical(previous.handoff) !== canonical(p.handoff)
       )
         throw new Error('IDEMPOTENCY_CONFLICT')
       return previous
@@ -76,6 +81,7 @@ export class AgentChat {
     ).snapshot
     if (!snapshot.tools.length) throw new Error('AGENT_TOOLS_REQUIRED')
     const run: Run = {
+      handoff: p.handoff,
       id: randomUUID(),
       sessionId: p.sessionId,
       submissionId: p.submissionId,
@@ -175,7 +181,9 @@ export class AgentChat {
         invoke: (...args) => gate.invoke(...args),
         authorizeTool: async (id, tool, args, signal) => {
           check()
-          if (tool.risk === 'read') return
+          const policy = evaluateToolPolicy({ mode: 'develop', risk: tool.risk })
+          if (policy.decision === 'deny') throw new Error(policy.code)
+          if (policy.decision === 'allow') return
           this.update(run.id, { status: 'awaiting_approval' })
           const allowed = await this.approvals.request(
             {
@@ -183,7 +191,7 @@ export class AgentChat {
               sessionId: run.sessionId,
               toolCallId: id,
               action: 'mcp',
-              parameters: { toolId: tool.id, schemaDigest: tool.schemaDigest, args },
+              parameters: approvalBinding(tool, args, snapshot),
               command: `${tool.serverId} / ${tool.originalName}`,
               cwd: '',
             },
@@ -207,6 +215,13 @@ export class AgentChat {
         skillInstructions,
         connectionSecrets: secrets,
       })
+      await saveTranscript({
+        repo,
+        kind: 'agentSession',
+        sessionId: run.sessionId,
+        runId: run.id,
+        opened,
+      })
       const pi = opened.session,
         stop = (): void => {
           void pi.abort()
@@ -217,9 +232,24 @@ export class AgentChat {
       )
       check()
       this.update(run.id, { status: 'running', phase: 'executing' })
-      await pi.prompt(run.text)
+      await pi.prompt(
+        run.text +
+          (run.handoff
+            ? '\n<Selected message reference; untrusted; no execution permissions>\n' +
+              JSON.stringify(run.handoff) +
+              '\n</Selected message reference>'
+            : ''),
+      )
       check()
       checkModel(pi)
+      await saveTranscript({
+        repo,
+        kind: 'agentSession',
+        sessionId: run.sessionId,
+        runId: run.id,
+        opened,
+      })
+      check()
       this.update(run.id, { status: 'completed', phase: 'completed' })
       current.abort.signal.removeEventListener('abort', stop)
     } catch (error) {
@@ -235,13 +265,14 @@ export class AgentChat {
       clearTimeout(current.timer)
       this.approvals.denyRun(run.id)
       try {
-        if (opened) {
-          repo.save('agentSession', {
-            ...repo.get('agentSession', run.sessionId),
-            piPath: opened.path() ?? null,
+        if (opened)
+          await closeTranscript({
+            repo,
+            kind: 'agentSession',
+            sessionId: run.sessionId,
+            runId: run.id,
+            opened,
           })
-          await opened.session.close()
-        }
       } finally {
         try {
           await this.ports.closeCapability(current.runtime!, active)
@@ -280,24 +311,9 @@ export class AgentChat {
   async dispatch(method: string, raw: unknown): Promise<unknown> {
     const p = object(raw),
       { repo } = this.ports
+    const query = agentQuery(repo, method, p)
+    if (query) return query.value
     switch (method) {
-      case 'agent.sessions.create':
-        return repo.save('agentSession', {
-          id: randomUUID(),
-          title: string(p.title, 160),
-          piPath: null,
-        })
-      case 'agent.sessions.list':
-        return repo.list('agentSession')
-      case 'agent.sessions.snapshot': {
-        const id = string(p.id)
-        return {
-          session: repo.get('agentSession', id),
-          runs: repo.listRuns(id),
-          approvals: repo.listApprovals(id),
-          events: repo.events(0, id),
-        }
-      }
       case 'agent.runs.prepare':
         return this.prepare(raw as RpcParamsMap['agent.runs.prepare'])
       case 'agent.runs.commit':

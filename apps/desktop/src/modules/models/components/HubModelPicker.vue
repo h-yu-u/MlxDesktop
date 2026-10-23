@@ -17,6 +17,7 @@ const props = defineProps<{
     catalogQuery: string
     downloadError: string | null
     lastDownloadedRepoId: string | null
+    downloadQueuedRepoId?: string | null
   }
 }>()
 const emit = defineEmits<{
@@ -144,6 +145,9 @@ function renderLabel(option: SelectOption): ReturnType<typeof h> {
     >
       {{ view.downloadError }}<span> 可点击“下载模型”重试。</span>
     </NAlert>
+    <NAlert v-else-if="view.downloadQueuedRepoId && !downloaded" type="info"
+      >{{ view.downloadQueuedRepoId }} 下载任务已接纳，可在全局任务中查看、暂停或继续。</NAlert
+    >
     <NAlert
       v-else-if="view.lastDownloadedRepoId"
       type="success"

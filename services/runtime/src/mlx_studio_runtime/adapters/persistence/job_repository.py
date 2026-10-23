@@ -1,5 +1,7 @@
 """Background job persistence."""
 
+from __future__ import annotations
+
 import json
 import time
 from typing import Any
@@ -40,6 +42,13 @@ class JobRepository:
                 )
                 if request.get("mask_id"):
                     refs.job(item["id"], "image_mask", [{"id": request["mask_id"]}])
+
+    def save_result(self, job_id: str, result: dict[str, Any]) -> None:
+        with self.database.transaction() as connection:
+            connection.execute(
+                "INSERT INTO inference_results(job_id,result_json) VALUES(?,?)",
+                (job_id, json.dumps(result, ensure_ascii=False)),
+            )
 
     def update(self, job_id: str, state: str, error_code: str | None = None) -> None:
         with self.database.transaction() as connection:
@@ -86,6 +95,40 @@ class JobRepository:
                 "createdAt": row[5],
                 "updatedAt": row[6],
             }
+            for row in rows
+        ]
+
+    def task_summaries(self) -> list[dict[str, Any]]:
+        rows = self.database.connection.execute(
+            "WITH summaries AS (SELECT j.*,j.rowid AS sort_order,"
+            "CASE WHEN json_valid(request_json) THEN "
+            "CASE WHEN json_type(request_json,'$.conversationId')='text' "
+            "THEN json_extract(request_json,'$.conversationId') END END AS session_id FROM jobs j) "
+            "SELECT j.id,j.kind,j.state,j.error_code,COALESCE(NULLIF(j.phase,''),j.state),"
+            "j.session_id,c.title,(SELECT run_id FROM capability_dispatches p "
+            "WHERE p.job_id=j.id LIMIT 1),j.created_at*1000 "
+            "FROM summaries j LEFT JOIN conversations c ON c.id=j.session_id "
+            "ORDER BY j.state IN ('queued','preparing','running','cancelling') DESC,"
+            "j.created_at DESC,j.sort_order DESC LIMIT 200"
+        ).fetchall()
+        return [
+            dict(
+                zip(
+                    (
+                        "id",
+                        "kind",
+                        "state",
+                        "errorCode",
+                        "phase",
+                        "sessionId",
+                        "title",
+                        "parentId",
+                        "createdAt",
+                    ),
+                    row,
+                    strict=True,
+                )
+            )
             for row in rows
         ]
 

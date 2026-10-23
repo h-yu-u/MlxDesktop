@@ -24,6 +24,7 @@ export function createModelsController(deps: ModelsDependencies) {
   const pullingRepoId = ref<string | null>(null)
   const downloadError = ref<string | null>(null)
   const lastDownloadedRepoId = ref<string | null>(null)
+  const downloadQueuedRepoId = ref<string | null>(null)
   let catalogRequest = 0
 
   async function searchCatalog(query = ''): Promise<void> {
@@ -70,8 +71,13 @@ export function createModelsController(deps: ModelsDependencies) {
     downloadError.value = null
     lastDownloadedRepoId.value = null
     try {
-      await deps.gateway.pull(repoId)
-      lastDownloadedRepoId.value = repoId
+      if (deps.gateway.startDownload) {
+        await deps.gateway.startDownload(repoId)
+        downloadQueuedRepoId.value = repoId
+      } else {
+        await deps.gateway.pull(repoId)
+        lastDownloadedRepoId.value = repoId
+      }
       await refresh()
       return true
     } catch (cause) {
@@ -121,6 +127,7 @@ export function createModelsController(deps: ModelsDependencies) {
     selectedHubModel,
     pullingRepoId,
     downloadError,
+    downloadQueuedRepoId,
     lastDownloadedRepoId,
   }
 }
